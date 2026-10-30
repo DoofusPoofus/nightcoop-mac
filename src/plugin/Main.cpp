@@ -192,7 +192,7 @@ bool OnRunningExit(RED4ext::CGameApplication*)
 {
     if (Bodies)
     {
-        Bodies->ForgetAll("forgotten, the game is closing");
+        Bodies->ForgetAll("forgotten, the game is closing", true);
     }
     if (Session)
     {

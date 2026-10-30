@@ -19,7 +19,9 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | net code running inside the game (host / join from session.txt or the launcher) | works against a local hub |
 | our own position + yaw sent as PlayerState | works |
 | partner body in the world (npc body, spawn / teleport / cull / despawn like nightcoops puppets) | works at the main menu with a probe, not tried in the city yet |
-| partner body animation, look, clothes, weapons (nightcoops anim mirror, body builder, wardrobe) | not yet |
+| partner body walks / runs / sprints with the games move policies, crouch / aim / reload stance (nightcoops npc body mode) | runs at the main menu (the menu world never moves npcs so it falls back to teleport there), not tried in the city yet |
+| our crouch and sprint sent in PlayerState flags | works |
+| full player body with nightcoops anim mirror, look, clothes, weapons | not yet |
 | everything else (npcs quests vehicles dialog votes loot ...) | not yet |
 
 NightCoop is in beta and its protocol changes with its releases, so this has to keep up with it. it targets NightCoop 0.1.2 (protocol 143) rn.
@@ -55,7 +57,7 @@ body_template base\characters\entities\...\some.ent
 bodies off
 ```
 
-theres no animation or look yet: the body slides to where the partner is.
+the body walks to where the partner is with the games own npc locomotion (walk / run / sprint picked from their speed like nightcoop does), faces where they look, and crouches / aims / reloads when they do. if it gets more than 8 m behind, or its move policy does nothing for 3 s, it gets teleported instead. theres no look or clothes yet.
 
 ## install into the game
 

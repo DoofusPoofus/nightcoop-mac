@@ -8,6 +8,16 @@
 
 namespace nightcoop_mac
 {
+namespace
+{
+constexpr float SprintAboveMetersPerSecond = 6.5f;
+constexpr uint16_t CrouchFlag = 1;
+constexpr uint16_t SprintFlag = 2;
+constexpr uint8_t PsmLocomotionDefault = 0;
+constexpr uint8_t PsmLocomotionCrouch = 1;
+constexpr uint8_t PsmLocomotionSprint = 2;
+}
+
 bool PlayerSampler::ResolveFunctions(void* playerInstance)
 {
     auto* player = static_cast<RED4ext::IScriptable*>(playerInstance);
@@ -88,6 +98,22 @@ bool PlayerSampler::Sample(net::PlayerState& state, uint64_t nowMs)
     state.PositionZ = position.Z;
     state.Yaw = yaw;
     state.Speed = speed;
+
+    if (!m_inCrouchChecked)
+    {
+        m_inCrouchChecked = true;
+        auto* playerClass = player.instance->GetType();
+        m_inCrouch = playerClass ? playerClass->GetProperty("inCrouch") : nullptr;
+        if (m_inCrouch && (!m_inCrouch->type || std::string(m_inCrouch->type->GetName().ToString()) != "Bool"))
+        {
+            m_inCrouch = nullptr;
+        }
+        m_log(m_inCrouch ? "player sampler: crouch comes from PlayerPuppet.inCrouch" : "player sampler: no inCrouch, partners will always see us standing");
+    }
+    const bool crouching = m_inCrouch && m_inCrouch->GetValue<bool>(player.instance);
+    const bool sprinting = !crouching && speed > SprintAboveMetersPerSecond;
+    state.Flags = static_cast<uint16_t>((crouching ? CrouchFlag : 0) | (sprinting ? SprintFlag : 0));
+    state.LocomotionState = crouching ? PsmLocomotionCrouch : (sprinting ? PsmLocomotionSprint : PsmLocomotionDefault);
     return true;
 }
 }

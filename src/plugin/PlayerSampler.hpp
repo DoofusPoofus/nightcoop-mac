@@ -3,6 +3,8 @@
  GetPlayer -> GetWorldPosition / GetWorldYaw, speed comes from how far it moved since the last sample
  GetPlayer gets called as the static function it is with no context. the sdk helper that looks up
  cpPlayerSystem wraps the raw system pointer in a new Handle and on mac that ends up destroying the system
+ crouch comes from PlayerPuppet.inCrouch and sprint from speed (over 6.5 m/s), they go out in Flags and the
+ locomotion state byte the same way nightcoops player bridge fills them from the state machine
  if a function cant be found it says so once and stays off
 */
 #pragma once
@@ -16,6 +18,7 @@
 namespace RED4ext
 {
 struct CBaseFunction;
+struct CProperty;
 }
 
 namespace nightcoop_mac
@@ -41,6 +44,8 @@ private:
     RED4ext::CBaseFunction* m_getPlayer = nullptr;
     RED4ext::CBaseFunction* m_getWorldPosition = nullptr;
     RED4ext::CBaseFunction* m_getWorldYaw = nullptr;
+    RED4ext::CProperty* m_inCrouch = nullptr;
+    bool m_inCrouchChecked = false;
     bool m_hasLastSample = false;
     float m_lastX = 0;
     float m_lastY = 0;

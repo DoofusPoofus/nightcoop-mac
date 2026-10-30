@@ -6,6 +6,9 @@
  PlayerState (6): 106 bytes in a fixed order, sent unreliable. guests send theirs to the host and the host
    forwards to evry other peer. fields with offset names are ones we havent pinned down yet but the bytes
    still go thru untouched so nothing breaks for windows peers
+   Flags comes from the players state machine: bit0 crouch (locomotion Crouch / CrouchSprint / CrouchDodge),
+   bit1 sprint, bit2 or bit6 aiming, bit7 reloading. the three state bytes after it are the raw gamePSM
+   locomotion / upper body / weapon states
 */
 #pragma once
 
@@ -42,10 +45,10 @@ struct PlayerState
     float CameraPitch = 0;
     float Speed = 0;
     uint64_t SessionTimeMs = 0;
-    uint16_t Unknown28 = 0;
-    uint8_t Unknown2A = 0;
-    uint8_t Unknown2B = 0;
-    uint8_t Unknown2C = 0;
+    uint16_t Flags = 0;
+    uint8_t LocomotionState = 0;
+    uint8_t UpperBodyState = 0;
+    uint8_t WeaponState = 0;
     uint32_t Unknown30 = 0;
     uint64_t Unknown38 = 0;
     float Unknown40 = 1.0f;

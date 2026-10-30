@@ -2,7 +2,7 @@
  nightcoop probe
  a headless nightcoop client on the same RelaySession the plugin uses
  host mode opens a session prints the code and prints evry PlayerState it gets
- join mode joins by code and walks a few PlayerStates along x (from X Y Z if given)
+ join mode joins by code and walks a few PlayerStates along x (from X Y Z if given), crouching on and off
  watch mode joins by code and prints evry PlayerState it gets for a while
  usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z] | watch CODE HUB [seconds]
  HUB looks like 127.0.0.1:47900#FINGERPRINT
@@ -24,7 +24,7 @@ namespace
 {
 using namespace std::chrono_literals;
 
-constexpr int WalkSteps = 60;
+constexpr int WalkSteps = 150;
 float WalkStartX = -1300.0f;
 float WalkStartY = 1200.0f;
 float WalkStartZ = 18.0f;
@@ -112,6 +112,7 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
         state.PositionZ = WalkStartZ;
         state.Yaw = 90.0f;
         state.Speed = 5.0f;
+        state.Flags = (step / 40) % 2 ? 1 : 0;
         session.SetLocalPlayerState(state);
         std::this_thread::sleep_for(80ms);
     }

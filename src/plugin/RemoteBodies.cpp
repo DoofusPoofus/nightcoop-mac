@@ -8,6 +8,7 @@
 #include <RED4ext/Scripting/Natives/entEntityID.hpp>
 
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 
 namespace nightcoop_mac
@@ -18,6 +19,12 @@ constexpr float SpawnWithinMeters = 150.0f;
 constexpr float RemoveBeyondMeters = 200.0f;
 constexpr float MoveAtLeastSquaredMeters = 0.0004f;
 constexpr float TurnAtLeastDegrees = 0.5f;
+constexpr float SnapBeyondMeters = 8.0f;
+constexpr uint32_t NpcStanceCrouch = 2;
+constexpr uint32_t NpcStanceStand = 3;
+constexpr uint32_t NpcUpperBodyAim = 0;
+constexpr uint32_t NpcUpperBodyNormal = 6;
+constexpr uint32_t NpcUpperBodyReload = 8;
 constexpr uint64_t GiveUpSpawningAfterMs = 30000;
 constexpr uint64_t RetryFailedSpawnAfterMs = 10000;
 
@@ -69,7 +76,7 @@ bool WriteProperty(RED4ext::CClass* classType, void* instance, const char* name,
                               expectedType;
         return false;
     }
-    std::memcpy(reinterpret_cast<uint8_t*>(instance) + property->valueOffset, &value, sizeof(Value));
+    std::memcpy(static_cast<void*>(property->GetValuePtr<Value>(instance)), &value, sizeof(Value));
     return true;
 }
 }
@@ -117,8 +124,8 @@ bool RemoteBodies::ResolveApi()
         m_givenUp = true;
         return false;
     }
-    m_log("bodies: partner bodies on, " + (m_settings.Template.empty() ? "record " + m_settings.Record : "template " + m_settings.Template) +
-          ", moved by the games teleport like nightcoop");
+    m_log("bodies: partner bodies on, " + (m_settings.Template.empty() ? "record " + m_settings.Record : "template " + m_settings.Template));
+    ResolveLocomotion();
     return true;
 }
 
@@ -198,8 +205,145 @@ bool RemoteBodies::Spawn(uint32_t peerNumber, const net::PlayerState& state, uin
     return true;
 }
 
+void RemoteBodies::DropPolicy(Puppet& puppet)
+{
+    if (puppet.MovePolicies && puppet.MovePoliciesComponent)
+    {
+        RED4ext::StackArgs_t popArgs;
+        popArgs.emplace_back(nullptr, &puppet.MovePolicies);
+        game::CallMethod(puppet.MovePoliciesComponent.instance, m_popPolicies, nullptr, popArgs);
+    }
+    puppet.MovePolicies.Reset();
+    puppet.MovePoliciesComponent.Reset();
+}
+
+bool RemoteBodies::PolicyIsStuck(uint32_t peerNumber, Puppet& puppet, float drift, uint64_t nowMs)
+{
+    uint32_t action = 0;
+    RED4ext::StackArgs_t noArgs;
+    game::CallMethod(puppet.MovePoliciesComponent.instance, m_getCurrentLocomotionAction, &action, noArgs);
+    if (action != 0 || drift <= 1.0f)
+    {
+        puppet.PolicyIdleSinceMs = 0;
+        return false;
+    }
+    if (puppet.PolicyIdleSinceMs == 0)
+    {
+        puppet.PolicyIdleSinceMs = nowMs;
+        return false;
+    }
+    if (nowMs - puppet.PolicyIdleSinceMs < 3000)
+    {
+        return false;
+    }
+    DropPolicy(puppet);
+    m_log("bodies: peer " + std::to_string(peerNumber) + " move policy does nothing here (" + std::to_string(drift).substr(0, 4) +
+          " m off for 3 s), falling back to teleport");
+    return true;
+}
+
+void RemoteBodies::ResolveStance()
+{
+    m_getSignalTable = game::FindFunction("ScriptedPuppet", "GetSignalTable");
+    m_getOrCreateSignal = game::FindFunction("gameBoolSignalTable", "GetOrCreateSignal");
+    m_setWithData = game::FindFunction("gameBoolSignalTable", "SetWithData");
+    m_stateSignalClass = RED4ext::CRTTISystem::Get()->GetClass("NPCStateChangeSignal");
+    auto propertyIs = [this](const char* name, const char* typeName) {
+        auto* property = m_stateSignalClass ? m_stateSignalClass->GetProperty(name) : nullptr;
+        return property && property->type && std::string(property->type->GetName().ToString()) == typeName;
+    };
+    m_stanceAvailable = m_scriptedPuppetClass && game::ParamsAre(m_getSignalTable, {}) &&
+                        game::ReturnIs(m_getSignalTable, "handle:gameBoolSignalTable") && game::ParamsAre(m_getOrCreateSignal, {"CName"}) &&
+                        game::ReturnIs(m_getOrCreateSignal, "Uint16") &&
+                        game::ParamsAre(m_setWithData, {"Uint16", "handle:gameSignalUserData"}) && propertyIs("stanceState", "gamedataNPCStanceState") &&
+                        propertyIs("stanceStateValid", "Bool") && propertyIs("upperBodyState", "gamedataNPCUpperBodyState") &&
+                        propertyIs("upperBodyStateValid", "Bool");
+    m_log(m_stanceAvailable ? "bodies: partner crouch / aim / reload go to the body as NPCStateChangeSignal like nightcoop"
+                            : "bodies: NPCStateChangeSignal looks different than nightcoops, bodies keep standing");
+}
+
+void RemoteBodies::ApplyStance(uint32_t peerNumber, Puppet& puppet, RED4ext::Handle<RED4ext::IScriptable>& body, const net::PlayerState& state,
+                               uint64_t nowMs)
+{
+    if (!m_stanceAvailable)
+    {
+        return;
+    }
+    const uint32_t stance = (state.Flags & 0x1) ? NpcStanceCrouch : NpcStanceStand;
+    uint32_t upperBody = NpcUpperBodyNormal;
+    if (state.Flags & 0x80)
+    {
+        upperBody = NpcUpperBodyReload;
+    }
+    else if (state.Flags & (0x4 | 0x40))
+    {
+        upperBody = NpcUpperBodyAim;
+    }
+    const bool upperBodyDue = upperBody != puppet.AppliedUpperBody && (upperBody == NpcUpperBodyAim || nowMs - puppet.UpperBodyChangedMs >= 1500);
+    if (stance == puppet.AppliedStance && !upperBodyDue)
+    {
+        return;
+    }
+    auto* bodyClass = body.instance->GetType();
+    if (!bodyClass || !bodyClass->IsA(m_scriptedPuppetClass))
+    {
+        return;
+    }
+
+    RED4ext::Handle<RED4ext::IScriptable> signalTable;
+    RED4ext::StackArgs_t noArgs;
+    if (!game::CallMethod(body.instance, m_getSignalTable, &signalTable, noArgs) || !signalTable)
+    {
+        return;
+    }
+    RED4ext::CName signalName("NPCStateChangeSignal");
+    uint16_t signalId = 0;
+    RED4ext::StackArgs_t signalArgs;
+    signalArgs.emplace_back(nullptr, &signalName);
+    if (!game::CallMethod(signalTable.instance, m_getOrCreateSignal, &signalId, signalArgs))
+    {
+        return;
+    }
+    auto* signalData = static_cast<RED4ext::IScriptable*>(m_stateSignalClass->CreateInstance(true));
+    if (!signalData)
+    {
+        return;
+    }
+    RED4ext::Handle<RED4ext::IScriptable> signalDataHandle(signalData);
+    const uint32_t appliedUpperBody = upperBodyDue ? upperBody : puppet.AppliedUpperBody;
+    const bool written = WriteProperty(m_stateSignalClass, signalData, "stanceState", "gamedataNPCStanceState", stance) &&
+                         WriteProperty(m_stateSignalClass, signalData, "stanceStateValid", "Bool", true) &&
+                         WriteProperty(m_stateSignalClass, signalData, "upperBodyState", "gamedataNPCUpperBodyState",
+                                       appliedUpperBody == 0xFFFFFFFF ? NpcUpperBodyNormal : appliedUpperBody) &&
+                         WriteProperty(m_stateSignalClass, signalData, "upperBodyStateValid", "Bool", true);
+    if (!written)
+    {
+        m_log("bodies: NPCStateChangeSignal has other fields than expected (" + LastPropertyProblem + "), bodies keep standing");
+        m_stanceAvailable = false;
+        return;
+    }
+    bool accepted = false;
+    RED4ext::StackArgs_t setArgs;
+    setArgs.emplace_back(nullptr, &signalId);
+    setArgs.emplace_back(nullptr, &signalDataHandle);
+    game::CallMethod(signalTable.instance, m_setWithData, &accepted, setArgs);
+
+    if (stance != puppet.AppliedStance)
+    {
+        m_log("bodies: peer " + std::to_string(peerNumber) + (stance == NpcStanceCrouch ? " crouches" : " stands"));
+    }
+    puppet.AppliedStance = stance;
+    if (upperBodyDue)
+    {
+        puppet.AppliedUpperBody = upperBody;
+        puppet.UpperBodyChangedMs = nowMs;
+    }
+}
+
 void RemoteBodies::Despawn(uint32_t peerNumber, Puppet& puppet, const char* why)
 {
+    DropPolicy(puppet);
+
     RED4ext::ent::EntityID entityId(puppet.EntityHash);
     bool deleted = false;
     RED4ext::StackArgs_t args;
@@ -208,20 +352,168 @@ void RemoteBodies::Despawn(uint32_t peerNumber, Puppet& puppet, const char* why)
     m_log("bodies: peer " + std::to_string(peerNumber) + " " + why + (deleted ? "" : " (the game had it gone already)"));
 }
 
-void RemoteBodies::MoveTo(uint32_t peerNumber, Puppet& puppet, const net::PlayerState& state)
+void RemoteBodies::ResolveLocomotion()
 {
-    if (puppet.Placed)
-    {
-        const float deltaX = state.PositionX - puppet.PlacedX;
-        const float deltaY = state.PositionY - puppet.PlacedY;
-        const float deltaZ = state.PositionZ - puppet.PlacedZ;
-        if (deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ < MoveAtLeastSquaredMeters &&
-            YawDifference(state.Yaw, puppet.PlacedYaw) < TurnAtLeastDegrees)
-        {
-            return;
-        }
-    }
+    m_getWorldPosition = game::FindFunction("entEntity", "GetWorldPosition");
+    m_getMovePoliciesComponent = game::FindFunction("ScriptedPuppet", "GetMovePolicesComponent");
+    m_scriptedPuppetClass = RED4ext::CRTTISystem::Get()->GetClass("ScriptedPuppet");
+    m_movePoliciesClass = RED4ext::CRTTISystem::Get()->GetClass("movePolicies");
+    m_setDestinationPosition = game::FindFunction("movePolicies", "SetDestinationPosition");
+    m_setStrafingPosition = game::FindFunction("movePolicies", "SetStrafingPosition");
+    m_setIgnoreNavigation = game::FindFunction("movePolicies", "SetIgnoreNavigation");
+    m_setUseStartStop = game::FindFunction("movePolicies", "SetUseStartStop");
+    m_setCollisionAvoidancePolicy = game::FindFunction("movePolicies", "SetCollisionAvoidancePolicy");
+    m_setMovementType = game::FindFunction("movePolicies", "SetMovementType");
+    m_addPolicies = game::FindFunction("movePoliciesComponent", "AddPolicies");
+    m_popPolicies = game::FindFunction("movePoliciesComponent", "PopPolicies");
+    m_changeMovementType = game::FindFunction("movePoliciesComponent", "ChangeMovementType");
+    m_getCurrentLocomotionAction = game::FindFunction("movePoliciesComponent", "GetCurrentLocomotionAction");
+    m_getDistanceToDestination = game::FindFunction("movePoliciesComponent", "GetDistanceToDestination");
+    m_isPathfindingFailed = game::FindFunction("movePoliciesComponent", "IsPathfindingFailed");
+    m_isPausedByDynamicCollision = game::FindFunction("movePoliciesComponent", "IsPausedByDynamicCollision");
 
+    m_locomotionAvailable =
+        m_scriptedPuppetClass && m_movePoliciesClass && game::ParamsAre(m_getWorldPosition, {}) && game::ReturnIs(m_getWorldPosition, "Vector4") &&
+        game::ParamsAre(m_getMovePoliciesComponent, {}) && game::ReturnIs(m_getMovePoliciesComponent, "handle:movePoliciesComponent") &&
+        game::ParamsAre(m_setDestinationPosition, {"Vector4"}) && game::ParamsAre(m_setStrafingPosition, {"Vector4"}) &&
+        game::ParamsAre(m_setIgnoreNavigation, {"Bool"}) && game::ParamsAre(m_setUseStartStop, {"Bool", "Bool"}) &&
+        game::ParamsAre(m_setCollisionAvoidancePolicy, {"Bool", "Bool"}) && game::ParamsAre(m_setMovementType, {"moveMovementType"}) &&
+        game::ParamsAre(m_addPolicies, {"handle:movePolicies"}) && game::ParamsAre(m_popPolicies, {"handle:movePolicies"}) &&
+        game::ParamsAre(m_changeMovementType, {"moveMovementType"}) && game::ReturnIs(m_changeMovementType, "Bool") &&
+        game::ParamsAre(m_getCurrentLocomotionAction, {}) && game::ParamsAre(m_getDistanceToDestination, {}) &&
+        game::ParamsAre(m_isPathfindingFailed, {}) && game::ParamsAre(m_isPausedByDynamicCollision, {});
+    m_log(m_locomotionAvailable ? "bodies: npc bodies walk with the games move policies like nightcoop"
+                                : "bodies: the move policies look different than nightcoops, bodies only get teleported");
+    ResolveStance();
+}
+
+uint32_t RemoteBodies::PickMovementType(Puppet& puppet, const net::PlayerState& state, uint64_t nowMs)
+{
+    puppet.SmoothedSpeed = puppet.SmoothedSpeed * 0.8f + state.Speed * 0.2f;
+    const float speed = puppet.SmoothedSpeed;
+    const uint32_t current = puppet.MovementType;
+    uint32_t wanted = current;
+    if (speed >= 5.8f)
+    {
+        wanted = 2;
+    }
+    else if (current == 2)
+    {
+        wanted = speed >= 4.8f ? 2 : 1;
+    }
+    else if (current == 0)
+    {
+        wanted = speed < 2.8f ? 0 : 1;
+    }
+    else if (current == 1)
+    {
+        wanted = speed >= 2.0f ? 1 : 0;
+    }
+    if (wanted == current || nowMs - puppet.MovementTypeChangedMs < 500)
+    {
+        return current;
+    }
+    puppet.MovementType = wanted;
+    puppet.MovementTypeChangedMs = nowMs;
+    return wanted;
+}
+
+bool RemoteBodies::EnsurePolicy(uint32_t peerNumber, Puppet& puppet, RED4ext::Handle<RED4ext::IScriptable>& body, const net::PlayerState& state)
+{
+    if (puppet.MovePolicies)
+    {
+        return true;
+    }
+    if (puppet.PolicyTried || !m_locomotionAvailable)
+    {
+        return false;
+    }
+    puppet.PolicyTried = true;
+    auto* bodyClass = body.instance->GetType();
+    if (!bodyClass || !bodyClass->IsA(m_scriptedPuppetClass))
+    {
+        m_log("bodies: peer " + std::to_string(peerNumber) + " body is no ScriptedPuppet, move policy unavailable, falling back to teleport");
+        return false;
+    }
+    RED4ext::StackArgs_t noArgs;
+    if (!game::CallMethod(body.instance, m_getMovePoliciesComponent, &puppet.MovePoliciesComponent, noArgs) || !puppet.MovePoliciesComponent)
+    {
+        m_log("bodies: peer " + std::to_string(peerNumber) + " body has no movePoliciesComponent, falling back to teleport");
+        return false;
+    }
+    auto* policies = static_cast<RED4ext::IScriptable*>(m_movePoliciesClass->CreateInstance(true));
+    if (!policies)
+    {
+        return false;
+    }
+    RED4ext::Handle<RED4ext::IScriptable> policiesHandle(policies);
+
+    bool ignoreNavigation = true;
+    bool useStart = true;
+    bool useStop = true;
+    bool collisionAvoidance = false;
+    bool destinationReservation = false;
+    uint32_t movementType = puppet.MovementType;
+    RED4ext::Vector4 destination {state.PositionX, state.PositionY, state.PositionZ, 1.0f};
+
+    RED4ext::StackArgs_t ignoreArgs;
+    ignoreArgs.emplace_back(nullptr, &ignoreNavigation);
+    RED4ext::StackArgs_t startStopArgs;
+    startStopArgs.emplace_back(nullptr, &useStart);
+    startStopArgs.emplace_back(nullptr, &useStop);
+    RED4ext::StackArgs_t avoidanceArgs;
+    avoidanceArgs.emplace_back(nullptr, &collisionAvoidance);
+    avoidanceArgs.emplace_back(nullptr, &destinationReservation);
+    RED4ext::StackArgs_t typeArgs;
+    typeArgs.emplace_back(nullptr, &movementType);
+    RED4ext::StackArgs_t destinationArgs;
+    destinationArgs.emplace_back(nullptr, &destination);
+    const bool configured = game::CallMethod(policies, m_setIgnoreNavigation, nullptr, ignoreArgs) &&
+                            game::CallMethod(policies, m_setUseStartStop, nullptr, startStopArgs) &&
+                            game::CallMethod(policies, m_setCollisionAvoidancePolicy, nullptr, avoidanceArgs) &&
+                            game::CallMethod(policies, m_setMovementType, nullptr, typeArgs) &&
+                            game::CallMethod(policies, m_setDestinationPosition, nullptr, destinationArgs);
+    RED4ext::StackArgs_t addArgs;
+    addArgs.emplace_back(nullptr, &policiesHandle);
+    if (!configured || !game::CallMethod(puppet.MovePoliciesComponent.instance, m_addPolicies, nullptr, addArgs))
+    {
+        m_log("bodies: peer " + std::to_string(peerNumber) + " move policy could not be set up, falling back to teleport");
+        puppet.MovePoliciesComponent.Reset();
+        return false;
+    }
+    puppet.MovePolicies = policiesHandle;
+    puppet.AppliedMovementType = movementType;
+    m_log("bodies: peer " + std::to_string(peerNumber) + " move policy added");
+    return true;
+}
+
+void RemoteBodies::ReportPolicy(uint32_t peerNumber, Puppet& puppet, float drift, uint64_t nowMs)
+{
+    if (nowMs < puppet.NextReportMs || !puppet.MovePoliciesComponent)
+    {
+        return;
+    }
+    puppet.NextReportMs = nowMs + 5000;
+    static const char* LocomotionActionNames[] = {"Undefined", "Exploration", "Idle", "IdleTurn", "Reposition", "Start", "Move", "Stop"};
+    uint32_t action = 0;
+    float toDestination = 0;
+    bool pathFailed = false;
+    bool paused = false;
+    RED4ext::StackArgs_t noArgs;
+    void* component = puppet.MovePoliciesComponent.instance;
+    game::CallMethod(component, m_getCurrentLocomotionAction, &action, noArgs);
+    game::CallMethod(component, m_getDistanceToDestination, &toDestination, noArgs);
+    game::CallMethod(component, m_isPathfindingFailed, &pathFailed, noArgs);
+    game::CallMethod(component, m_isPausedByDynamicCollision, &paused, noArgs);
+    char line[200];
+    std::snprintf(line, sizeof(line), "bodies: peer %u policy: drift %.2f m, action %s, toDest %.2f, pathFailed %d, paused %d, speed %.2f, type %u, teleports %u",
+                  peerNumber, drift, action < 8 ? LocomotionActionNames[action] : "?", toDestination, pathFailed, paused, puppet.SmoothedSpeed,
+                  puppet.AppliedMovementType, puppet.Teleports);
+    m_log(line);
+}
+
+void RemoteBodies::Advance(uint32_t peerNumber, Puppet& puppet, const net::PlayerState& state, uint64_t nowMs)
+{
     RED4ext::ent::EntityID entityId(puppet.EntityHash);
     RED4ext::Handle<RED4ext::IScriptable> body;
     RED4ext::StackArgs_t getArgs;
@@ -235,11 +527,85 @@ void RemoteBodies::MoveTo(uint32_t peerNumber, Puppet& puppet, const net::Player
         auto* bodyClass = body.instance->GetType();
         if (!bodyClass || !bodyClass->IsA(m_gameObjectClass))
         {
-            m_log("bodies: peer " + std::to_string(peerNumber) + " body is not a gameObject, cant teleport it");
+            m_log("bodies: peer " + std::to_string(peerNumber) + " body is not a gameObject, cant move it");
             return;
         }
         puppet.InWorld = true;
         m_log("bodies: peer " + std::to_string(peerNumber) + " body is in the world");
+    }
+
+    ApplyStance(peerNumber, puppet, body, state, nowMs);
+    const uint32_t movementType = PickMovementType(puppet, state, nowMs);
+    RED4ext::Vector4 bodyPosition {};
+    RED4ext::StackArgs_t noArgs;
+    if (!m_locomotionAvailable || !game::CallMethod(body.instance, m_getWorldPosition, &bodyPosition, noArgs))
+    {
+        MoveTo(puppet, body, state);
+        return;
+    }
+    if (std::fabs(bodyPosition.X + 16384.0f) < 1.0f && std::fabs(bodyPosition.Y + 16384.0f) < 1.0f && std::fabs(bodyPosition.Z + 16384.0f) < 1.0f)
+    {
+        if (!puppet.OutOfWorldLogged)
+        {
+            puppet.OutOfWorldLogged = true;
+            m_log("bodies: peer " + std::to_string(peerNumber) + " is out of the world");
+        }
+        return;
+    }
+    puppet.OutOfWorldLogged = false;
+
+    const float driftX = state.PositionX - bodyPosition.X;
+    const float driftY = state.PositionY - bodyPosition.Y;
+    const float driftZ = state.PositionZ - bodyPosition.Z;
+    const float drift = std::sqrt(driftX * driftX + driftY * driftY + driftZ * driftZ);
+    if (drift > SnapBeyondMeters || !EnsurePolicy(peerNumber, puppet, body, state) || PolicyIsStuck(peerNumber, puppet, drift, nowMs))
+    {
+        MoveTo(puppet, body, state);
+        ReportPolicy(peerNumber, puppet, drift, nowMs);
+        return;
+    }
+
+    RED4ext::Vector4 destination {state.PositionX, state.PositionY, state.PositionZ, 1.0f};
+    RED4ext::StackArgs_t destinationArgs;
+    destinationArgs.emplace_back(nullptr, &destination);
+    game::CallMethod(puppet.MovePolicies.instance, m_setDestinationPosition, nullptr, destinationArgs);
+
+    const float yawRadians = state.Yaw * 0.017453292f;
+    const float pitchRadians = state.CameraPitch * 0.017453292f;
+    RED4ext::Vector4 lookPoint {state.PositionX - std::sin(yawRadians) * std::cos(pitchRadians) * 12.0f,
+                                state.PositionY + std::cos(yawRadians) * std::cos(pitchRadians) * 12.0f,
+                                state.PositionZ + std::sin(pitchRadians) * 12.0f + 1.5f, 1.0f};
+    RED4ext::StackArgs_t strafingArgs;
+    strafingArgs.emplace_back(nullptr, &lookPoint);
+    game::CallMethod(puppet.MovePolicies.instance, m_setStrafingPosition, nullptr, strafingArgs);
+
+    if (movementType != puppet.AppliedMovementType)
+    {
+        uint32_t wantedType = movementType;
+        bool accepted = false;
+        RED4ext::StackArgs_t typeArgs;
+        typeArgs.emplace_back(nullptr, &wantedType);
+        game::CallMethod(puppet.MovePoliciesComponent.instance, m_changeMovementType, &accepted, typeArgs);
+        puppet.AppliedMovementType = movementType;
+        static const char* MovementTypeNames[] = {"walk", "run", "sprint"};
+        m_log("bodies: peer " + std::to_string(peerNumber) + " moves at " + MovementTypeNames[movementType] + " now (" +
+              (accepted ? "ok" : "refused") + ")");
+    }
+    ReportPolicy(peerNumber, puppet, drift, nowMs);
+}
+
+void RemoteBodies::MoveTo(Puppet& puppet, RED4ext::Handle<RED4ext::IScriptable>& body, const net::PlayerState& state)
+{
+    if (puppet.Placed)
+    {
+        const float deltaX = state.PositionX - puppet.PlacedX;
+        const float deltaY = state.PositionY - puppet.PlacedY;
+        const float deltaZ = state.PositionZ - puppet.PlacedZ;
+        if (deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ < MoveAtLeastSquaredMeters &&
+            YawDifference(state.Yaw, puppet.PlacedYaw) < TurnAtLeastDegrees)
+        {
+            return;
+        }
     }
 
     RED4ext::Vector4 position {state.PositionX, state.PositionY, state.PositionZ, 1.0f};
@@ -317,7 +683,7 @@ void RemoteBodies::Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers
             puppetEntry = m_puppets.erase(puppetEntry);
             continue;
         }
-        MoveTo(peerNumber, puppet, *peer->second);
+        Advance(peerNumber, puppet, *peer->second, nowMs);
         ++puppetEntry;
     }
 
@@ -353,11 +719,17 @@ void RemoteBodies::RemoveAll()
     m_puppets.clear();
 }
 
-void RemoteBodies::ForgetAll(const char* why)
+void RemoteBodies::ForgetAll(const char* why, bool gameIsClosing)
 {
     for (const auto& [peerNumber, puppet] : m_puppets)
     {
         m_log("bodies: peer " + std::to_string(peerNumber) + " " + why);
+    }
+    if (gameIsClosing)
+    {
+        new std::map<uint32_t, Puppet>(std::move(m_puppets));
+        new RED4ext::Handle<RED4ext::IScriptable>(std::move(m_teleportationFacility));
+        new RED4ext::Handle<RED4ext::IScriptable>(std::move(m_dynamicEntitySystem));
     }
     m_puppets.clear();
     m_retryAfterMs.clear();

@@ -83,6 +83,21 @@ bool WriteRttiDumpIfRequested(const std::filesystem::path& pluginFolder)
         {
             WriteClass(out, rtti, name);
         }
+        else if (kind == "enum")
+        {
+            auto* enumType = rtti->GetEnum(name.c_str());
+            if (!enumType)
+            {
+                out << "enum " << name << ": not found\n\n";
+                continue;
+            }
+            out << "enum " << name << " size " << static_cast<int>(enumType->actualSize) << "\n";
+            for (uint32_t index = 0; index < enumType->hashList.Size() && index < enumType->valueList.Size(); ++index)
+            {
+                out << "  " << enumType->hashList[index].ToString() << " = " << enumType->valueList[index] << "\n";
+            }
+            out << "\n";
+        }
         else if (kind == "function")
         {
             auto* function = rtti->GetFunction(name.c_str());
