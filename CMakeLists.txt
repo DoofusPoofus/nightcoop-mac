@@ -57,9 +57,10 @@ add_library(NightCoopMac SHARED
   src/plugin/RemoteBodies.cpp
   src/plugin/RttiDump.cpp
   src/plugin/SessionFile.cpp
-  src/plugin/SessionFlow.cpp)
+  src/plugin/SessionFlow.cpp
+  src/plugin/TestKeys.cpp)
 target_include_directories(NightCoopMac PRIVATE src)
-target_link_libraries(NightCoopMac PRIVATE nightcoop_mac_net RED4ext::SDK "-framework CoreFoundation")
+target_link_libraries(NightCoopMac PRIVATE nightcoop_mac_net RED4ext::SDK "-framework CoreFoundation" "-framework AppKit" objc)
 target_link_options(NightCoopMac PRIVATE -Wl,-dead_strip)
 target_compile_options(NightCoopMac PRIVATE -Wall -Wextra -Wno-unused-parameter)
 set_target_properties(NightCoopMac PROPERTIES PREFIX "" OUTPUT_NAME "NightCoopMac")

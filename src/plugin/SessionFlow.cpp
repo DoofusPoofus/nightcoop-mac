@@ -1,6 +1,7 @@
 #include "plugin/SessionFlow.hpp"
 
 #include "plugin/GameCalls.hpp"
+#include "plugin/TestKeys.hpp"
 
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
 
@@ -26,6 +27,8 @@ bool SessionFlow::Resolve()
     m_sessionRunning = m_flowClass ? m_flowClass->GetProperty("sessionRunning") : nullptr;
     m_preGame = m_flowClass ? m_flowClass->GetProperty("preGame") : nullptr;
     m_sessionsStarted = m_flowClass ? m_flowClass->GetProperty("sessionsStarted") : nullptr;
+    m_autoContinue = m_flowClass ? m_flowClass->GetProperty("autoContinue") : nullptr;
+    m_menuSteps = m_flowClass ? m_flowClass->GetProperty("menuSteps") : nullptr;
     m_containerTakesGameInstance = game::ParamsAre(m_getContainer, {"ScriptGameInstance"});
     return (game::ParamsAre(m_getContainer, {}) || m_containerTakesGameInstance) &&
            game::ReturnIs(m_getContainer, "handle:ScriptableServiceContainer") &&
@@ -33,7 +36,7 @@ bool SessionFlow::Resolve()
            PropertyIs(m_sessionRunning, "Bool") && PropertyIs(m_preGame, "Bool") && PropertyIs(m_sessionsStarted, "Int32");
 }
 
-int32_t SessionFlow::ReadState()
+RED4ext::Handle<RED4ext::IScriptable> SessionFlow::Service()
 {
     RED4ext::Handle<RED4ext::IScriptable> container;
     RED4ext::ScriptGameInstance gameInstance;
@@ -44,7 +47,7 @@ int32_t SessionFlow::ReadState()
     }
     if (!game::CallStatic(m_getContainer, &container, containerArgs) || !container)
     {
-        return -1;
+        return {};
     }
     RED4ext::Handle<RED4ext::IScriptable> service;
     RED4ext::CName serviceName("NightCoopSessionFlow");
@@ -53,12 +56,39 @@ int32_t SessionFlow::ReadState()
     if (!game::CallMethod(container.instance, m_getService, &service, serviceArgs) || !service || !service.instance->GetType() ||
         !service.instance->GetType()->IsA(m_flowClass))
     {
+        return {};
+    }
+    return service;
+}
+
+int32_t SessionFlow::ReadState()
+{
+    const auto service = Service();
+    if (!service)
+    {
         return -1;
     }
     int32_t state = *m_sessionsStarted->GetValuePtr<int32_t>(service.instance) * 4;
     state += *m_sessionRunning->GetValuePtr<bool>(service.instance) ? SessionRunningBit : 0;
     state += *m_preGame->GetValuePtr<bool>(service.instance) ? PreGameBit : 0;
     return state;
+}
+
+void SessionFlow::AskForAutoContinue()
+{
+    if (m_autoContinueAsked || !m_resolved || !m_autoContinue || !m_autoContinue->type ||
+        std::string(m_autoContinue->type->GetName().ToString()) != "Bool")
+    {
+        return;
+    }
+    const auto service = Service();
+    if (!service)
+    {
+        return;
+    }
+    *m_autoContinue->GetValuePtr<bool>(service.instance) = true;
+    m_autoContinueAsked = true;
+    m_log("session flow: auto continue is on (testing), the main menu loads the newest save by itself");
 }
 
 bool SessionFlow::BodiesAllowed(uint64_t nowMs)
@@ -80,6 +110,25 @@ bool SessionFlow::BodiesAllowed(uint64_t nowMs)
         return false;
     }
     const int32_t state = ReadState();
+    if (m_autoContinueAsked && m_menuSteps && nowMs >= m_nextStepsCheckMs)
+    {
+        m_nextStepsCheckMs = nowMs + 1000;
+        if (const auto service = Service())
+        {
+            const int32_t steps = *m_menuSteps->GetValuePtr<int32_t>(service.instance);
+            if (steps != m_lastMenuSteps)
+            {
+                m_lastMenuSteps = steps;
+                m_log("session flow: menu steps so far " + std::to_string(steps) + " (1 start screen, 2 saves listed, 3 no saves, 4 load asked)");
+            }
+            if (steps % 10 == 1 && m_spacePresses < 10)
+            {
+                ++m_spacePresses;
+                PressSpaceKey();
+                m_log("session flow: pressed space on the press any key screen (auto continue)");
+            }
+        }
+    }
     if (state != m_lastState)
     {
         m_lastState = state;

@@ -8,8 +8,12 @@
    evry change gets logged (session #n started in the menu or in a save, the session is ending)
  without the script half (no redscript for mac) the menu and a save look the same from here, so then there are no bodies.
  the scripts land in rtti a bit after the Running state starts, so the lookup tries again evry 2 s
+ AskForAutoContinue (session.txt auto_continue, testing only) sets the services autoContinue so the main menu loads the newest save,
+ and while the press any key screen is up a space key event goes into the games own event queue (NSApp postEvent, in process)
 */
 #pragma once
+
+#include <RED4ext/RED4ext.hpp>
 
 #include <cstdint>
 #include <functional>
@@ -35,10 +39,12 @@ public:
     }
 
     bool BodiesAllowed(uint64_t nowMs);
+    void AskForAutoContinue();
 
 private:
     LogFunction m_log;
     bool Resolve();
+    RED4ext::Handle<RED4ext::IScriptable> Service();
     int32_t ReadState();
 
     RED4ext::CBaseFunction* m_getContainer = nullptr;
@@ -47,6 +53,12 @@ private:
     RED4ext::CProperty* m_sessionRunning = nullptr;
     RED4ext::CProperty* m_preGame = nullptr;
     RED4ext::CProperty* m_sessionsStarted = nullptr;
+    RED4ext::CProperty* m_autoContinue = nullptr;
+    RED4ext::CProperty* m_menuSteps = nullptr;
+    uint64_t m_nextStepsCheckMs = 0;
+    int32_t m_lastMenuSteps = 0;
+    uint32_t m_spacePresses = 0;
+    bool m_autoContinueAsked = false;
     bool m_containerTakesGameInstance = false;
     bool m_resolved = false;
     uint64_t m_nextLookupMs = 0;

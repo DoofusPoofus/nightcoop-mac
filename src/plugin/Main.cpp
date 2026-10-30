@@ -77,6 +77,7 @@ constexpr uint64_t OwnLookEveryMs = 2000;
 constexpr uint64_t OwnLookResendMs = 20000;
 uint64_t NextOwnLookMs = 0;
 uint64_t NextAnsweredReportMs = 0;
+uint64_t NextTrafficReportMs = 0;
 uint32_t AnsweredSinceReport = 0;
 uint64_t OwnLookSentMs = 0;
 uint64_t OwnLookFingerprint = 0;
@@ -299,7 +300,12 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             LastLocalState = localState;
             Session->SetLocalPlayerState(localState);
         }
-        Bodies->Tick(nowMs, RemotePeerViews(), LocalStateValid ? &LastLocalState : nullptr, Flow->BodiesAllowed(nowMs) || Plan->Bodies.InMenuForTesting);
+        const bool bodiesAllowed = Flow->BodiesAllowed(nowMs);
+        if (Plan->AutoContinue)
+        {
+            Flow->AskForAutoContinue();
+        }
+        Bodies->Tick(nowMs, RemotePeerViews(), LocalStateValid ? &LastLocalState : nullptr, bodiesAllowed || Plan->Bodies.InMenuForTesting);
         Mirror->Tick(nowMs, *Bodies, *Session);
     }
     ReportRemoteStates(nowMs);
@@ -310,6 +316,14 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         NextAnsweredReportMs = nowMs + 5000;
         Log("look: " + std::to_string(AnsweredSinceReport) + " look request(s) of partner bodies got their own look");
         AnsweredSinceReport = 0;
+    }
+    if (nowMs >= NextTrafficReportMs)
+    {
+        NextTrafficReportMs = nowMs + 5000;
+        if (const auto traffic = nightcoop_mac::partner_look::TakeTrafficReport(); !traffic.empty())
+        {
+            Log(traffic);
+        }
     }
     return false;
 }
