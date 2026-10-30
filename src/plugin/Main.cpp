@@ -3,12 +3,14 @@
  on load it checks the game build and reads session.txt from its folder
  once the game is in its Running state the relay session starts on its own thread
  evry frame (at most 30 times a second) the main thread samples our player for PlayerState
- remote states only get logged for now since theres no avatar yet
+ remote states drive RemoteBodies (partner bodies like nightcoops puppets) and get logged evry 2 s
  session-status.txt next to the plugin always says wats going on (the hosting code ends up there too)
 */
 #include "net/RelaySession.hpp"
 #include "plugin/GameVersion.hpp"
 #include "plugin/PlayerSampler.hpp"
+#include "plugin/RemoteBodies.hpp"
+#include "plugin/RttiDump.hpp"
 #include "plugin/SessionFile.hpp"
 
 #include <Log.hpp>
@@ -42,6 +44,9 @@ bool EnetReady = false;
 
 std::unique_ptr<nightcoop_mac::net::RelaySession> Session;
 std::unique_ptr<nightcoop_mac::PlayerSampler> Sampler;
+std::unique_ptr<nightcoop_mac::RemoteBodies> Bodies;
+nightcoop_mac::net::PlayerState LastLocalState;
+bool LocalStateValid = false;
 struct RemotePeerSighting
 {
     nightcoop_mac::net::PlayerState State;
@@ -103,6 +108,10 @@ std::string DescribeStatus(const nightcoop_mac::net::SessionStatus& status)
 
 bool OnRunningEnter(RED4ext::CGameApplication*)
 {
+    if (nightcoop_mac::WriteRttiDumpIfRequested(PluginFolder))
+    {
+        Log("wrote rtti-dump.txt");
+    }
     if (!Plan || !EnetReady || Session)
     {
         return true;
@@ -115,17 +124,32 @@ bool OnRunningEnter(RED4ext::CGameApplication*)
     config.GameVersion = HelloGameVersion;
     Session = std::make_unique<nightcoop_mac::net::RelaySession>(Log);
     Sampler = std::make_unique<nightcoop_mac::PlayerSampler>(Log);
+    Bodies = std::make_unique<nightcoop_mac::RemoteBodies>(Log, Plan->Bodies);
     Session->Start(config);
     return true;
 }
 
-void ReportRemoteStates(uint64_t nowMs)
+void TakeRemoteStates(uint64_t nowMs)
 {
     for (const auto& state : Session->TakeRemotePlayerStates())
     {
         LatestRemoteStates[state.PeerNumber] = {state, nowMs};
     }
     std::erase_if(LatestRemoteStates, [nowMs](const auto& entry) { return nowMs - entry.second.ReceivedMs > RemoteForgetAfterMs; });
+}
+
+std::vector<nightcoop_mac::RemotePeerView> RemotePeerViews()
+{
+    std::vector<nightcoop_mac::RemotePeerView> views;
+    for (const auto& [peerNumber, sighting] : LatestRemoteStates)
+    {
+        views.push_back({peerNumber, sighting.State});
+    }
+    return views;
+}
+
+void ReportRemoteStates(uint64_t nowMs)
+{
     if (nowMs < NextRemoteReportMs || LatestRemoteStates.empty())
     {
         return;
@@ -147,14 +171,18 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     }
     const uint64_t nowMs = SteadyMs();
     WriteStatusFile(DescribeStatus(Session->GetStatus()));
+    TakeRemoteStates(nowMs);
     if (Plan->SamplePlayer && nowMs >= NextSampleMs)
     {
         NextSampleMs = nowMs + SampleEveryMs;
         nightcoop_mac::net::PlayerState localState;
-        if (Sampler->Sample(localState, nowMs))
+        LocalStateValid = Sampler->Sample(localState, nowMs);
+        if (LocalStateValid)
         {
+            LastLocalState = localState;
             Session->SetLocalPlayerState(localState);
         }
+        Bodies->Tick(nowMs, RemotePeerViews(), LocalStateValid ? &LastLocalState : nullptr);
     }
     ReportRemoteStates(nowMs);
     return false;
@@ -162,6 +190,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
 
 bool OnRunningExit(RED4ext::CGameApplication*)
 {
+    if (Bodies)
+    {
+        Bodies->ForgetAll("forgotten, the game is closing");
+    }
     if (Session)
     {
         Session->Stop();
@@ -185,6 +217,12 @@ void SetUpSession()
                            windowsVersion->Minor, windowsVersion->Build, windowsVersion->Revision);
 
     PluginFolder = FindPluginFolder();
+    static RED4ext::v1::GameState runningState {OnRunningEnter, OnRunningUpdate, OnRunningExit};
+    if (!GameSdk->gameStates->Add(PluginHandle, RED4ext::EGameStateType::Running, &runningState))
+    {
+        Log("could not hook the Running game state");
+        return;
+    }
     std::string problem;
     Plan = nightcoop_mac::ReadSessionPlan((PluginFolder / "session.txt").string(), problem);
     if (!Plan)
@@ -203,11 +241,6 @@ void SetUpSession()
         return;
     }
 
-    static RED4ext::v1::GameState runningState {OnRunningEnter, OnRunningUpdate, OnRunningExit};
-    if (!GameSdk->gameStates->Add(PluginHandle, RED4ext::EGameStateType::Running, &runningState))
-    {
-        Log("could not hook the Running game state, no session");
-    }
 }
 }
 

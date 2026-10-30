@@ -18,7 +18,8 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | tested against a real windows NightCoop | not yet |
 | net code running inside the game (host / join from session.txt or the launcher) | works against a local hub |
 | our own position + yaw sent as PlayerState | works |
-| seeing the other player in the world | not yet |
+| partner body in the world (npc body, spawn / teleport / cull / despawn like nightcoops puppets) | works at the main menu with a probe, not tried in the city yet |
+| partner body animation, look, clothes, weapons (nightcoops anim mirror, body builder, wardrobe) | not yet |
 | everything else (npcs quests vehicles dialog votes loot ...) | not yet |
 
 NightCoop is in beta and its protocol changes with its releases, so this has to keep up with it. it targets NightCoop 0.1.2 (protocol 143) rn.
@@ -41,6 +42,20 @@ build/nightcoop_mac_tests
 ```
 
 `fetch_deps.sh` pulls RED4ext-macos, the public [nightcoop-hub](https://github.com/Twenfys/nightcoop-hub) source (the protocol + crypto code shared by the mod and its hub) and ENet into `third_party/` at the commits this was tested with.
+
+## partner bodies
+
+partner bodies need [Codeware](https://github.com/codeman101/cp2077-codeware) for mac in the game (its in the RED4ext-macos release). nightcoop spawns its bodies with native calls that arent verified on mac, so the port uses codewares `DynamicEntitySystem` for that part. movement goes thru the same `gameTeleportationFacility.Teleport` nightcoop uses, with its thresholds (2 cm / 0.5 deg), and bodies show up within 150 m and go away past 200 m like in nightcoop.
+
+the body is an npc for now (default `Character.Panam`, which is nightcoops old default record too). change it in `session.txt`:
+
+```
+body_record Character.Judy
+body_template base\characters\entities\...\some.ent
+bodies off
+```
+
+theres no animation or look yet: the body slides to where the partner is.
 
 ## install into the game
 

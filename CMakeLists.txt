@@ -46,7 +46,10 @@ add_subdirectory(${RED4EXT_SDK_DIR} red4ext_sdk EXCLUDE_FROM_ALL)
 add_library(NightCoopMac SHARED
   src/plugin/Main.cpp
   src/plugin/GameVersion.cpp
+  src/plugin/GameCalls.cpp
   src/plugin/PlayerSampler.cpp
+  src/plugin/RemoteBodies.cpp
+  src/plugin/RttiDump.cpp
   src/plugin/SessionFile.cpp)
 target_include_directories(NightCoopMac PRIVATE src)
 target_link_libraries(NightCoopMac PRIVATE nightcoop_mac_net RED4ext::SDK "-framework CoreFoundation")

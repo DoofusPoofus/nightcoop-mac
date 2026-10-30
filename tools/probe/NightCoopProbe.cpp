@@ -2,9 +2,9 @@
  nightcoop probe
  a headless nightcoop client on the same RelaySession the plugin uses
  host mode opens a session prints the code and prints evry PlayerState it gets
- join mode joins by code and walks a few PlayerStates along x
+ join mode joins by code and walks a few PlayerStates along x (from X Y Z if given)
  watch mode joins by code and prints evry PlayerState it gets for a while
- usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB | watch CODE HUB [seconds]
+ usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z] | watch CODE HUB [seconds]
  HUB looks like 127.0.0.1:47900#FINGERPRINT
 */
 #include "net/RelaySession.hpp"
@@ -24,7 +24,10 @@ namespace
 {
 using namespace std::chrono_literals;
 
-constexpr int WalkSteps = 10;
+constexpr int WalkSteps = 60;
+float WalkStartX = -1300.0f;
+float WalkStartY = 1200.0f;
+float WalkStartZ = 18.0f;
 constexpr auto ProbeTimeout = 30s;
 
 int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
@@ -104,9 +107,9 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     for (int step = 0; step < WalkSteps; ++step)
     {
         nightcoop_mac::net::PlayerState state;
-        state.PositionX = -1300.0f + step * 0.5f;
-        state.PositionY = 1200.0f;
-        state.PositionZ = 18.0f;
+        state.PositionX = WalkStartX + step * 0.05f;
+        state.PositionY = WalkStartY;
+        state.PositionZ = WalkStartZ;
         state.Yaw = 90.0f;
         state.Speed = 5.0f;
         session.SetLocalPlayerState(state);
@@ -152,6 +155,12 @@ int main(int argc, char** argv)
     }
     else
     {
+        if (argc > 6)
+        {
+            WalkStartX = static_cast<float>(std::atof(argv[4]));
+            WalkStartY = static_cast<float>(std::atof(argv[5]));
+            WalkStartZ = static_cast<float>(std::atof(argv[6]));
+        }
         result = RunGuest(session);
     }
     session.Stop();

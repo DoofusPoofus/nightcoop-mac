@@ -43,6 +43,21 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
             words >> setting;
             plan.SamplePlayer = setting != "off";
         }
+        else if (keyword == "bodies")
+        {
+            std::string setting;
+            words >> setting;
+            plan.Bodies.Enabled = setting != "off";
+        }
+        else if (keyword == "body_record")
+        {
+            words >> plan.Bodies.Record;
+            plan.Bodies.Template.clear();
+        }
+        else if (keyword == "body_template")
+        {
+            std::getline(words >> std::ws, plan.Bodies.Template);
+        }
         else
         {
             problem = "unknown line in session.txt: " + line;
