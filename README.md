@@ -16,7 +16,8 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | hub session create / join, encrypted links (relay only) | works against a local hub |
 | Hello / Welcome / Reject / PlayerState messages (protocol 143, NightCoop 0.1.2) | works between two mac probes |
 | tested against a real windows NightCoop | not yet |
-| net code running inside the game | not yet |
+| net code running inside the game (host / join from session.txt or the launcher) | works against a local hub |
+| our own position + yaw sent as PlayerState | works |
 | seeing the other player in the world | not yet |
 | everything else (npcs quests vehicles dialog votes loot ...) | not yet |
 
@@ -53,6 +54,21 @@ the log ends up in `red4ext/logs/` in the game folder and should have a line lik
 NightCoopMac loading, protocol 143, mac game 2.5.0 talks to peers as exe 3.0.88.46235
 ```
 
+## the launcher
+
+`tools/build_launcher.sh` builds `build/NightCoop Mac.app`, a small window with Host / Join, the session code, the hub and ur name. it writes `session.txt` into the plugin folder and starts the game with `launch_red4ext.sh`. while the game runs it shows the session status and has a copy button for the hosting code.
+
+"start without co-op" removes `session.txt` so the game starts with the plugin idle.
+
+if u dont want the app, `session.txt` in `red4ext/plugins/NightCoopMac/` does the same:
+
+```
+host 127.0.0.1:47900#YOUR-FINGERPRINT
+name macbook
+```
+
+or `join CODE 127.0.0.1:47900#YOUR-FINGERPRINT`. `session-status.txt` next to it says wats going on.
+
 ## try the network side without the game
 
 run a local hub and two probes:
@@ -77,7 +93,8 @@ please dont point probes at the real NightCoop hub for testing. run ur own.
 
 - `src/plugin` the RED4ext entry points and the mac to windows game version mapping
 - `src/net` the session messages
-- `tools/probe` the headless client
+- `tools/probe` the headless client (host / join / watch)
+- `launcher` the launcher window
 - `tests` byte layout checks
 - `tools/decompile.sh` + `tools/DumpEverything.java` ghidra headless dump used to read message formats out of a NightCoop build
 
