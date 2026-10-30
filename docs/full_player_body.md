@@ -23,9 +23,13 @@ and runs its BodyBuilder on the entity before it attaches:
 - adds `senseVisibleObjectComponent` (npcs see the partner), `HitPhysicalQueryMesh`, a `gameuiCharacterCustomizationBodyController`
   (`NightCoopBodyController`), two blocker capsules and an item pusher
 
-**mac:** theres no verified address for that build job in the mac address db. turning components off after attach
-(`entIComponent.Toggle`) is too late for the camera, sound listener and state machine. this needs the job found in the mac
-binary and verified the way `docs/PORTING_A_PLUGIN.md` of RED4ext.SDK-macos asks, before anything can hook it.
+**mac:** nightcoop resolves its hook target thru RED4ext address hash `489494088`, which is `EntityBuilder_ExtractComponentsJob`.
+the mac 2.5.0 address db has it **verified** (`1:0x19B74B0`) and the mac ports of codeware and archivexl already hook it, so this
+part can be ported for real. codeware for mac declares the job as `void(EntityBuilderJobParams* params, void*)` with
+`params->entityBuilder` an `EntityBuilder*` whose `components` (`DynArray<Handle<IComponent>>`) sit at `+0xC0`, `entity` at `+0xB0`
+and `entityTemplate` at `+0x90` (`src/Red/EntityBuilder.hpp` in codeman101/cp2077-codeware). the job runs on worker threads, and
+the players own entity is built from the same template, so a partner body has to be picked by its entity id, not its template.
+turning components off after attach (`entIComponent.Toggle`) would be too late for the camera, sound listener and state machine.
 
 ## 2. script callbacks of PlayerPuppet
 
@@ -71,11 +75,29 @@ players own graph (part 1 above).
 
 **not done:** our own stream. the setters above only write, theres nothing to read a graphs inputs back, and catching the
 writes the way AnimTap does means hooking the controllers native input writes (the game's c++ writes most of them, not scripts).
-on mac that needs those functions found and verified in the binary first. until then windows partners get our PlayerState but
-no PlayerAnim from us, and a PlayerAnimWant to us gets logged.
+AnimTap hooks them by RED4ext address hash, and none of the 11 is in the mac 2.5.0 address db:
+
+| what | hash |
+| --- | --- |
+| feature | 316482401 (0x12dd2361) |
+| float | 3216184875 (0xbfb3162b) |
+| int | 3215201830 (0xbfa41626) |
+| bool | 3598063243 (0xd676168b) |
+| vector | 3828226594 (0xe42e1a22) |
+| quaternion | 953293729 (0x38d21ba1) |
+| event | 3247117892 (0xc18b1644) |
+| wrapper | 1245585201 (0x4a3e1f31) |
+| attach | 2783782033 (0xa5ed2491) |
+| detach | 4105184598 (0xf4b02556) |
+| wrapper event path | 808393639 (0x302f1ba7) |
+
+they have to be found in the mac binary and verified (with the windows exe next to it, the way the RED4ext.SDK-macos address
+db was built) before our own stream can be recorded. until then windows partners get our PlayerState but no PlayerAnim from us,
+and a PlayerAnimWant to us gets logged.
 
 ## order that makes sense from here
 
-1. redscript wrappers for the PlayerPuppet callbacks and the TPP event
-2. find and verify the build job and the anim controller input writes in the mac binary, then the real PlayerPuppet body (it runs
-   the players graph, so the replayed streams land) and our own AnimTap (windows partners see mac players animate)
+1. the real PlayerPuppet body: spawn the players own template, hook `EntityBuilder_ExtractComponentsJob` (verified) to strip the
+   22 components on partner bodies only, queue the TPP event. its graph is the players graph, so the replayed streams land
+2. redscript wrappers for the PlayerPuppet callbacks
+3. find and verify the 11 AnimTap targets in the mac binary, then record our own stream (windows partners see mac players animate)
