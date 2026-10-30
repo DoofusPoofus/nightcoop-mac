@@ -66,6 +66,7 @@ struct RemotePeerView
     net::PlayerState State;
     bool LookKnown = false;
     bool IsMale = false;
+    RED4ext::Handle<RED4ext::IScriptable> LookState;
 };
 
 class RemoteBodies
@@ -79,6 +80,7 @@ public:
     void RemoveAll();
     void ForgetAll(const char* why, bool gameIsClosing = false);
     bool GetBody(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body);
+    void UseLook(uint32_t peerNumber, const RED4ext::Handle<RED4ext::IScriptable>& state, bool isMale);
 
 private:
     struct Puppet

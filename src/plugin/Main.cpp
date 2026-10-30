@@ -7,14 +7,19 @@
  with bodies on the entity build job gets hooked at load (PartnerBodyBuilder) so partner bodies come out built like nightcoops
  SessionFlow says when bodies may exist at all: only in a loaded save, never in the main menu or a session thats ending
  game messages from partners go to AnimMirror, which plays their anim streams on their bodies
+ our look goes to partners as PlayerCustomization (33) when it changes (checked evry 2 s, sent again evry 20 s), a partners
+ look becomes a state of its own (LookStates) that their body wears (PartnerLook)
  session-status.txt next to the plugin always says wats going on (the hosting code ends up there too)
  a crash in game code leaves crash-notes.txt there, naming the game objects the crashing thread had in its registers
 */
+#include "net/LookMessages.hpp"
 #include "net/RelaySession.hpp"
 #include "plugin/AnimMirror.hpp"
 #include "plugin/CrashNotes.hpp"
 #include "plugin/GameVersion.hpp"
+#include "plugin/LookStates.hpp"
 #include "plugin/PartnerBodyBuilder.hpp"
+#include "plugin/PartnerLook.hpp"
 #include "plugin/PlayerSampler.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/RttiDump.hpp"
@@ -22,6 +27,7 @@
 #include "plugin/SessionFile.hpp"
 
 #include <Log.hpp>
+#include <ProtocolCore.hpp>
 #include <NetCrypto.hpp>
 
 #include <RED4ext/GameStates.hpp>
@@ -66,6 +72,20 @@ std::map<uint32_t, RemotePeerSighting> LatestRemoteStates;
 uint64_t NextSampleMs = 0;
 uint64_t NextRemoteReportMs = 0;
 uint64_t NextCrashNotesCheckMs = 0;
+uint64_t LateDumpAtMs = 0;
+constexpr uint64_t OwnLookEveryMs = 2000;
+constexpr uint64_t OwnLookResendMs = 20000;
+uint64_t NextOwnLookMs = 0;
+uint64_t NextAnsweredReportMs = 0;
+uint32_t AnsweredSinceReport = 0;
+uint64_t OwnLookSentMs = 0;
+uint64_t OwnLookFingerprint = 0;
+struct PeerLook
+{
+    uint64_t Fingerprint = 0;
+    RED4ext::Handle<RED4ext::IScriptable> State;
+};
+std::map<uint32_t, PeerLook> PeerLooks;
 std::string LastStatusLine;
 
 uint64_t SteadyMs()
@@ -123,6 +143,7 @@ bool OnRunningEnter(RED4ext::CGameApplication*)
     if (nightcoop_mac::WriteRttiDumpIfRequested(PluginFolder))
     {
         Log("wrote rtti-dump.txt");
+        LateDumpAtMs = SteadyMs() + 30000;
     }
     if (!Plan || !EnetReady || Session)
     {
@@ -152,6 +173,60 @@ void TakeRemoteStates(uint64_t nowMs)
     std::erase_if(LatestRemoteStates, [nowMs](const auto& entry) { return nowMs - entry.second.ReceivedMs > RemoteForgetAfterMs; });
 }
 
+void ShareOwnLook(uint64_t nowMs)
+{
+    if (nowMs < NextOwnLookMs || !Session->GetStatus().InSession)
+    {
+        return;
+    }
+    NextOwnLookMs = nowMs + OwnLookEveryMs;
+    nightcoop_mac::net::PlayerCustomization look;
+    if (!nightcoop_mac::look_states::ReadOwnLook(look, Log))
+    {
+        return;
+    }
+    nightcoop_mac::partner_look::SetOwnGender(look.BodyMale);
+    const auto message = nightcoop_mac::net::WritePlayerCustomization(look);
+    const uint64_t fingerprint = nightcoop_mac::net::LookFingerprint(message);
+    if (fingerprint == OwnLookFingerprint && nowMs - OwnLookSentMs < OwnLookResendMs)
+    {
+        return;
+    }
+    if (fingerprint != OwnLookFingerprint)
+    {
+        Log("looks: our look goes to partners (" + std::to_string(look.Head.size()) + " head, " + std::to_string(look.Body.size()) + " body, " +
+            std::to_string(look.Arms.size()) + " arms group(s), " + (look.BodyMale ? "male" : "female") + " body, " + std::to_string(message.size()) +
+            " bytes)");
+        std::ofstream(PluginFolder / "own-look.bin", std::ios::binary).write(reinterpret_cast<const char*>(message.data()), message.size());
+    }
+    OwnLookFingerprint = fingerprint;
+    OwnLookSentMs = nowMs;
+    Session->SendGameMessage(message);
+}
+
+void TakePeerLook(uint32_t peerNumber, const std::vector<uint8_t>& message)
+{
+    const uint64_t fingerprint = nightcoop_mac::net::LookFingerprint(message);
+    auto& known = PeerLooks[peerNumber];
+    if (known.Fingerprint == fingerprint)
+    {
+        return;
+    }
+    nightcoop_mac::net::PlayerCustomization look;
+    if (!nightcoop_mac::net::ReadPlayerCustomization(message, look))
+    {
+        Log("looks: peer " + std::to_string(peerNumber) + " sent a look that does not read, their body keeps our look");
+        known.Fingerprint = fingerprint;
+        return;
+    }
+    known.Fingerprint = fingerprint;
+    known.State = nightcoop_mac::look_states::BuildState(look, Log);
+    Log("looks: peer " + std::to_string(peerNumber) + " look came in (" + std::to_string(look.Head.size()) + " head, " + std::to_string(look.Body.size()) +
+        " body, " + std::to_string(look.Arms.size()) + " arms group(s), " + (look.BodyMale ? "male" : "female") + "): " +
+        (known.State ? "their body wears it" : "could not be built, their body keeps our look"));
+    Bodies->UseLook(peerNumber, known.State, look.BodyMale);
+}
+
 std::vector<nightcoop_mac::RemotePeerView> RemotePeerViews()
 {
     const auto genders = Session->PeerGenders();
@@ -159,7 +234,9 @@ std::vector<nightcoop_mac::RemotePeerView> RemotePeerViews()
     for (const auto& [peerNumber, sighting] : LatestRemoteStates)
     {
         const auto gender = genders.find(peerNumber);
-        views.push_back({peerNumber, sighting.State, gender != genders.end(), gender != genders.end() && gender->second});
+        const auto look = PeerLooks.find(peerNumber);
+        views.push_back({peerNumber, sighting.State, gender != genders.end(), gender != genders.end() && gender->second,
+                         look != PeerLooks.end() ? look->second.State : RED4ext::Handle<RED4ext::IScriptable>()});
     }
     return views;
 }
@@ -181,6 +258,12 @@ void ReportRemoteStates(uint64_t nowMs)
 
 bool OnRunningUpdate(RED4ext::CGameApplication*)
 {
+    if (LateDumpAtMs && SteadyMs() >= LateDumpAtMs)
+    {
+        LateDumpAtMs = 0;
+        nightcoop_mac::WriteRttiDumpIfRequested(PluginFolder);
+        Log("wrote rtti-dump.txt again with the game systems up");
+    }
     if (!Session)
     {
         return false;
@@ -195,6 +278,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     TakeRemoteStates(nowMs);
     for (const auto& message : Session->TakeGameMessages())
     {
+        if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PlayerCustomization))
+        {
+            TakePeerLook(message.FromPeer, message.Message);
+        }
         Mirror->OnGameMessage(message.FromPeer, message.Message, nowMs);
     }
     if (Plan->SamplePlayer && nowMs >= NextSampleMs)
@@ -216,6 +303,14 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         Mirror->Tick(nowMs, *Bodies, *Session);
     }
     ReportRemoteStates(nowMs);
+    ShareOwnLook(nowMs);
+    AnsweredSinceReport += nightcoop_mac::partner_look::TakeAnsweredCount();
+    if (AnsweredSinceReport && nowMs >= NextAnsweredReportMs)
+    {
+        NextAnsweredReportMs = nowMs + 5000;
+        Log("look: " + std::to_string(AnsweredSinceReport) + " look request(s) of partner bodies got their own look");
+        AnsweredSinceReport = 0;
+    }
     return false;
 }
 
@@ -269,6 +364,7 @@ void SetUpSession()
     if (Plan->Bodies.Enabled)
     {
         nightcoop_mac::partner_body_builder::Install(GameSdk, PluginHandle, Log);
+        nightcoop_mac::partner_look::Install(GameSdk, PluginHandle, Log);
     }
 
     nc::log::SetSink([](nc::log::Level, const char* line) { Log(std::string("net: ") + line); });

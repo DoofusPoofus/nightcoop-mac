@@ -1,7 +1,10 @@
 /*
- byte layout checks for the rebuilt game layer messages (Game envelope, PlayerAnim, PlayerAnimWant, PlayerAnimSetup)
+ byte layout checks for the rebuilt game layer messages (Game envelope, PlayerAnim, PlayerAnimWant, PlayerAnimSetup,
+ PlayerCustomization)
 */
 #include "net/GameMessages.hpp"
+#include "net/LookMessages.hpp"
+#include "net/SessionMessages.hpp"
 
 #include <cstdio>
 
@@ -100,6 +103,36 @@ int main()
     const std::vector<uint8_t> setupBytes = {0x50, 0x4F, 0x43, 0x4E, 34, 1, 2, 3, 4, 5, 6, 7, 8, 2, 0};
     AnimSetup setup;
     Check(ReadAnimSetup(setupBytes, setup) && setup.Rig == 0x0807060504030201ULL && setup.SetCount == 2, "anim setup rig and count");
+
+    PlayerCustomization look;
+    look.DataVersion = 7;
+    look.BodyMale = true;
+    look.BrainMale = false;
+    LookGroup hair;
+    hair.Name = 0x1111;
+    hair.Parts.push_back({0xAAAA, 0xBBBB, 0xCCCC, 2, 1});
+    hair.Morphs.push_back({0xDDDD, 0xEEEE, 0, 0});
+    look.Head.push_back(hair);
+    look.Body.push_back({0x2222, {}, {}});
+    look.Perspectives.push_back({0x3333, 0x4444, 0x5555});
+    look.Tags = {0x6666, 0x7777};
+    const auto lookBytes = WritePlayerCustomization(look);
+    Check(lookBytes.size() == 5 + 1 + 4 + 1 + 1 + (2 + 8 + 1 + 29 + 1 + 21) + (2 + 8 + 1 + 1) + 2 + (1 + 24) + (1 + 16), "look size");
+    Check(lookBytes[4] == 33 && lookBytes[5] == 1, "look is message 33 version 1");
+    PlayerCustomization lookBack;
+    Check(ReadPlayerCustomization(lookBytes, lookBack), "look reads back");
+    Check(lookBack.DataVersion == 7 && lookBack.BodyMale && !lookBack.BrainMale, "look header fields");
+    Check(lookBack.Head.size() == 1 && lookBack.Head[0].Parts.size() == 1 && lookBack.Head[0].Parts[0].Definition == 0xBBBB &&
+              lookBack.Head[0].Parts[0].CensorAction == 1 && lookBack.Head[0].Morphs[0].TargetName == 0xEEEE,
+          "look head group");
+    Check(lookBack.Body.size() == 1 && lookBack.Arms.empty() && lookBack.Perspectives[0].Tpp == 0x5555 && lookBack.Tags[1] == 0x7777,
+          "look body, arms, perspectives and tags");
+    bool genderFromLook = false;
+    Check(ReadCustomizationGender(lookBytes, genderFromLook) && genderFromLook, "the gender reader still reads a full look");
+    auto truncated = lookBytes;
+    truncated.resize(truncated.size() - 3);
+    Check(!ReadPlayerCustomization(truncated, lookBack), "a cut look is refused");
+    Check(LookFingerprint(lookBytes) != LookFingerprint(truncated), "look fingerprints differ");
 
     std::printf("%s\n", FailedChecks ? "some checks failed" : "all game message checks passed");
     return FailedChecks ? 1 : 0;

@@ -3,6 +3,7 @@
 #include "plugin/BodyRecords.hpp"
 #include "plugin/GameCalls.hpp"
 #include "plugin/PartnerBodyBuilder.hpp"
+#include "plugin/PartnerLook.hpp"
 
 #include <RED4ext/ResourcePath.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
@@ -339,6 +340,10 @@ bool RemoteBodies::Spawn(const RemotePeerView& peer, uint64_t nowMs)
         return false;
     }
     partner_body_builder::ExpectBody(entityId.hash);
+    if (peer.LookState)
+    {
+        partner_look::SetPartnerState(entityId.hash, peer.LookState, peer.IsMale);
+    }
     auto& puppet = m_puppets[peerNumber];
     puppet = Puppet {};
     puppet.EntityHash = entityId.hash;
@@ -494,6 +499,7 @@ void RemoteBodies::Despawn(uint32_t peerNumber, Puppet& puppet, const char* why)
     args.emplace_back(nullptr, &entityId);
     game::CallMethod(m_dynamicEntitySystem.instance, m_deleteEntity, &deleted, args);
     partner_body_builder::ForgetBody(puppet.EntityHash);
+    partner_look::ForgetPartnerState(puppet.EntityHash);
     m_log("bodies: peer " + std::to_string(peerNumber) + " " + why + (deleted ? "" : " (the game had it gone already)"));
 }
 
@@ -912,6 +918,15 @@ bool RemoteBodies::GetBody(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScript
     return game::CallMethod(m_dynamicEntitySystem.instance, m_getEntity, &body, args) && body;
 }
 
+void RemoteBodies::UseLook(uint32_t peerNumber, const RED4ext::Handle<RED4ext::IScriptable>& state, bool isMale)
+{
+    const auto puppet = m_puppets.find(peerNumber);
+    if (puppet != m_puppets.end() && state)
+    {
+        partner_look::SetPartnerState(puppet->second.EntityHash, state, isMale);
+    }
+}
+
 void RemoteBodies::RemoveAll()
 {
     if (!m_dynamicEntitySystem)
@@ -942,6 +957,7 @@ void RemoteBodies::ForgetAll(const char* why, bool gameIsClosing)
     m_retryAfterMs.clear();
     m_firstSeenMs.clear();
     partner_body_builder::ForgetAllBodies();
+    partner_look::ForgetAllPartnerStates();
     m_playerTemplateFamily = -1;
     m_teleportationFacility.Reset();
     m_dynamicEntitySystem.Reset();

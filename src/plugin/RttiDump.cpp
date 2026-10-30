@@ -2,6 +2,11 @@
 
 #include <RED4ext/RED4ext.hpp>
 
+#include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
+
+#include <dlfcn.h>
+
+#include <cstdio>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -26,6 +31,69 @@ void WriteFunction(std::ofstream& out, const char* kind, RED4ext::CBaseFunction*
         out << (index ? ", " : "") << param->name.ToString() << ": " << TypeName(param->type);
     }
     out << ")\n";
+}
+
+void WriteVtableSlots(std::ofstream& out, const char* what, RED4ext::IScriptable* object)
+{
+    const auto vtable = *reinterpret_cast<uintptr_t*>(object);
+    Dl_info info {};
+    dladdr(reinterpret_cast<void*>(vtable), &info);
+    const auto imageBase = reinterpret_cast<uintptr_t>(info.dli_fbase);
+    char line[200];
+    std::snprintf(line, sizeof(line), "vtable %s: object %p is a %s, vtable game+%#lx\n", what, static_cast<void*>(object),
+                  object->GetType()->GetName().ToString(), static_cast<unsigned long>(vtable - imageBase));
+    out << line;
+    for (uintptr_t slot = 0; slot < 0x300; slot += 8)
+    {
+        const auto function = *reinterpret_cast<uintptr_t*>(vtable + slot);
+        std::snprintf(line, sizeof(line), "  slot %#05lx -> game+%#lx\n", static_cast<unsigned long>(slot), static_cast<unsigned long>(function - imageBase));
+        out << line;
+    }
+    out << "\n";
+}
+
+void WriteSystemVtable(std::ofstream& out, const std::string& getterName, bool stateOfIt)
+{
+    auto* scriptGameInstance = RED4ext::CRTTISystem::Get()->GetClass("ScriptGameInstance");
+    auto* getter = scriptGameInstance ? scriptGameInstance->GetFunction(getterName.c_str()) : nullptr;
+    if (!getter)
+    {
+        out << "vtable " << getterName << ": no such getter\n\n";
+        return;
+    }
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::Handle<RED4ext::IScriptable> system;
+    RED4ext::StackArgs_t args;
+    if (getter->params.Size() == 1)
+    {
+        args.emplace_back(nullptr, &gameInstance);
+    }
+    if (!RED4ext::ExecuteFunction(static_cast<void*>(nullptr), getter, &system, args) || !system)
+    {
+        out << "vtable " << getterName << ": getter gave nothing\n\n";
+        return;
+    }
+    if (!stateOfIt)
+    {
+        WriteVtableSlots(out, getterName.c_str(), system.instance);
+        return;
+    }
+    auto* getState = system.instance->GetType()->GetFunction("GetState");
+    RED4ext::Handle<RED4ext::IScriptable> state;
+    RED4ext::StackArgs_t noArgs;
+    if (!getState || !RED4ext::ExecuteFunction(system.instance, getState, &state, noArgs) || !state)
+    {
+        auto* stateClass = RED4ext::CRTTISystem::Get()->GetClass("gameuiCharacterCustomizationState");
+        auto* freshState = stateClass ? static_cast<RED4ext::IScriptable*>(stateClass->CreateInstance(true)) : nullptr;
+        if (!freshState)
+        {
+            out << "statevtable " << getterName << ": no state and none could be made\n\n";
+            return;
+        }
+        state = RED4ext::Handle<RED4ext::IScriptable>(freshState);
+        out << "(no state in the system yet, this is a fresh one)\n";
+    }
+    WriteVtableSlots(out, "state", state.instance);
 }
 
 void WriteClass(std::ofstream& out, RED4ext::CRTTISystem* rtti, const std::string& className)
@@ -97,6 +165,10 @@ bool WriteRttiDumpIfRequested(const std::filesystem::path& pluginFolder)
                 out << "  " << enumType->hashList[index].ToString() << " = " << enumType->valueList[index] << "\n";
             }
             out << "\n";
+        }
+        else if (kind == "vtable" || kind == "statevtable")
+        {
+            WriteSystemVtable(out, name, kind == "statevtable");
         }
         else if (kind == "function")
         {

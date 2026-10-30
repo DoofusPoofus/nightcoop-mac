@@ -6,10 +6,12 @@
  150 steps of 80 ms or STEPS of them) crouching on and off, and sends PlayerAnim batches (a float, a bool, an event and a
  feature) in Game envelopes
  watch mode joins by code and prints the PlayerStates and game messages it gets for a while
- usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z [STEPS]] | watch CODE HUB [seconds]
+ usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z [STEPS [LOOKFILE]]] | watch CODE HUB [seconds]
+ its look (PlayerCustomization 33) is LOOKFILE as it is (the plugin writes own-look.bin) or a male look with no parts
  HUB looks like 127.0.0.1:47900#FINGERPRINT
 */
 #include "net/GameMessages.hpp"
+#include "net/LookMessages.hpp"
 #include "net/RelaySession.hpp"
 
 #include <Log.hpp>
@@ -20,6 +22,8 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <thread>
 
@@ -28,6 +32,7 @@ namespace
 using namespace std::chrono_literals;
 
 int WalkSteps = 150;
+std::string LookFile;
 float WalkStartX = -1300.0f;
 float WalkStartY = 1200.0f;
 float WalkStartZ = 18.0f;
@@ -152,7 +157,21 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
         std::this_thread::sleep_for(20ms);
     }
     std::printf("probe: in the session as peer %u\n", session.GetStatus().MyPeerNumber);
-    session.SendGameMessage({0x50, 0x4F, 0x43, 0x4E, 33, 1, 0, 0, 0, 0, 1, 0});
+    std::vector<uint8_t> look;
+    if (!LookFile.empty())
+    {
+        std::ifstream lookFile(LookFile, std::ios::binary);
+        look.assign(std::istreambuf_iterator<char>(lookFile), std::istreambuf_iterator<char>());
+    }
+    if (look.empty())
+    {
+        nightcoop_mac::net::PlayerCustomization plainLook;
+        plainLook.BodyMale = true;
+        plainLook.BrainMale = true;
+        look = nightcoop_mac::net::WritePlayerCustomization(plainLook);
+    }
+    std::printf("probe: sending a look of %zu bytes\n", look.size());
+    session.SendGameMessage(look);
     for (int step = 0; step < WalkSteps; ++step)
     {
         nightcoop_mac::net::PlayerState state;
@@ -227,6 +246,10 @@ int main(int argc, char** argv)
         if (argc > 7)
         {
             WalkSteps = std::atoi(argv[7]);
+        }
+        if (argc > 8)
+        {
+            LookFile = argv[8];
         }
         result = RunGuest(session);
     }
