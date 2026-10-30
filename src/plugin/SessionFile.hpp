@@ -5,6 +5,9 @@
    name NICK             the name others see (optional)
    sampler off           dont read our own player (testing, also means no partner bodies)
    bodies off            dont spawn partner bodies
+   body player|npc       player: nightcoops real body, a second PlayerPuppet built by PartnerBodyBuilder (needs its hook)
+                         npc: the cutscene V body (default)
+                         player_without_scripts: player body even when its scripts are not compiled (testing only)
    body_gender male|female  force the V body gender instead of taking it from the partners look
    body_record REC       spawn partner bodies from an npc record instead of the cutscene V
    body_template PATH    spawn partner bodies from another .ent template

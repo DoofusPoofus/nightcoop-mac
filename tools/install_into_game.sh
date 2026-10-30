@@ -1,5 +1,6 @@
 #!/bin/sh
 # copies the built NightCoopMac.dylib into the games red4ext plugins folder and signs it ad hoc
+# scripts/NightCoopMac goes to the plugins Scripts folder, the red4ext launcher compiles it when redscript (engine/tools/scc) is there
 # RED4ext-macos has to be installed in the game already (see the readme)
 set -eu
 
@@ -19,4 +20,6 @@ fi
 mkdir -p "$game/red4ext/plugins/NightCoopMac"
 install -m 755 "$plugin" "$game/red4ext/plugins/NightCoopMac/NightCoopMac.dylib"
 codesign -f -s - "$game/red4ext/plugins/NightCoopMac/NightCoopMac.dylib"
+rm -rf "$game/red4ext/plugins/NightCoopMac/Scripts"
+cp -R "$here/scripts/NightCoopMac" "$game/red4ext/plugins/NightCoopMac/Scripts"
 echo "installed, start the game with \"$game/launch_red4ext.sh\""

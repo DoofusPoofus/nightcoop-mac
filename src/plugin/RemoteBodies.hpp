@@ -14,10 +14,17 @@
  nightcoop spawns thru native calls on gameIDynamicEntityIDSystem / gameIEntityStubSystem / gameIPopulationSystem.
  those slots are not verified on mac so the body comes from codewares DynamicEntitySystem instead
  (CreateEntity / GetEntity / DeleteEntity), which needs codeware for mac installed
- the body is nightcoops fallback body: the cutscene V template (player_wa_tpp_cutscene.ent or player_ma_ by the partners
- gender from their PlayerCustomization), which spawns as an NPCPuppet on mac so the npc locomotion and stance work on it.
+ the default body is nightcoops fallback body: the cutscene V template (player_wa_tpp_cutscene.ent or player_ma_ by the
+ partners gender from their PlayerCustomization), which spawns as an NPCPuppet on mac so the npc locomotion and stance work on it.
+ 'body player' in session.txt gives nightcoops real body instead: a second PlayerPuppet from the template family our own player
+ came from (codewares Entity.GetTemplatePath, the ep1 or base player_wa_fpp / player_ma_fpp by the partners gender, or our own
+ template as it is when its none of those). it carries the NightCoopPartnerBody tag for the script side, its id goes to the
+ PartnerBodyBuilder before the game builds it, and once its in the world it gets an ActivateTPPRepresentationEvent so it shows
+ its third person self. it moves by teleport and its anims come from the partners stream (AnimMirror), no npc policies or stance.
+ if the builder hook or the script side (scripts/NightCoopMac, the NightCoopPartnerBodies class in rtti) is not there the
+ cutscene V body is used: an unbuilt second player brings a second camera and hud, an unpatched one attaches as a local player.
+ 'body player_without_scripts' skips the script check, only for testing the builder at the main menu
  like nightcoop a body waits up to 5 s for the partners look before it spawns. body_record / body_template override it.
- the full PlayerPuppet body with the anim mirror is not ported (its build and anim hooks are native)
  when the game closes the handles we hold get leaked on purpose, the game tears its objects down first
 */
 #pragma once
@@ -25,6 +32,7 @@
 #include "net/SessionMessages.hpp"
 
 #include <RED4ext/RED4ext.hpp>
+#include <RED4ext/ResourcePath.hpp>
 
 #include <cstdint>
 #include <functional>
@@ -37,6 +45,8 @@ namespace nightcoop_mac
 struct BodySettings
 {
     bool Enabled = true;
+    bool PlayerBody = false;
+    bool PlayerBodyWithoutScripts = false;
     std::string Record;
     std::string Template;
     std::string Gender;
@@ -87,6 +97,7 @@ private:
         uint32_t AppliedStance = 0xFFFFFFFF;
         uint32_t AppliedUpperBody = 0xFFFFFFFF;
         uint64_t UpperBodyChangedMs = 0;
+        bool IsPlayerBody = false;
     };
 
     bool ResolveApi();
@@ -103,6 +114,10 @@ private:
     void DropPolicy(Puppet& puppet);
     void ResolveStance();
     void ApplyStance(uint32_t peerNumber, Puppet& puppet, RED4ext::Handle<RED4ext::IScriptable>& body, const net::PlayerState& state, uint64_t nowMs);
+    void ResolvePlayerBodies();
+    bool PickPlayerBodyTemplate(bool male, RED4ext::ResourcePath& bodyTemplate, std::string& description);
+    void ShowThirdPerson(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body);
+    bool TagAsPartnerBody(RED4ext::IScriptable* spec);
 
     LogFunction m_log;
     BodySettings m_settings;
@@ -143,6 +158,14 @@ private:
     RED4ext::CBaseFunction* m_getOrCreateSignal = nullptr;
     RED4ext::CBaseFunction* m_setWithData = nullptr;
     RED4ext::CClass* m_stateSignalClass = nullptr;
+
+    bool m_playerBodies = false;
+    RED4ext::CBaseFunction* m_getPlayer = nullptr;
+    RED4ext::CBaseFunction* m_getTemplatePath = nullptr;
+    RED4ext::CBaseFunction* m_queueEvent = nullptr;
+    RED4ext::CClass* m_activateTppEventClass = nullptr;
+    int m_playerTemplateFamily = -1;
+    uint64_t m_ownPlayerTemplate = 0;
 
     RED4ext::Handle<RED4ext::IScriptable> m_teleportationFacility;
     RED4ext::Handle<RED4ext::IScriptable> m_dynamicEntitySystem;

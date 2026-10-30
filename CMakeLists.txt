@@ -48,6 +48,7 @@ add_library(NightCoopMac SHARED
   src/plugin/AnimMirror.cpp
   src/plugin/GameVersion.cpp
   src/plugin/GameCalls.cpp
+  src/plugin/PartnerBodyBuilder.cpp
   src/plugin/PlayerSampler.cpp
   src/plugin/RemoteBodies.cpp
   src/plugin/RttiDump.cpp

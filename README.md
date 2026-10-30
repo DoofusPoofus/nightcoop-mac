@@ -25,7 +25,8 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | partner body walks / runs / sprints with the games move policies, crouch / aim / reload stance (nightcoops npc body mode) | runs at the main menu (the menu world never moves npcs so it falls back to teleport there), not tried in the city yet |
 | our crouch and sprint sent in PlayerState flags | works |
 | V body (cutscene template by the partners gender from PlayerCustomization) | spawns at the main menu |
-| full player body with nightcoops anim mirror, look, clothes, weapons | not yet, see docs/full_player_body.md |
+| real PlayerPuppet partner body (`body player`): entity build hook keeps the 25 local player components off it, first person fixes, third person view, anim stream on the players own graph | spawns and plays a probe stream at the main menu (tested with `body player_without_scripts`), its script side needs redscript for mac and is not compile checked yet |
+| look, clothes, weapons on the partner body | not yet, see docs/full_player_body.md |
 | everything else (npcs quests vehicles dialog votes loot ...) | not yet |
 
 NightCoop is in beta and its protocol changes with its releases, so this has to keep up with it. it targets NightCoop 0.1.2 (protocol 143) rn.
@@ -63,7 +64,14 @@ body_template base\characters\entities\...\some.ent
 bodies off
 ```
 
-the full player body (a second PlayerPuppet with nightcoops anim mirror) is not ported yet, `docs/full_player_body.md` says wat it needs.
+### the real body (`body player`)
+
+nightcoops default body is a second `PlayerPuppet` from ur own template, so the partners anim stream lands on the same graph it was recorded on. put `body player` in `session.txt` to get that one:
+
+- the plugin hooks the entity build job (`EntityBuilder_ExtractComponentsJob`, verified in the mac address db) at load and, for partner bodies only, swaps the 25 components a second local player must not have (fpp camera, vehicle cameras, sound listener, hud, state machine ...) for empty turned off slots like nightcoop, and does nightcoops first person fixes (hidden parts, weapon plane slots, render plane params)
+- the body gets the `NightCoopPartnerBody` tag and an `ActivateTPPRepresentationEvent` once its in the world, it moves by teleport and animates from the partners stream
+- `scripts/NightCoopMac/NightCoopPartnerBodies.reds` is the script side: for tagged bodies `PlayerPuppet` attaches / detaches like a `ScriptedPuppet` and skips the local player callbacks (status effects, items, inventory, kills, death extras ...), same list as nightcoops script patches. `tools/install_into_game.sh` puts it in the plugins `Scripts` folder and the red4ext launcher compiles it, which needs [redscript for mac](https://github.com/jac3km4/redscript/releases) (`engine/tools/scc`, codeware needs it too)
+- if the script side isnt compiled in, the plugin says so and uses the cutscene V body: an unpatched second PlayerPuppet would attach as a second local player. `body player_without_scripts` skips that check, only for testing at the main menu
 
 the body walks to where the partner is with the games own npc locomotion (walk / run / sprint picked from their speed like nightcoop does), faces where they look, and crouches / aims / reloads when they do. if it gets more than 8 m behind, or its move policy does nothing for 3 s, it gets teleported instead. theres no look or clothes yet.
 

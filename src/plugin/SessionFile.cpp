@@ -49,6 +49,18 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
             words >> setting;
             plan.Bodies.Enabled = setting != "off";
         }
+        else if (keyword == "body")
+        {
+            std::string kind;
+            words >> kind;
+            if (kind != "player" && kind != "npc" && kind != "player_without_scripts")
+            {
+                problem = "session.txt: body takes player or npc, not " + kind;
+                return std::nullopt;
+            }
+            plan.Bodies.PlayerBody = kind != "npc";
+            plan.Bodies.PlayerBodyWithoutScripts = kind == "player_without_scripts";
+        }
         else if (keyword == "body_record")
         {
             words >> plan.Bodies.Record;

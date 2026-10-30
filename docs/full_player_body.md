@@ -31,6 +31,22 @@ and `entityTemplate` at `+0x90` (`src/Red/EntityBuilder.hpp` in codeman101/cp207
 the players own entity is built from the same template, so a partner body has to be picked by its entity id, not its template.
 turning components off after attach (`entIComponent.Toggle`) would be too late for the camera, sound listener and state machine.
 
+**done on mac** (`src/plugin/PartnerBodyBuilder.cpp`, `body player` in session.txt): the hook runs before the job like
+nightcoops and codewares, picks partner bodies by the entity id from their spawn request, checks the root is a PlayerPuppet and:
+- swaps the 25 kept off classes (nightcoops table at `0x1810a9210`, 3 more than listed above: `gameFPPCameraComponent`,
+  `entTriggerActivatorComponent`, `gameinteractionsComponent`) for an empty turned off `entSlotComponent` named
+  `NightCoopRemoved_<name>` with the same id, the way nightcoop does it so the package indices stay put
+- `gameuiCharacterCustomizationBodyPartsController.isHiddenInFpp` off, `gameAttachmentSlots.animParams` with function 0 lose
+  their param name (no more moving items to the first person weapon plane), and `entAnimatedComponent.animParameters` named
+  `renderPlane` (and two more hashes `0x44b42b9359b79f22`, `0x13e09e8b9d7d102f`) get track `0xf6c0a5626de68fc2` and default 0
+- main menu test with a probe: 119 objects, 27 components kept off, 3 parts shown, 5 slot options and 5 render plane params
+  fixed, the body comes in as a `PlayerPuppet`, the tpp event gets queued and the probe stream plays on it (116 played, 0 failed)
+- the body uses the template family our own player came from (codewares `Entity.GetTemplatePath`: ep1 or base, by the partners gender)
+
+still open here: copying our live players anim setup (`rig`, `graph`, `animTags`, `animations` of the `root` animated
+component, after clearing the template extensions), the impostor flag (`+0xB1`, not in rtti), the added sense / hit / body
+controller components, nightcoops `SceneItemPlanes` / `SceneRenderPlanes` on items attached later and the `SetPlaneSetting` event.
+
 ## 2. script callbacks of PlayerPuppet
 
 about 30 scripted callbacks are cut for remote bodies so they dont act like a second local player: `OnStatusEffectApplied`,
@@ -39,12 +55,24 @@ about 30 scripted callbacks are cut for remote bodies so they dont act like a se
 `CheckIfPreventionShouldReact`, the death path, and ~30 ai lookups get pointed at the nearest player.
 
 **mac:** this part can be done without native hooks: redscript `@wrapMethod(PlayerPuppet)` wrappers that skip when the
-puppet is a partner body, plus a native from our plugin that says which entities are partner bodies. needs redscript for mac
-(`engine/tools/scc`), which the RED4ext-macos launcher already runs.
+puppet is a partner body. needs redscript for mac (`engine/tools/scc`), which the RED4ext-macos launcher already runs.
+
+**written, not compile checked yet** (`scripts/NightCoopMac/NightCoopPartnerBodies.reds`): nightcoops table (the one with
+OnRequestComponents / OnGameAttached / OnDetach and the rest, built in `FUN_18021f3c0`) says per function wat a remote
+body does instead: `OnRequestComponents` = ScriptedPuppets + `targeting_primary` + `environmentDamageReceiver` (the vanilla one
+asks for the vehicle cameras as mandatory), `OnGameAttached` = ScriptedPuppets + `UpdateSecondaryVisibilityOffset(false)`,
+`EnableCombatVisibilityDistances(false)`, `SetSenseObjectType(Player)` (no PlayerAttachRequest, input, facts, ui, stat pools),
+`OnDetach` = ScriptedPuppets, status effects / being noticed / laser sight / car hit do nothing, death and item slot callbacks go
+to ScriptedPuppet, the kill / inventory / item appearance / encumbrance ones are skipped, `UpdateLootInteraction` is skipped.
+partner bodies are found by codewares `DynamicEntitySystem.IsTagged(id, n"NightCoopPartnerBody")`, no native of ours needed.
+the plugin checks for the `NightCoopPartnerBodies` script class and keeps to the cutscene V body without it. the police /
+prevention / npc targeting patches of the same table are about gameplay, not the body, and are not here.
 
 ## 3. third person view
 
 `gameActivateTPPRepresentationEvent` queued on `gameTPPRepresentationComponent` once the body is ready. script reachable, easy.
+
+**done on mac:** queued with `Entity.QueueEvent` when the body comes into the world.
 
 ## 4. the anim mirror
 
@@ -97,7 +125,7 @@ and a PlayerAnimWant to us gets logged.
 
 ## order that makes sense from here
 
-1. the real PlayerPuppet body: spawn the players own template, hook `EntityBuilder_ExtractComponentsJob` (verified) to strip the
-   22 components on partner bodies only, queue the TPP event. its graph is the players graph, so the replayed streams land
-2. redscript wrappers for the PlayerPuppet callbacks
-3. find and verify the 11 AnimTap targets in the mac binary, then record our own stream (windows partners see mac players animate)
+1. ~~the real PlayerPuppet body~~ (done, see part 1 and 3)
+2. ~~redscript wrappers for the PlayerPuppet callbacks~~ (written, needs a compile with redscript for mac and a run in the city)
+3. the rest of the body builder (anim setup copy from our player, item planes, senses / hits) and the partners look and gear
+4. find and verify the 11 AnimTap targets in the mac binary, then record our own stream (windows partners see mac players animate)

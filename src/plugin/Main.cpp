@@ -4,12 +4,14 @@
  once the game is in its Running state the relay session starts on its own thread
  evry frame (at most 30 times a second) the main thread samples our player for PlayerState
  remote states drive RemoteBodies (partner bodies like nightcoops puppets) and get logged evry 2 s
+ with 'body player' the entity build job gets hooked at load (PartnerBodyBuilder) so partner PlayerPuppets come out stripped
  game messages from partners go to AnimMirror, which plays their anim streams on their bodies
  session-status.txt next to the plugin always says wats going on (the hosting code ends up there too)
 */
 #include "net/RelaySession.hpp"
 #include "plugin/AnimMirror.hpp"
 #include "plugin/GameVersion.hpp"
+#include "plugin/PartnerBodyBuilder.hpp"
 #include "plugin/PlayerSampler.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/RttiDump.hpp"
@@ -246,6 +248,10 @@ void SetUpSession()
         return;
     }
     Log(Plan->IsHost ? "session.txt: host on " + Plan->Hub : "session.txt: join " + Plan->JoinCode + " on " + Plan->Hub);
+    if (Plan->Bodies.Enabled && Plan->Bodies.PlayerBody)
+    {
+        nightcoop_mac::partner_body_builder::Install(GameSdk, PluginHandle, Log);
+    }
 
     nc::log::SetSink([](nc::log::Level, const char* line) { Log(std::string("net: ") + line); });
     nc::netcrypto::SetDataDirectory((PluginFolder / "data").string());

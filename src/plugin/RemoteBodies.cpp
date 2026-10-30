@@ -1,6 +1,7 @@
 #include "plugin/RemoteBodies.hpp"
 
 #include "plugin/GameCalls.hpp"
+#include "plugin/PartnerBodyBuilder.hpp"
 
 #include <RED4ext/ResourcePath.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
@@ -30,6 +31,11 @@ constexpr uint64_t RetryFailedSpawnAfterMs = 10000;
 constexpr uint64_t WaitForLookMs = 5000;
 const char* FemaleBodyTemplate = "base\\characters\\entities\\player\\player_wa_tpp_cutscene.ent";
 const char* MaleBodyTemplate = "base\\characters\\entities\\player\\player_ma_tpp_cutscene.ent";
+const char* PartnerBodyTag = "NightCoopPartnerBody";
+const char* PlayerBodyTemplates[2][2] = {
+    {"ep1\\characters\\entities\\player\\player_wa_fpp_ep1.ent", "ep1\\characters\\entities\\player\\player_ma_fpp_ep1.ent"},
+    {"base\\characters\\entities\\player\\player_wa_fpp.ent", "base\\characters\\entities\\player\\player_ma_fpp.ent"},
+};
 
 struct EulerAnglesLayout
 {
@@ -127,11 +133,123 @@ bool RemoteBodies::ResolveApi()
         m_givenUp = true;
         return false;
     }
+    ResolveLocomotion();
+    if (m_settings.PlayerBody && m_settings.Template.empty() && m_settings.Record.empty())
+    {
+        ResolvePlayerBodies();
+    }
     m_log("bodies: partner bodies on, " + (!m_settings.Template.empty() ? "template " + m_settings.Template
                                            : !m_settings.Record.empty() ? "record " + m_settings.Record
+                                           : m_playerBodies             ? std::string("a second PlayerPuppet from our own template family")
                                                                         : std::string("the cutscene V template by the partners gender")));
-    ResolveLocomotion();
     return true;
+}
+
+void RemoteBodies::ResolvePlayerBodies()
+{
+    m_getPlayer = RED4ext::CRTTISystem::Get()->GetFunction("GetPlayer;GameInstance");
+    m_getTemplatePath = game::FindFunction("entEntity", "GetTemplatePath");
+    m_queueEvent = game::FindFunction("entEntity", "QueueEvent");
+    m_activateTppEventClass = RED4ext::CRTTISystem::Get()->GetClass("gameActivateTPPRepresentationEvent");
+    const bool callsFit = m_getPlayer && game::ParamsAre(m_getTemplatePath, {}) && game::ReturnIs(m_getTemplatePath, "raRef:CResource") &&
+                          game::ParamsAre(m_queueEvent, {"handle:redEvent"}) && m_activateTppEventClass;
+    if (!callsFit)
+    {
+        m_log("bodies: GetTemplatePath / QueueEvent look different than expected (" + game::Describe(m_getTemplatePath) + ", " +
+              game::Describe(m_queueEvent) + "), using the cutscene V body");
+        return;
+    }
+    if (!RED4ext::CRTTISystem::Get()->GetClass("NightCoopPartnerBodies") && !m_settings.PlayerBodyWithoutScripts)
+    {
+        m_log("bodies: the script side of the PlayerPuppet body is not compiled in (needs redscript for mac and scripts/NightCoopMac), "
+              "using the cutscene V body");
+        return;
+    }
+    if (!partner_body_builder::PrepareForBodies())
+    {
+        m_log("bodies: the body builder is not ready, using the cutscene V body (a second player without it would bring its own camera and hud)");
+        return;
+    }
+    m_playerBodies = true;
+}
+
+bool RemoteBodies::PickPlayerBodyTemplate(bool male, RED4ext::ResourcePath& bodyTemplate, std::string& description)
+{
+    if (m_playerTemplateFamily < 0 && m_ownPlayerTemplate == 0)
+    {
+        RED4ext::ScriptGameInstance gameInstance;
+        RED4ext::Handle<RED4ext::IScriptable> player;
+        RED4ext::StackArgs_t playerArgs;
+        playerArgs.emplace_back(nullptr, &gameInstance);
+        uint64_t ownTemplate = 0;
+        RED4ext::StackArgs_t noArgs;
+        if (!game::CallStatic(m_getPlayer, &player, playerArgs) || !player ||
+            !game::CallMethod(player.instance, m_getTemplatePath, &ownTemplate, noArgs) || ownTemplate == 0)
+        {
+            return false;
+        }
+        for (int family = 0; family < 2 && m_playerTemplateFamily < 0; ++family)
+        {
+            for (const char* path : PlayerBodyTemplates[family])
+            {
+                if (RED4ext::ResourcePath(path).hash == ownTemplate)
+                {
+                    m_playerTemplateFamily = family;
+                }
+            }
+        }
+        char line[200];
+        if (m_playerTemplateFamily < 0)
+        {
+            m_ownPlayerTemplate = ownTemplate;
+            std::snprintf(line, sizeof(line), "bodies: our player template %#llx is none of the known V templates, partner bodies use it as it is",
+                          static_cast<unsigned long long>(ownTemplate));
+        }
+        else
+        {
+            std::snprintf(line, sizeof(line), "bodies: our player comes from the %s player templates, partner bodies get the same family",
+                          m_playerTemplateFamily == 0 ? "ep1" : "base");
+        }
+        m_log(line);
+    }
+    if (m_playerTemplateFamily >= 0)
+    {
+        description = PlayerBodyTemplates[m_playerTemplateFamily][male ? 1 : 0];
+        bodyTemplate = RED4ext::ResourcePath(description.c_str());
+        return true;
+    }
+    char ownText[40];
+    std::snprintf(ownText, sizeof(ownText), "%#llx", static_cast<unsigned long long>(m_ownPlayerTemplate));
+    description = std::string("our own player template ") + ownText;
+    bodyTemplate = RED4ext::ResourcePath(m_ownPlayerTemplate);
+    return true;
+}
+
+bool RemoteBodies::TagAsPartnerBody(RED4ext::IScriptable* spec)
+{
+    auto* property = m_specClass->GetProperty("tags");
+    if (!property || !property->type || std::string(property->type->GetName().ToString()) != "array:CName")
+    {
+        LastPropertyProblem = "tags is missing or no array:CName";
+        return false;
+    }
+    property->GetValuePtr<RED4ext::DynArray<RED4ext::CName>>(spec)->PushBack(RED4ext::CName(PartnerBodyTag));
+    return true;
+}
+
+void RemoteBodies::ShowThirdPerson(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body)
+{
+    auto* activateEvent = static_cast<RED4ext::IScriptable*>(m_activateTppEventClass->CreateInstance(true));
+    if (!activateEvent)
+    {
+        return;
+    }
+    RED4ext::Handle<RED4ext::IScriptable> eventHandle(activateEvent);
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &eventHandle);
+    const bool queued = game::CallMethod(body.instance, m_queueEvent, nullptr, args);
+    m_log("bodies: peer " + std::to_string(peerNumber) + (queued ? " third person view on (ActivateTPPRepresentationEvent queued)"
+                                                                 : " third person view could not be queued"));
 }
 
 bool RemoteBodies::FetchSystems()
@@ -163,6 +281,8 @@ bool RemoteBodies::Spawn(const RemotePeerView& peer, uint64_t nowMs)
     const net::PlayerState& state = peer.State;
     std::string record = m_settings.Record;
     std::string bodyTemplate = m_settings.Template;
+    RED4ext::ResourcePath bodyTemplatePath;
+    bool isPlayerBody = false;
     if (record.empty() && bodyTemplate.empty())
     {
         bool male = peer.IsMale;
@@ -170,7 +290,15 @@ bool RemoteBodies::Spawn(const RemotePeerView& peer, uint64_t nowMs)
         {
             male = m_settings.Gender == "male";
         }
-        bodyTemplate = male ? MaleBodyTemplate : FemaleBodyTemplate;
+        isPlayerBody = m_playerBodies && PickPlayerBodyTemplate(male, bodyTemplatePath, bodyTemplate);
+        if (!isPlayerBody)
+        {
+            bodyTemplate = male ? MaleBodyTemplate : FemaleBodyTemplate;
+        }
+    }
+    if (!bodyTemplate.empty() && !isPlayerBody)
+    {
+        bodyTemplatePath = RED4ext::ResourcePath(bodyTemplate.c_str(), bodyTemplate.size());
     }
     auto* spec = static_cast<RED4ext::IScriptable*>(m_specClass->CreateInstance(true));
     if (!spec)
@@ -195,9 +323,9 @@ bool RemoteBodies::Spawn(const RemotePeerView& peer, uint64_t nowMs)
     }
     else
     {
-        written = written &&
-                  WriteProperty(m_specClass, spec, "templatePath", "raRef:CResource", RED4ext::ResourcePath(bodyTemplate.c_str(), bodyTemplate.size()));
+        written = written && WriteProperty(m_specClass, spec, "templatePath", "raRef:CResource", bodyTemplatePath);
     }
+    written = written && (!isPlayerBody || TagAsPartnerBody(spec));
     if (!written)
     {
         m_log("bodies: DynamicEntitySpec has other fields than expected (" + LastPropertyProblem + "), no partner bodies");
@@ -214,10 +342,15 @@ bool RemoteBodies::Spawn(const RemotePeerView& peer, uint64_t nowMs)
         m_retryAfterMs[peerNumber] = nowMs + RetryFailedSpawnAfterMs;
         return false;
     }
+    if (isPlayerBody)
+    {
+        partner_body_builder::ExpectBody(entityId.hash);
+    }
     auto& puppet = m_puppets[peerNumber];
     puppet = Puppet {};
     puppet.EntityHash = entityId.hash;
     puppet.SpawnRequestedMs = nowMs;
+    puppet.IsPlayerBody = isPlayerBody;
     m_log("bodies: peer " + std::to_string(peerNumber) + " joined, spawning a body from " + (bodyTemplate.empty() ? record : bodyTemplate) +
           (peer.LookKnown || !m_settings.Gender.empty() || !m_settings.Record.empty() || !m_settings.Template.empty() ? "" : " (their look did not come in 5 s)"));
     return true;
@@ -367,6 +500,7 @@ void RemoteBodies::Despawn(uint32_t peerNumber, Puppet& puppet, const char* why)
     RED4ext::StackArgs_t args;
     args.emplace_back(nullptr, &entityId);
     game::CallMethod(m_dynamicEntitySystem.instance, m_deleteEntity, &deleted, args);
+    partner_body_builder::ForgetBody(puppet.EntityHash);
     m_log("bodies: peer " + std::to_string(peerNumber) + " " + why + (deleted ? "" : " (the game had it gone already)"));
 }
 
@@ -555,9 +689,16 @@ void RemoteBodies::Advance(uint32_t peerNumber, Puppet& puppet, const net::Playe
             classChain += (classChain.empty() ? "" : " < ") + std::string(classType->name.ToString());
         }
         m_log("bodies: peer " + std::to_string(peerNumber) + " body is in the world (" + classChain + ")");
+        if (puppet.IsPlayerBody)
+        {
+            ShowThirdPerson(peerNumber, body);
+        }
     }
 
-    ApplyStance(peerNumber, puppet, body, state, nowMs);
+    if (!puppet.IsPlayerBody)
+    {
+        ApplyStance(peerNumber, puppet, body, state, nowMs);
+    }
     const uint32_t movementType = PickMovementType(puppet, state, nowMs);
     RED4ext::Vector4 bodyPosition {};
     RED4ext::StackArgs_t noArgs;
@@ -581,7 +722,8 @@ void RemoteBodies::Advance(uint32_t peerNumber, Puppet& puppet, const net::Playe
     const float driftY = state.PositionY - bodyPosition.Y;
     const float driftZ = state.PositionZ - bodyPosition.Z;
     const float drift = std::sqrt(driftX * driftX + driftY * driftY + driftZ * driftZ);
-    if (drift > SnapBeyondMeters || !EnsurePolicy(peerNumber, puppet, body, state) || PolicyIsStuck(peerNumber, puppet, drift, nowMs))
+    if (puppet.IsPlayerBody || drift > SnapBeyondMeters || !EnsurePolicy(peerNumber, puppet, body, state) ||
+        PolicyIsStuck(peerNumber, puppet, drift, nowMs))
     {
         MoveTo(puppet, body, state);
         ReportPolicy(peerNumber, puppet, drift, nowMs);
@@ -651,6 +793,10 @@ void RemoteBodies::MoveTo(Puppet& puppet, RED4ext::Handle<RED4ext::IScriptable>&
 
 void RemoteBodies::Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers, const net::PlayerState* localPlayer)
 {
+    for (const auto& line : partner_body_builder::TakeLogLines())
+    {
+        m_log(line);
+    }
     if (!m_settings.Enabled || m_givenUp)
     {
         return;
@@ -778,6 +924,9 @@ void RemoteBodies::ForgetAll(const char* why, bool gameIsClosing)
     m_puppets.clear();
     m_retryAfterMs.clear();
     m_firstSeenMs.clear();
+    partner_body_builder::ForgetAllBodies();
+    m_playerTemplateFamily = -1;
+    m_ownPlayerTemplate = 0;
     m_teleportationFacility.Reset();
     m_dynamicEntitySystem.Reset();
 }
