@@ -51,6 +51,9 @@ if(NIGHTCOOP_BUILD_NET)
 
   add_executable(nightcoop_probe tools/probe/NightCoopProbe.cpp)
   target_link_libraries(nightcoop_probe PRIVATE nightcoop_mac_net)
+
+  add_executable(nightcoop_mac_tests tests/SessionMessagesTests.cpp)
+  target_link_libraries(nightcoop_mac_tests PRIVATE nightcoop_mac_net)
 endif()
 
 if(NIGHTCOOP_BUILD_NET AND NIGHTCOOP_BUILD_LOCAL_HUB)

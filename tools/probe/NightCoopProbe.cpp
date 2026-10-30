@@ -1,7 +1,8 @@
 /*
  nightcoop probe
  a headless nightcoop client that talks to a hub like the relay transport does
- host mode opens a session and prints the code. join mode joins by code and sends a Hello
+ host mode opens a session prints the code and answers a Hello with a Welcome
+ join mode joins by code sends a Hello and after the Welcome walks a few PlayerStates along x
  both sides do the CryptoHello link thru HubPayload with the shared netcrypto code
  usage: nightcoop_probe host HUB   or   nightcoop_probe join CODE HUB
  HUB looks like 127.0.0.1:47800#FINGERPRINT
@@ -27,6 +28,7 @@ using namespace nc;
 
 constexpr uint32_t HostHubId = 0;
 constexpr int ProbeSeconds = 20;
+constexpr int WalkSteps = 5;
 
 uint64_t NowMs()
 {
@@ -312,16 +314,74 @@ private:
     void OnSessionMessage(uint32_t fromPeer, const std::vector<uint8_t>& message)
     {
         nightcoop_mac::net::Hello hello;
-        if (nightcoop_mac::net::ReadHello(message, hello))
+        nightcoop_mac::net::Welcome welcome;
+        nightcoop_mac::net::PlayerState state;
+        std::string rejectReason;
+        if (m_isHost && nightcoop_mac::net::ReadHello(message, hello))
         {
             std::printf("probe: Hello from peer %u: protocol %u client %016llx name '%s' game 0x%016llx install %016llx\n",
                         fromPeer, hello.Protocol, static_cast<unsigned long long>(hello.ClientId), hello.Nickname.c_str(),
                         static_cast<unsigned long long>(hello.GameVersion), static_cast<unsigned long long>(hello.InstallId));
-            m_done = true;
-            return;
+            if (hello.Protocol != nightcoop_mac::net::kProtocolVersion)
+            {
+                SendSessionMessage(fromPeer, nightcoop_mac::net::WriteReject("protocol mismatch"));
+                return;
+            }
+            SendSessionMessage(fromPeer, nightcoop_mac::net::WriteWelcome({fromPeer, static_cast<int64_t>(SessionClockMs())}));
+            std::printf("probe: welcomed peer %u\n", fromPeer);
         }
-        std::printf("probe: %zu byte session message from peer %u (type %u)\n", message.size(), fromPeer,
-                    message.size() > 4 ? message[4] : 0);
+        else if (!m_isHost && nightcoop_mac::net::ReadWelcome(message, welcome))
+        {
+            m_myPeerNumber = welcome.PeerNumber;
+            m_clockOffsetMs = welcome.HostClockMs - static_cast<int64_t>(NowMs());
+            std::printf("probe: welcomed as peer %u, clock offset %lld ms\n", welcome.PeerNumber,
+                        static_cast<long long>(m_clockOffsetMs));
+            WalkAlongX();
+        }
+        else if (nightcoop_mac::net::ReadReject(message, rejectReason))
+        {
+            std::printf("probe: rejected: %s\n", rejectReason.c_str());
+            m_done = true;
+        }
+        else if (m_isHost && nightcoop_mac::net::ReadPlayerState(message, state))
+        {
+            const bool sane = nightcoop_mac::net::PlayerStateLooksSane(state);
+            std::printf("probe: PlayerState from peer %u: pos %.2f %.2f %.2f yaw %.1f speed %.2f t %llu%s\n", state.PeerNumber,
+                        state.PositionX, state.PositionY, state.PositionZ, state.Yaw, state.Speed,
+                        static_cast<unsigned long long>(state.SessionTimeMs), sane ? "" : " (refused)");
+            if (++m_statesSeen == WalkSteps)
+            {
+                m_done = true;
+            }
+        }
+        else
+        {
+            std::printf("probe: %zu byte session message from peer %u (type %u)\n", message.size(), fromPeer,
+                        message.size() > 4 ? message[4] : 0);
+        }
+    }
+
+    uint64_t SessionClockMs() const
+    {
+        return static_cast<uint64_t>(static_cast<int64_t>(NowMs()) + m_clockOffsetMs);
+    }
+
+    void WalkAlongX()
+    {
+        for (int step = 0; step < WalkSteps; ++step)
+        {
+            nightcoop_mac::net::PlayerState state;
+            state.PeerNumber = m_myPeerNumber;
+            state.PositionX = -1300.0f + step * 0.5f;
+            state.PositionY = 1200.0f;
+            state.PositionZ = 18.0f;
+            state.Yaw = 90.0f;
+            state.Speed = 5.0f;
+            state.SessionTimeMs = SessionClockMs();
+            SendSessionMessage(HostHubId, nightcoop_mac::net::WritePlayerState(state));
+        }
+        std::printf("probe: sent %d player states\n", WalkSteps);
+        m_done = true;
     }
 
     bool m_isHost;
@@ -332,6 +392,9 @@ private:
     ENetHost* m_client = nullptr;
     ENetPeer* m_hubPeer = nullptr;
     bool m_done = false;
+    uint32_t m_myPeerNumber = 0;
+    int64_t m_clockOffsetMs = 0;
+    int m_statesSeen = 0;
     uint64_t m_clientId = (static_cast<uint64_t>(std::rand()) << 32) ^ static_cast<uint64_t>(NowMs());
     uint64_t m_gameVersion = 0x000300000058B49BULL;
 };

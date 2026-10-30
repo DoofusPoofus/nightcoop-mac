@@ -7,3 +7,5 @@ data/
 *.log
 localhub/
 probe-data/
+
+work/
