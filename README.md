@@ -21,7 +21,8 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | partner body in the world (npc body, spawn / teleport / cull / despawn like nightcoops puppets) | works at the main menu with a probe, not tried in the city yet |
 | partner body walks / runs / sprints with the games move policies, crouch / aim / reload stance (nightcoops npc body mode) | runs at the main menu (the menu world never moves npcs so it falls back to teleport there), not tried in the city yet |
 | our crouch and sprint sent in PlayerState flags | works |
-| full player body with nightcoops anim mirror, look, clothes, weapons | not yet |
+| V body (cutscene template by the partners gender from PlayerCustomization) | spawns at the main menu |
+| full player body with nightcoops anim mirror, look, clothes, weapons | not yet, see docs/full_player_body.md |
 | everything else (npcs quests vehicles dialog votes loot ...) | not yet |
 
 NightCoop is in beta and its protocol changes with its releases, so this has to keep up with it. it targets NightCoop 0.1.2 (protocol 143) rn.
@@ -49,13 +50,16 @@ build/nightcoop_mac_tests
 
 partner bodies need [Codeware](https://github.com/codeman101/cp2077-codeware) for mac in the game (its in the RED4ext-macos release). nightcoop spawns its bodies with native calls that arent verified on mac, so the port uses codewares `DynamicEntitySystem` for that part. movement goes thru the same `gameTeleportationFacility.Teleport` nightcoop uses, with its thresholds (2 cm / 0.5 deg), and bodies show up within 150 m and go away past 200 m like in nightcoop.
 
-the body is an npc for now (default `Character.Panam`, which is nightcoops old default record too). change it in `session.txt`:
+the body is nightcoops fallback body: the cutscene V template (`player_wa_tpp_cutscene.ent`, or `player_ma_` when the partners look says male). on mac it spawns as an npc puppet so it can walk and crouch with the games own npc locomotion. like nightcoop it waits up to 5 s for the partners look before it spawns. change it in `session.txt`:
 
 ```
+body_gender male
 body_record Character.Judy
 body_template base\characters\entities\...\some.ent
 bodies off
 ```
+
+the full player body (a second PlayerPuppet with nightcoops anim mirror) is not ported yet, `docs/full_player_body.md` says wat it needs.
 
 the body walks to where the partner is with the games own npc locomotion (walk / run / sprint picked from their speed like nightcoop does), faces where they look, and crouches / aims / reloads when they do. if it gets more than 8 m behind, or its move policy does nothing for 3 s, it gets teleported instead. theres no look or clothes yet.
 

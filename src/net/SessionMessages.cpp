@@ -183,6 +183,18 @@ bool PlayerStateLooksSane(PlayerState& state)
     return true;
 }
 
+bool ReadCustomizationGender(const std::vector<uint8_t>& message, bool& isMale)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (!OpenMessage(reader, nc::proto::MsgType::PlayerCustomization) || reader.GetU8() != 1)
+    {
+        return false;
+    }
+    reader.GetU32();
+    isMale = reader.GetU8() != 0;
+    return reader.Ok();
+}
+
 std::vector<uint8_t> WriteReject(const std::string& reason)
 {
     nc::proto::Writer writer(nc::proto::MsgType::Reject);

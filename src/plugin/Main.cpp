@@ -140,10 +140,12 @@ void TakeRemoteStates(uint64_t nowMs)
 
 std::vector<nightcoop_mac::RemotePeerView> RemotePeerViews()
 {
+    const auto genders = Session->PeerGenders();
     std::vector<nightcoop_mac::RemotePeerView> views;
     for (const auto& [peerNumber, sighting] : LatestRemoteStates)
     {
-        views.push_back({peerNumber, sighting.State});
+        const auto gender = genders.find(peerNumber);
+        views.push_back({peerNumber, sighting.State, gender != genders.end(), gender != genders.end() && gender->second});
     }
     return views;
 }

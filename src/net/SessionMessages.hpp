@@ -9,6 +9,7 @@
    Flags comes from the players state machine: bit0 crouch (locomotion Crouch / CrouchSprint / CrouchDodge),
    bit1 sprint, bit2 or bit6 aiming, bit7 reloading. the three state bytes after it are the raw gamePSM
    locomotion / upper body / weapon states
+ PlayerCustomization (33): u8 version (1) | u32 | u8 is male | u8 | the look lists. only the gender is read here
 */
 #pragma once
 
@@ -74,6 +75,8 @@ bool ReadWelcome(const std::vector<uint8_t>& message, Welcome& welcome);
 std::vector<uint8_t> WritePlayerState(const PlayerState& state);
 bool ReadPlayerState(const std::vector<uint8_t>& message, PlayerState& state);
 bool PlayerStateLooksSane(PlayerState& state);
+
+bool ReadCustomizationGender(const std::vector<uint8_t>& message, bool& isMale);
 
 std::vector<uint8_t> WriteReject(const std::string& reason);
 bool ReadReject(const std::vector<uint8_t>& message, std::string& reason);

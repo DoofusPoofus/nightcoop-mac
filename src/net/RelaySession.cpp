@@ -92,6 +92,7 @@ bool RelaySession::Start(const SessionConfig& config)
         m_status = SessionStatus {};
         m_status.Running = true;
         m_remoteStates.clear();
+        m_peerIsMale.clear();
         m_hasNewLocalState = false;
     }
     m_thread = std::thread(&RelaySession::NetworkThread, this);
@@ -114,12 +115,24 @@ void RelaySession::SetLocalPlayerState(const PlayerState& state)
     m_hasNewLocalState = true;
 }
 
+void RelaySession::SendToSession(const std::vector<uint8_t>& message)
+{
+    std::lock_guard guard(m_lock);
+    m_outgoingMessages.push_back(message);
+}
+
 std::vector<PlayerState> RelaySession::TakeRemotePlayerStates()
 {
     std::lock_guard guard(m_lock);
     std::vector<PlayerState> taken;
     taken.swap(m_remoteStates);
     return taken;
+}
+
+std::map<uint32_t, bool> RelaySession::PeerGenders() const
+{
+    std::lock_guard guard(m_lock);
+    return m_peerIsMale;
 }
 
 SessionStatus RelaySession::GetStatus() const
@@ -253,6 +266,30 @@ void RelaySession::NetworkThread()
         {
             setProblem("the host refused us: " + rejectReason);
             m_stopRequested = true;
+        }
+        else if (bool isMale = false; ReadCustomizationGender(message, isMale))
+        {
+            if (m_config.IsHost)
+            {
+                if (!net.WelcomedGuests[fromPeer])
+                {
+                    return;
+                }
+                for (const auto& [guestId, welcomed] : net.WelcomedGuests)
+                {
+                    if (welcomed && guestId != fromPeer)
+                    {
+                        sendSessionMessage(guestId, message, true);
+                    }
+                }
+            }
+            const uint32_t lookOwner = m_config.IsHost ? fromPeer : HostHubId;
+            std::lock_guard guard(m_lock);
+            if (!m_peerIsMale.count(lookOwner) || m_peerIsMale[lookOwner] != isMale)
+            {
+                m_log("session: peer " + std::to_string(lookOwner) + " look came in (" + (isMale ? "male" : "female") + ")");
+            }
+            m_peerIsMale[lookOwner] = isMale;
         }
         else if (ReadPlayerState(message, state))
         {
@@ -402,6 +439,10 @@ void RelaySession::NetworkThread()
             const uint32_t peerId = reader.GetU32();
             net.Links.erase(peerId);
             net.WelcomedGuests.erase(peerId);
+            {
+                std::lock_guard guard(m_lock);
+                m_peerIsMale.erase(peerId);
+            }
             m_log("session: peer " + std::to_string(peerId) + " left");
             updatePeerCount();
             break;
@@ -510,6 +551,29 @@ void RelaySession::NetworkThread()
                 flushResolvedLink(peerId, link);
             }
             sendLocalStateIfDue();
+            if (net.InSession)
+            {
+                std::vector<std::vector<uint8_t>> outgoing;
+                {
+                    std::lock_guard guard(m_lock);
+                    outgoing.swap(m_outgoingMessages);
+                }
+                for (const auto& message : outgoing)
+                {
+                    if (!m_config.IsHost)
+                    {
+                        sendSessionMessage(HostHubId, message, true);
+                        continue;
+                    }
+                    for (const auto& [guestId, welcomed] : net.WelcomedGuests)
+                    {
+                        if (welcomed)
+                        {
+                            sendSessionMessage(guestId, message, true);
+                        }
+                    }
+                }
+            }
         }
         if (net.HubConnected)
         {

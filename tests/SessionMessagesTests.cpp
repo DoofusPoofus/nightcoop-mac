@@ -64,6 +64,16 @@ int main()
     brokenYaw.Yaw = NAN;
     Check(PlayerStateLooksSane(brokenYaw) && brokenYaw.Yaw == 0.0f, "a broken yaw gets zeroed");
 
+    const std::vector<uint8_t> maleLook = {0x50, 0x4F, 0x43, 0x4E, 33, 1, 0, 0, 0, 0, 1, 0};
+    bool isMale = false;
+    Check(ReadCustomizationGender(maleLook, isMale) && isMale, "customization gender male");
+    std::vector<uint8_t> femaleLook = maleLook;
+    femaleLook[10] = 0;
+    Check(ReadCustomizationGender(femaleLook, isMale) && !isMale, "customization gender female");
+    std::vector<uint8_t> otherVersion = maleLook;
+    otherVersion[5] = 2;
+    Check(!ReadCustomizationGender(otherVersion, isMale), "customization of an unknown version is skipped");
+
     std::printf("%s\n", FailedChecks ? "some checks failed" : "all session message checks passed");
     return FailedChecks ? 1 : 0;
 }

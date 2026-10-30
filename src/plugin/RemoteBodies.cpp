@@ -27,6 +27,9 @@ constexpr uint32_t NpcUpperBodyNormal = 6;
 constexpr uint32_t NpcUpperBodyReload = 8;
 constexpr uint64_t GiveUpSpawningAfterMs = 30000;
 constexpr uint64_t RetryFailedSpawnAfterMs = 10000;
+constexpr uint64_t WaitForLookMs = 5000;
+const char* FemaleBodyTemplate = "base\\characters\\entities\\player\\player_wa_tpp_cutscene.ent";
+const char* MaleBodyTemplate = "base\\characters\\entities\\player\\player_ma_tpp_cutscene.ent";
 
 struct EulerAnglesLayout
 {
@@ -124,7 +127,9 @@ bool RemoteBodies::ResolveApi()
         m_givenUp = true;
         return false;
     }
-    m_log("bodies: partner bodies on, " + (m_settings.Template.empty() ? "record " + m_settings.Record : "template " + m_settings.Template));
+    m_log("bodies: partner bodies on, " + (!m_settings.Template.empty() ? "template " + m_settings.Template
+                                           : !m_settings.Record.empty() ? "record " + m_settings.Record
+                                                                        : std::string("the cutscene V template by the partners gender")));
     ResolveLocomotion();
     return true;
 }
@@ -152,8 +157,21 @@ bool RemoteBodies::FetchSystems()
     return game::CallMethod(m_dynamicEntitySystem.instance, m_isReady, &ready, args) && ready;
 }
 
-bool RemoteBodies::Spawn(uint32_t peerNumber, const net::PlayerState& state, uint64_t nowMs)
+bool RemoteBodies::Spawn(const RemotePeerView& peer, uint64_t nowMs)
 {
+    const uint32_t peerNumber = peer.PeerNumber;
+    const net::PlayerState& state = peer.State;
+    std::string record = m_settings.Record;
+    std::string bodyTemplate = m_settings.Template;
+    if (record.empty() && bodyTemplate.empty())
+    {
+        bool male = peer.IsMale;
+        if (m_settings.Gender == "male" || m_settings.Gender == "female")
+        {
+            male = m_settings.Gender == "male";
+        }
+        bodyTemplate = male ? MaleBodyTemplate : FemaleBodyTemplate;
+    }
     auto* spec = static_cast<RED4ext::IScriptable*>(m_specClass->CreateInstance(true));
     if (!spec)
     {
@@ -171,15 +189,14 @@ bool RemoteBodies::Spawn(uint32_t peerNumber, const net::PlayerState& state, uin
                    WriteProperty(m_specClass, spec, "active", "Bool", true) &&
                    WriteProperty(m_specClass, spec, "persistState", "Bool", false) &&
                    WriteProperty(m_specClass, spec, "persistSpawn", "Bool", false);
-    if (m_settings.Template.empty())
+    if (bodyTemplate.empty())
     {
-        written = written && WriteProperty(m_specClass, spec, "recordID", "TweakDBID",
-                                           RED4ext::TweakDBID(m_settings.Record.c_str(), m_settings.Record.size()));
+        written = written && WriteProperty(m_specClass, spec, "recordID", "TweakDBID", RED4ext::TweakDBID(record.c_str(), record.size()));
     }
     else
     {
-        written = written && WriteProperty(m_specClass, spec, "templatePath", "ResRef",
-                                           RED4ext::ResourcePath(m_settings.Template.c_str(), m_settings.Template.size()));
+        written = written &&
+                  WriteProperty(m_specClass, spec, "templatePath", "raRef:CResource", RED4ext::ResourcePath(bodyTemplate.c_str(), bodyTemplate.size()));
     }
     if (!written)
     {
@@ -201,7 +218,8 @@ bool RemoteBodies::Spawn(uint32_t peerNumber, const net::PlayerState& state, uin
     puppet = Puppet {};
     puppet.EntityHash = entityId.hash;
     puppet.SpawnRequestedMs = nowMs;
-    m_log("bodies: peer " + std::to_string(peerNumber) + " joined, spawning a body");
+    m_log("bodies: peer " + std::to_string(peerNumber) + " joined, spawning a body from " + (bodyTemplate.empty() ? record : bodyTemplate) +
+          (peer.LookKnown || !m_settings.Gender.empty() || !m_settings.Record.empty() || !m_settings.Template.empty() ? "" : " (their look did not come in 5 s)"));
     return true;
 }
 
@@ -531,7 +549,12 @@ void RemoteBodies::Advance(uint32_t peerNumber, Puppet& puppet, const net::Playe
             return;
         }
         puppet.InWorld = true;
-        m_log("bodies: peer " + std::to_string(peerNumber) + " body is in the world");
+        std::string classChain;
+        for (auto* classType = bodyClass; classType; classType = classType->parent)
+        {
+            classChain += (classChain.empty() ? "" : " < ") + std::string(classType->name.ToString());
+        }
+        m_log("bodies: peer " + std::to_string(peerNumber) + " body is in the world (" + classChain + ")");
     }
 
     ApplyStance(peerNumber, puppet, body, state, nowMs);
@@ -657,7 +680,9 @@ void RemoteBodies::Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers
     for (const auto& peer : peers)
     {
         present[peer.PeerNumber] = &peer.State;
+        m_firstSeenMs.try_emplace(peer.PeerNumber, nowMs);
     }
+    std::erase_if(m_firstSeenMs, [&present](const auto& entry) { return !present.count(entry.first); });
 
     for (auto puppetEntry = m_puppets.begin(); puppetEntry != m_puppets.end();)
     {
@@ -687,9 +712,15 @@ void RemoteBodies::Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers
         ++puppetEntry;
     }
 
-    for (const auto& [peerNumber, state] : present)
+    for (const auto& peer : peers)
     {
-        if (m_puppets.count(peerNumber) || DistanceBetween(*state, *localPlayer) > SpawnWithinMeters)
+        const uint32_t peerNumber = peer.PeerNumber;
+        if (m_puppets.count(peerNumber) || DistanceBetween(peer.State, *localPlayer) > SpawnWithinMeters)
+        {
+            continue;
+        }
+        const bool needsLook = m_settings.Record.empty() && m_settings.Template.empty() && m_settings.Gender.empty();
+        if (needsLook && !peer.LookKnown && nowMs - m_firstSeenMs[peerNumber] < WaitForLookMs)
         {
             continue;
         }
@@ -698,7 +729,7 @@ void RemoteBodies::Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers
         {
             continue;
         }
-        if (!Spawn(peerNumber, *state, nowMs) && m_givenUp)
+        if (!Spawn(peer, nowMs) && m_givenUp)
         {
             return;
         }
@@ -733,6 +764,7 @@ void RemoteBodies::ForgetAll(const char* why, bool gameIsClosing)
     }
     m_puppets.clear();
     m_retryAfterMs.clear();
+    m_firstSeenMs.clear();
     m_teleportationFacility.Reset();
     m_dynamicEntitySystem.Reset();
 }

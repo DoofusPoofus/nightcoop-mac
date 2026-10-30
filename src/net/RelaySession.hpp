@@ -5,6 +5,7 @@
  host: answers Hello with Welcome, forwards each guests PlayerState to the other guests and sends its own to all
  guest: sends Hello after the link is up and its PlayerState to the host, gets evryone elses from the host
  PlayerStates go unreliable on channel 1, evrything else reliable on channel 0
+ PlayerCustomization gets forwarded by the host like the states and each partners gender is kept for their body
 */
 #pragma once
 
@@ -57,7 +58,9 @@ public:
     void Stop();
 
     void SetLocalPlayerState(const PlayerState& state);
+    void SendToSession(const std::vector<uint8_t>& message);
     std::vector<PlayerState> TakeRemotePlayerStates();
+    std::map<uint32_t, bool> PeerGenders() const;
     SessionStatus GetStatus() const;
     uint64_t SessionClockMs() const;
 
@@ -78,5 +81,7 @@ private:
     bool m_hasNewLocalState = false;
     PlayerState m_localState;
     std::vector<PlayerState> m_remoteStates;
+    std::map<uint32_t, bool> m_peerIsMale;
+    std::vector<std::vector<uint8_t>> m_outgoingMessages;
 };
 }

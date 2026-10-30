@@ -13,8 +13,11 @@
    despawn when they leave (no state for 5 s), forget it when our world goes away (it goes with the world)
  nightcoop spawns thru native calls on gameIDynamicEntityIDSystem / gameIEntityStubSystem / gameIPopulationSystem.
  those slots are not verified on mac so the body comes from codewares DynamicEntitySystem instead
- (CreateEntity / GetEntity / DeleteEntity), which needs codeware for mac installed. the body is an npc record
- or a template like nightcoops npc body mode, not the full player body with the anim mirror (not ported yet)
+ (CreateEntity / GetEntity / DeleteEntity), which needs codeware for mac installed
+ the body is nightcoops fallback body: the cutscene V template (player_wa_tpp_cutscene.ent or player_ma_ by the partners
+ gender from their PlayerCustomization), which spawns as an NPCPuppet on mac so the npc locomotion and stance work on it.
+ like nightcoop a body waits up to 5 s for the partners look before it spawns. body_record / body_template override it.
+ the full PlayerPuppet body with the anim mirror is not ported (its build and anim hooks are native)
  when the game closes the handles we hold get leaked on purpose, the game tears its objects down first
 */
 #pragma once
@@ -34,14 +37,17 @@ namespace nightcoop_mac
 struct BodySettings
 {
     bool Enabled = true;
-    std::string Record = "Character.Panam";
+    std::string Record;
     std::string Template;
+    std::string Gender;
 };
 
 struct RemotePeerView
 {
     uint32_t PeerNumber = 0;
     net::PlayerState State;
+    bool LookKnown = false;
+    bool IsMale = false;
 };
 
 class RemoteBodies
@@ -85,7 +91,7 @@ private:
     bool ResolveApi();
     void ResolveLocomotion();
     bool FetchSystems();
-    bool Spawn(uint32_t peerNumber, const net::PlayerState& state, uint64_t nowMs);
+    bool Spawn(const RemotePeerView& peer, uint64_t nowMs);
     void Despawn(uint32_t peerNumber, Puppet& puppet, const char* why);
     void Advance(uint32_t peerNumber, Puppet& puppet, const net::PlayerState& state, uint64_t nowMs);
     void MoveTo(Puppet& puppet, RED4ext::Handle<RED4ext::IScriptable>& body, const net::PlayerState& state);
@@ -142,5 +148,6 @@ private:
 
     std::map<uint32_t, Puppet> m_puppets;
     std::map<uint32_t, uint64_t> m_retryAfterMs;
+    std::map<uint32_t, uint64_t> m_firstSeenMs;
 };
 }

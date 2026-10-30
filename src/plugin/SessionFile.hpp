@@ -5,8 +5,9 @@
    name NICK             the name others see (optional)
    sampler off           dont read our own player (testing, also means no partner bodies)
    bodies off            dont spawn partner bodies
-   body_record REC       the npc record partner bodies are spawned from (default Character.Panam)
-   body_template PATH    spawn partner bodies from an .ent template instead of a record
+   body_gender male|female  force the V body gender instead of taking it from the partners look
+   body_record REC       spawn partner bodies from an npc record instead of the cutscene V
+   body_template PATH    spawn partner bodies from another .ent template
  HUB is host:port#FINGERPRINT. lines starting with # are skipped. no file means the plugin just idles
 */
 #pragma once

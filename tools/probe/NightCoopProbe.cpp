@@ -2,7 +2,8 @@
  nightcoop probe
  a headless nightcoop client on the same RelaySession the plugin uses
  host mode opens a session prints the code and prints evry PlayerState it gets
- join mode joins by code and walks a few PlayerStates along x (from X Y Z if given), crouching on and off
+ join mode joins by code, says its look is male, then walks a few PlayerStates along x (from X Y Z if given)
+ crouching on and off
  watch mode joins by code and prints evry PlayerState it gets for a while
  usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z] | watch CODE HUB [seconds]
  HUB looks like 127.0.0.1:47900#FINGERPRINT
@@ -104,6 +105,7 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
         std::this_thread::sleep_for(20ms);
     }
     std::printf("probe: in the session as peer %u\n", session.GetStatus().MyPeerNumber);
+    session.SendToSession({0x50, 0x4F, 0x43, 0x4E, 33, 1, 0, 0, 0, 0, 1, 0});
     for (int step = 0; step < WalkSteps; ++step)
     {
         nightcoop_mac::net::PlayerState state;

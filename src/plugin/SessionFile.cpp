@@ -58,6 +58,10 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
         {
             std::getline(words >> std::ws, plan.Bodies.Template);
         }
+        else if (keyword == "body_gender")
+        {
+            words >> plan.Bodies.Gender;
+        }
         else
         {
             problem = "unknown line in session.txt: " + line;
