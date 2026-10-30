@@ -21,9 +21,10 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | tested against a real windows NightCoop | not yet |
 | net code running inside the game (host / join from session.txt or the launcher) | works against a local hub |
 | our own position + yaw sent as PlayerState | works |
-| partner body in the world (npc body, spawn / teleport / cull / despawn like nightcoops puppets) | works at the main menu with a probe, not tried in the city yet |
+| partner body in the world (npc body, spawn / teleport / cull / despawn like nightcoops puppets) | worked in the intro world with a probe, not tried in a loaded save yet (bodies are kept out of the main menu now) |
 | partner body walks / runs / sprints with the games move policies, crouch / aim / reload stance (nightcoops npc body mode) | runs at the main menu (the menu world never moves npcs so it falls back to teleport there), not tried in the city yet |
 | our crouch and sprint sent in PlayerState flags | works |
+| session flow: no bodies in the main menu, bodies deleted before a session ends | works (menu checked with a probe for 2.5 min) |
 | V body (cutscene template by the partners gender from PlayerCustomization) | spawns at the main menu |
 | real PlayerPuppet partner body (`body player`): entity build hook keeps the 25 local player components off it, first person fixes, third person view, anim stream on the players own graph | spawns and plays a probe stream at the main menu (tested with `body player_without_scripts`), its script side needs redscript for mac and is not compile checked yet |
 | look, clothes, weapons on the partner body | not yet, see docs/full_player_body.md |
@@ -53,7 +54,7 @@ build/nightcoop_mac_game_tests
 
 ## partner bodies
 
-partner bodies need [Codeware](https://github.com/codeman101/cp2077-codeware) for mac in the game (its in the RED4ext-macos release). nightcoop spawns its bodies with native calls that arent verified on mac, so the port uses codewares `DynamicEntitySystem` for that part. movement goes thru the same `gameTeleportationFacility.Teleport` nightcoop uses, with its thresholds (2 cm / 0.5 deg), and bodies show up within 150 m and go away past 200 m like in nightcoop.
+partner bodies need [Codeware](https://github.com/codeman101/cp2077-codeware) for mac in the game (its in the RED4ext-macos release) and [redscript for mac](https://github.com/jac3km4/redscript/releases) (`engine/tools/scc`), and they only show up in a loaded save. like nightcoops SessionFlow the plugin keeps them out of the main menu: the menu has no character look and a body copying it crashes the game. `scripts/NightCoopMac/NightCoopSessionFlow.reds` tells the plugin which session runs (codewares session events) and deletes the bodies before any session ends. nightcoop spawns its bodies with native calls that arent verified on mac, so the port uses codewares `DynamicEntitySystem` for that part. movement goes thru the same `gameTeleportationFacility.Teleport` nightcoop uses, with its thresholds (2 cm / 0.5 deg), and bodies show up within 150 m and go away past 200 m like in nightcoop.
 
 the body is nightcoops fallback body: the cutscene V template (`player_wa_tpp_cutscene.ent`, or `player_ma_` when the partners look says male). on mac it spawns as an npc puppet so it can walk and crouch with the games own npc locomotion. like nightcoop it waits up to 5 s for the partners look before it spawns. change it in `session.txt`:
 

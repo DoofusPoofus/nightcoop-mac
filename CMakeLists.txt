@@ -52,7 +52,8 @@ add_library(NightCoopMac SHARED
   src/plugin/PlayerSampler.cpp
   src/plugin/RemoteBodies.cpp
   src/plugin/RttiDump.cpp
-  src/plugin/SessionFile.cpp)
+  src/plugin/SessionFile.cpp
+  src/plugin/SessionFlow.cpp)
 target_include_directories(NightCoopMac PRIVATE src)
 target_link_libraries(NightCoopMac PRIVATE nightcoop_mac_net RED4ext::SDK "-framework CoreFoundation")
 target_link_options(NightCoopMac PRIVATE -Wl,-dead_strip)

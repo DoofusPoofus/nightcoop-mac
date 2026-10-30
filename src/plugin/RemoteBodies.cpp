@@ -794,7 +794,7 @@ void RemoteBodies::MoveTo(Puppet& puppet, RED4ext::Handle<RED4ext::IScriptable>&
     ++puppet.Teleports;
 }
 
-void RemoteBodies::Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers, const net::PlayerState* localPlayer)
+void RemoteBodies::Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers, const net::PlayerState* localPlayer, bool bodiesAllowed)
 {
     for (const auto& line : partner_body_builder::TakeLogLines())
     {
@@ -810,6 +810,18 @@ void RemoteBodies::Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers
         {
             ForgetAll("forgotten, the world is unloading");
         }
+        return;
+    }
+    if (!bodiesAllowed)
+    {
+        if (!m_puppets.empty() && m_dynamicEntitySystem)
+        {
+            for (auto& [peerNumber, puppet] : m_puppets)
+            {
+                Despawn(peerNumber, puppet, "body removed, no partner bodies outside a loaded save");
+            }
+        }
+        m_puppets.clear();
         return;
     }
     if (peers.empty() && m_puppets.empty())

@@ -5,6 +5,7 @@
  evry frame (at most 30 times a second) the main thread samples our player for PlayerState
  remote states drive RemoteBodies (partner bodies like nightcoops puppets) and get logged evry 2 s
  with 'body player' the entity build job gets hooked at load (PartnerBodyBuilder) so partner PlayerPuppets come out stripped
+ SessionFlow says when bodies may exist at all: only in a loaded save, never in the main menu or a session thats ending
  game messages from partners go to AnimMirror, which plays their anim streams on their bodies
  session-status.txt next to the plugin always says wats going on (the hosting code ends up there too)
 */
@@ -15,6 +16,7 @@
 #include "plugin/PlayerSampler.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/RttiDump.hpp"
+#include "plugin/SessionFlow.hpp"
 #include "plugin/SessionFile.hpp"
 
 #include <Log.hpp>
@@ -50,6 +52,7 @@ std::unique_ptr<nightcoop_mac::net::RelaySession> Session;
 std::unique_ptr<nightcoop_mac::PlayerSampler> Sampler;
 std::unique_ptr<nightcoop_mac::RemoteBodies> Bodies;
 std::unique_ptr<nightcoop_mac::AnimMirror> Mirror;
+std::unique_ptr<nightcoop_mac::SessionFlow> Flow;
 nightcoop_mac::net::PlayerState LastLocalState;
 bool LocalStateValid = false;
 struct RemotePeerSighting
@@ -131,6 +134,7 @@ bool OnRunningEnter(RED4ext::CGameApplication*)
     Sampler = std::make_unique<nightcoop_mac::PlayerSampler>(Log);
     Bodies = std::make_unique<nightcoop_mac::RemoteBodies>(Log, Plan->Bodies);
     Mirror = std::make_unique<nightcoop_mac::AnimMirror>(Log);
+    Flow = std::make_unique<nightcoop_mac::SessionFlow>(Log);
     Session->Start(config);
     return true;
 }
@@ -199,7 +203,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             LastLocalState = localState;
             Session->SetLocalPlayerState(localState);
         }
-        Bodies->Tick(nowMs, RemotePeerViews(), LocalStateValid ? &LastLocalState : nullptr);
+        Bodies->Tick(nowMs, RemotePeerViews(), LocalStateValid ? &LastLocalState : nullptr, Flow->BodiesAllowed(nowMs));
         Mirror->Tick(nowMs, *Bodies, *Session);
     }
     ReportRemoteStates(nowMs);

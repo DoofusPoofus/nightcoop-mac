@@ -1,6 +1,7 @@
 /*
  small helpers for calling game functions thru rtti from the main thread
  statics get called with no context and methods on an instance we already hold a game made handle for
+ FindFunction takes the rtti name and falls back to the short name, scripted ones are listed as Name;Params
  never wrap a raw game pointer in a new Handle here: on mac that starts a second refcount and the game
  object dies when ours does (thats what crashed the first player sampler)
  ParamsAre checks the type names of a functions params against what the port expects so a changed

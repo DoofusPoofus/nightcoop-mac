@@ -11,6 +11,7 @@
    stance like nightcoops ApplyStance: the partners crouch / aim / reload flags become an NPCStateChangeSignal
    (stance Crouch or Stand, upper body Aim / Reload / Normal) on the bodys signal table
    despawn when they leave (no state for 5 s), forget it when our world goes away (it goes with the world)
+ bodies only exist while SessionFlow allows them (a loaded save): in the main menu or a session thats ending they get removed
  nightcoop spawns thru native calls on gameIDynamicEntityIDSystem / gameIEntityStubSystem / gameIPopulationSystem.
  those slots are not verified on mac so the body comes from codewares DynamicEntitySystem instead
  (CreateEntity / GetEntity / DeleteEntity), which needs codeware for mac installed
@@ -67,7 +68,7 @@ public:
 
     RemoteBodies(LogFunction log, BodySettings settings);
 
-    void Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers, const net::PlayerState* localPlayer);
+    void Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers, const net::PlayerState* localPlayer, bool bodiesAllowed);
     void RemoveAll();
     void ForgetAll(const char* why, bool gameIsClosing = false);
     bool GetBody(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body);

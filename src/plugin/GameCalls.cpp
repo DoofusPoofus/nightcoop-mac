@@ -13,7 +13,30 @@ std::string TypeName(RED4ext::rtti::IType* type)
 RED4ext::CBaseFunction* FindFunction(const char* className, const char* functionName)
 {
     auto* classType = RED4ext::CRTTISystem::Get()->GetClass(className);
-    return classType ? classType->GetFunction(functionName) : nullptr;
+    if (!classType)
+    {
+        return nullptr;
+    }
+    if (auto* function = classType->GetFunction(functionName))
+    {
+        return function;
+    }
+    const RED4ext::CName shortName(functionName);
+    for (uint32_t index = 0; index < classType->funcs.Size(); ++index)
+    {
+        if (classType->funcs[index]->shortName == shortName)
+        {
+            return classType->funcs[index];
+        }
+    }
+    for (uint32_t index = 0; index < classType->staticFuncs.Size(); ++index)
+    {
+        if (classType->staticFuncs[index]->shortName == shortName)
+        {
+            return classType->staticFuncs[index];
+        }
+    }
+    return nullptr;
 }
 
 bool ParamsAre(RED4ext::CBaseFunction* function, std::initializer_list<const char*> typeNames)
