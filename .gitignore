@@ -1,0 +1,7 @@
+binaries/
+decomp/
+ghidra-project/
+third_party/
+build/
+data/
+*.log
