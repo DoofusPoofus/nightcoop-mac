@@ -43,6 +43,14 @@ if(NIGHTCOOP_BUILD_NET)
   target_include_directories(nightcoop_shared PUBLIC ${HUB_SOURCE}/src)
   target_link_libraries(nightcoop_shared PUBLIC enet monocypher)
   set_target_properties(nightcoop_shared PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+  add_library(nightcoop_mac_net STATIC src/net/SessionMessages.cpp)
+  target_include_directories(nightcoop_mac_net PUBLIC src)
+  target_link_libraries(nightcoop_mac_net PUBLIC nightcoop_shared)
+  set_target_properties(nightcoop_mac_net PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+  add_executable(nightcoop_probe tools/probe/NightCoopProbe.cpp)
+  target_link_libraries(nightcoop_probe PRIVATE nightcoop_mac_net)
 endif()
 
 if(NIGHTCOOP_BUILD_NET AND NIGHTCOOP_BUILD_LOCAL_HUB)
