@@ -15,6 +15,9 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | plugin loads in the mac game (steam 2.5.0) | works |
 | hub session create / join, encrypted links (relay only) | works against a local hub |
 | Hello / Welcome / Reject / PlayerState messages (protocol 143, NightCoop 0.1.2) | works between two mac probes |
+| Game envelope bus (game messages wrapped, host forwards them to one peer or evryone but the sender, sender check) | works between probes and the game |
+| partner anim streams (PlayerAnim / PlayerAnimWant / PlayerAnimSetup) decoded and played on their body thru the anim controller setters | works at the main menu with a probe stream |
+| our own anim stream for partners | not yet (needs native hooks, see docs/full_player_body.md) |
 | tested against a real windows NightCoop | not yet |
 | net code running inside the game (host / join from session.txt or the launcher) | works against a local hub |
 | our own position + yaw sent as PlayerState | works |
@@ -42,6 +45,7 @@ tools/fetch_deps.sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DNIGHTCOOP_BUILD_NET=ON -DNIGHTCOOP_BUILD_LOCAL_HUB=ON
 cmake --build build -j8
 build/nightcoop_mac_tests
+build/nightcoop_mac_game_tests
 ```
 
 `fetch_deps.sh` pulls RED4ext-macos, the public [nightcoop-hub](https://github.com/Twenfys/nightcoop-hub) source (the protocol + crypto code shared by the mod and its hub) and ENet into `third_party/` at the commits this was tested with.
@@ -113,10 +117,10 @@ please dont point probes at the real NightCoop hub for testing. run ur own.
 ## layout
 
 - `src/plugin` the RED4ext entry points and the mac to windows game version mapping
-- `src/net` the session messages
+- `src/net` the session messages, the game messages (envelope + anim stream) and the relay session
 - `tools/probe` the headless client (host / join / watch)
 - `launcher` the launcher window
-- `tests` byte layout checks
+- `tests` byte layout checks (`nightcoop_mac_tests`, `nightcoop_mac_game_tests`)
 - `tools/decompile.sh` + `tools/DumpEverything.java` ghidra headless dump used to read message formats out of a NightCoop build
 
 ## license

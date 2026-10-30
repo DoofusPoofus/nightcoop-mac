@@ -44,6 +44,11 @@ puppet is a partner body, plus a native from our plugin that says which entities
 
 ## 4. the anim mirror
 
+wire format (read out of the dll, see the top of `src/net/GameMessages.hpp`): game messages ride in `Game` (25) envelopes,
+`PlayerAnim` (29) batches hold slot / kind / name hash / value entries for features, floats, ints, bools, vectors, quaternions,
+events, wrapper weights and graph attach / detach.
+
+
 - **AnimTap** hooks the input writes of `entAnimationControllerComponent` on our players graphs (`player_ranged`, `player_melee`,
   `player_vehicle`, `player_locomotion`, `player_inspection`, `player_interaction`, `player_carrying`, `player_adhoc`) and records
   features, floats, ints, bools, vectors, quaternions, events, wrappers and attach / detach
@@ -57,10 +62,20 @@ puppet is a partner body, plus a native from our plugin that says which entities
 SetInputVector / PushEvent / ApplyFeature`), but the capture side and the pose fix are native hooks, and the wire format of
 `PlayerAnim` / `PlayerAnimSetup` still has to be read out of the dll.
 
-## order that makes sense
+**done on mac:** the receive side. `src/net/GameMessages.cpp` reads and writes the batches, `src/plugin/AnimMirror.cpp` plays
+them on the partners body thru `ScriptedPuppet.GetAnimationControllerComponent()` and the controllers `ApplyFeature`,
+`SetInputFloat / Int / Bool / Vector / Quaternion` and `PushEvent`, asks a new body for the full state with `PlayerAnimWant` and logs
+the stream like nightcoop. wrapper weights and attach / detach (kinds 7 to 9) only get counted, they have no script reachable setter.
+on the cutscene V body (an npc graph) most player graph inputs dont do much yet, they do their real job once the body runs the
+players own graph (part 1 above).
 
-1. decode `PlayerAnim` (29) / `PlayerAnimWant` (30) / `PlayerAnimSetup` (34) from the dll and replay windows partners streams on
-   the cutscene V body thru the script reachable setters (mac players see windows partners animate)
-2. redscript wrappers for the PlayerPuppet callbacks and the TPP event
-3. find and verify the build job and the anim controller input writes in the mac binary, then the real PlayerPuppet body and
-   our own AnimTap (windows partners see mac players animate)
+**not done:** our own stream. the setters above only write, theres nothing to read a graphs inputs back, and catching the
+writes the way AnimTap does means hooking the controllers native input writes (the game's c++ writes most of them, not scripts).
+on mac that needs those functions found and verified in the binary first. until then windows partners get our PlayerState but
+no PlayerAnim from us, and a PlayerAnimWant to us gets logged.
+
+## order that makes sense from here
+
+1. redscript wrappers for the PlayerPuppet callbacks and the TPP event
+2. find and verify the build job and the anim controller input writes in the mac binary, then the real PlayerPuppet body (it runs
+   the players graph, so the replayed streams land) and our own AnimTap (windows partners see mac players animate)

@@ -93,6 +93,8 @@ bool RelaySession::Start(const SessionConfig& config)
         m_status.Running = true;
         m_remoteStates.clear();
         m_peerIsMale.clear();
+        m_outgoingGameMessages.clear();
+        m_incomingGameMessages.clear();
         m_hasNewLocalState = false;
     }
     m_thread = std::thread(&RelaySession::NetworkThread, this);
@@ -115,10 +117,18 @@ void RelaySession::SetLocalPlayerState(const PlayerState& state)
     m_hasNewLocalState = true;
 }
 
-void RelaySession::SendToSession(const std::vector<uint8_t>& message)
+void RelaySession::SendGameMessage(const std::vector<uint8_t>& message, int32_t toPeer, bool reliable)
 {
     std::lock_guard guard(m_lock);
-    m_outgoingMessages.push_back(message);
+    m_outgoingGameMessages.push_back({toPeer, 0, reliable, message});
+}
+
+std::vector<IncomingGameMessage> RelaySession::TakeGameMessages()
+{
+    std::lock_guard guard(m_lock);
+    std::vector<IncomingGameMessage> taken;
+    taken.swap(m_incomingGameMessages);
+    return taken;
 }
 
 std::vector<PlayerState> RelaySession::TakeRemotePlayerStates()
@@ -229,6 +239,23 @@ void RelaySession::NetworkThread()
         m_remoteStates.push_back(state);
     };
 
+    auto deliverGameMessage = [&](uint32_t fromPeer, const std::vector<uint8_t>& inner) {
+        std::lock_guard guard(m_lock);
+        if (bool isMale = false; ReadCustomizationGender(inner, isMale))
+        {
+            if (!m_peerIsMale.count(fromPeer) || m_peerIsMale[fromPeer] != isMale)
+            {
+                m_log("session: peer " + std::to_string(fromPeer) + " look came in (" + (isMale ? "male" : "female") + ")");
+            }
+            m_peerIsMale[fromPeer] = isMale;
+        }
+        if (m_incomingGameMessages.size() >= 512)
+        {
+            m_incomingGameMessages.erase(m_incomingGameMessages.begin());
+        }
+        m_incomingGameMessages.push_back({fromPeer, inner});
+    };
+
     auto onSessionMessage = [&](uint32_t fromPeer, const std::vector<uint8_t>& message) {
         Hello hello;
         Welcome welcome;
@@ -267,29 +294,29 @@ void RelaySession::NetworkThread()
             setProblem("the host refused us: " + rejectReason);
             m_stopRequested = true;
         }
-        else if (bool isMale = false; ReadCustomizationGender(message, isMale))
+        else if (GameEnvelope envelope; ReadGameEnvelope(message, envelope))
         {
+            bool deliverHere = true;
             if (m_config.IsHost)
             {
-                if (!net.WelcomedGuests[fromPeer])
+                if (!net.WelcomedGuests[fromPeer] || envelope.FromPeer != fromPeer)
                 {
                     return;
                 }
+                deliverHere = envelope.ToPeer == kEveryPeer || envelope.ToPeer == static_cast<int32_t>(net.MyPeerNumber);
                 for (const auto& [guestId, welcomed] : net.WelcomedGuests)
                 {
-                    if (welcomed && guestId != fromPeer)
+                    const bool wanted = envelope.ToPeer == kEveryPeer ? guestId != fromPeer : static_cast<int32_t>(guestId) == envelope.ToPeer;
+                    if (welcomed && wanted)
                     {
-                        sendSessionMessage(guestId, message, true);
+                        sendSessionMessage(guestId, message, envelope.Reliable);
                     }
                 }
             }
-            const uint32_t lookOwner = m_config.IsHost ? fromPeer : HostHubId;
-            std::lock_guard guard(m_lock);
-            if (!m_peerIsMale.count(lookOwner) || m_peerIsMale[lookOwner] != isMale)
+            if (deliverHere)
             {
-                m_log("session: peer " + std::to_string(lookOwner) + " look came in (" + (isMale ? "male" : "female") + ")");
+                deliverGameMessage(envelope.FromPeer, envelope.Inner);
             }
-            m_peerIsMale[lookOwner] = isMale;
         }
         else if (ReadPlayerState(message, state))
         {
@@ -553,23 +580,25 @@ void RelaySession::NetworkThread()
             sendLocalStateIfDue();
             if (net.InSession)
             {
-                std::vector<std::vector<uint8_t>> outgoing;
+                std::vector<GameEnvelope> outgoing;
                 {
                     std::lock_guard guard(m_lock);
-                    outgoing.swap(m_outgoingMessages);
+                    outgoing.swap(m_outgoingGameMessages);
                 }
-                for (const auto& message : outgoing)
+                for (auto& envelope : outgoing)
                 {
+                    envelope.FromPeer = net.MyPeerNumber;
+                    const auto wrapped = WriteGameEnvelope(envelope);
                     if (!m_config.IsHost)
                     {
-                        sendSessionMessage(HostHubId, message, true);
+                        sendSessionMessage(HostHubId, wrapped, envelope.Reliable);
                         continue;
                     }
                     for (const auto& [guestId, welcomed] : net.WelcomedGuests)
                     {
-                        if (welcomed)
+                        if (welcomed && (envelope.ToPeer == kEveryPeer || static_cast<int32_t>(guestId) == envelope.ToPeer))
                         {
-                            sendSessionMessage(guestId, message, true);
+                            sendSessionMessage(guestId, wrapped, envelope.Reliable);
                         }
                     }
                 }

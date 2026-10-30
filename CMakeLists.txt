@@ -34,7 +34,7 @@ target_include_directories(nightcoop_shared PUBLIC ${HUB_SOURCE}/src)
 target_link_libraries(nightcoop_shared PUBLIC enet monocypher)
 set_target_properties(nightcoop_shared PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-add_library(nightcoop_mac_net STATIC src/net/SessionMessages.cpp src/net/RelaySession.cpp)
+add_library(nightcoop_mac_net STATIC src/net/SessionMessages.cpp src/net/GameMessages.cpp src/net/RelaySession.cpp)
 target_include_directories(nightcoop_mac_net PUBLIC src)
 target_link_libraries(nightcoop_mac_net PUBLIC nightcoop_shared)
 target_compile_options(nightcoop_mac_net PRIVATE -Wall -Wextra -Wno-unused-parameter)
@@ -45,6 +45,7 @@ add_subdirectory(${RED4EXT_SDK_DIR} red4ext_sdk EXCLUDE_FROM_ALL)
 
 add_library(NightCoopMac SHARED
   src/plugin/Main.cpp
+  src/plugin/AnimMirror.cpp
   src/plugin/GameVersion.cpp
   src/plugin/GameCalls.cpp
   src/plugin/PlayerSampler.cpp
@@ -62,6 +63,9 @@ target_link_libraries(nightcoop_probe PRIVATE nightcoop_mac_net)
 
 add_executable(nightcoop_mac_tests tests/SessionMessagesTests.cpp)
 target_link_libraries(nightcoop_mac_tests PRIVATE nightcoop_mac_net)
+
+add_executable(nightcoop_mac_game_tests tests/GameMessagesTests.cpp)
+target_link_libraries(nightcoop_mac_game_tests PRIVATE nightcoop_mac_net)
 
 if(NIGHTCOOP_BUILD_LOCAL_HUB)
   add_executable(nightcoop_hub_local ${HUB_SOURCE}/src/HubServer.cpp ${HUB_SOURCE}/tools/hub/main.cpp)

@@ -4,9 +4,11 @@
  once the game is in its Running state the relay session starts on its own thread
  evry frame (at most 30 times a second) the main thread samples our player for PlayerState
  remote states drive RemoteBodies (partner bodies like nightcoops puppets) and get logged evry 2 s
+ game messages from partners go to AnimMirror, which plays their anim streams on their bodies
  session-status.txt next to the plugin always says wats going on (the hosting code ends up there too)
 */
 #include "net/RelaySession.hpp"
+#include "plugin/AnimMirror.hpp"
 #include "plugin/GameVersion.hpp"
 #include "plugin/PlayerSampler.hpp"
 #include "plugin/RemoteBodies.hpp"
@@ -45,6 +47,7 @@ bool EnetReady = false;
 std::unique_ptr<nightcoop_mac::net::RelaySession> Session;
 std::unique_ptr<nightcoop_mac::PlayerSampler> Sampler;
 std::unique_ptr<nightcoop_mac::RemoteBodies> Bodies;
+std::unique_ptr<nightcoop_mac::AnimMirror> Mirror;
 nightcoop_mac::net::PlayerState LastLocalState;
 bool LocalStateValid = false;
 struct RemotePeerSighting
@@ -125,6 +128,7 @@ bool OnRunningEnter(RED4ext::CGameApplication*)
     Session = std::make_unique<nightcoop_mac::net::RelaySession>(Log);
     Sampler = std::make_unique<nightcoop_mac::PlayerSampler>(Log);
     Bodies = std::make_unique<nightcoop_mac::RemoteBodies>(Log, Plan->Bodies);
+    Mirror = std::make_unique<nightcoop_mac::AnimMirror>(Log);
     Session->Start(config);
     return true;
 }
@@ -174,6 +178,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     const uint64_t nowMs = SteadyMs();
     WriteStatusFile(DescribeStatus(Session->GetStatus()));
     TakeRemoteStates(nowMs);
+    for (const auto& message : Session->TakeGameMessages())
+    {
+        Mirror->OnGameMessage(message.FromPeer, message.Message, nowMs);
+    }
     if (Plan->SamplePlayer && nowMs >= NextSampleMs)
     {
         NextSampleMs = nowMs + SampleEveryMs;
@@ -185,6 +193,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             Session->SetLocalPlayerState(localState);
         }
         Bodies->Tick(nowMs, RemotePeerViews(), LocalStateValid ? &LastLocalState : nullptr);
+        Mirror->Tick(nowMs, *Bodies, *Session);
     }
     ReportRemoteStates(nowMs);
     return false;
@@ -192,6 +201,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
 
 bool OnRunningExit(RED4ext::CGameApplication*)
 {
+    if (Mirror)
+    {
+        Mirror->ForgetAll();
+    }
     if (Bodies)
     {
         Bodies->ForgetAll("forgotten, the game is closing", true);

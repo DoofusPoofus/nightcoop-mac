@@ -60,6 +60,7 @@ public:
     void Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers, const net::PlayerState* localPlayer);
     void RemoveAll();
     void ForgetAll(const char* why, bool gameIsClosing = false);
+    bool GetBody(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body);
 
 private:
     struct Puppet

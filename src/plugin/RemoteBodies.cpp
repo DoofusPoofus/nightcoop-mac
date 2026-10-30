@@ -736,6 +736,19 @@ void RemoteBodies::Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers
     }
 }
 
+bool RemoteBodies::GetBody(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body)
+{
+    const auto puppet = m_puppets.find(peerNumber);
+    if (puppet == m_puppets.end() || !puppet->second.InWorld || !m_dynamicEntitySystem)
+    {
+        return false;
+    }
+    RED4ext::ent::EntityID entityId(puppet->second.EntityHash);
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &entityId);
+    return game::CallMethod(m_dynamicEntitySystem.instance, m_getEntity, &body, args) && body;
+}
+
 void RemoteBodies::RemoveAll()
 {
     if (!m_dynamicEntitySystem)

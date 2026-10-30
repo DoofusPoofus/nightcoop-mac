@@ -5,10 +5,13 @@
  host: answers Hello with Welcome, forwards each guests PlayerState to the other guests and sends its own to all
  guest: sends Hello after the link is up and its PlayerState to the host, gets evryone elses from the host
  PlayerStates go unreliable on channel 1, evrything else reliable on channel 0
- PlayerCustomization gets forwarded by the host like the states and each partners gender is kept for their body
+ game messages ride in Game envelopes (net/GameMessages.hpp): a guest sends them to the host, the host keeps the ones for it,
+ forwards the rest (to one peer or to evryone but the sender) and drops envelopes whose sender number is not the guest that
+ sent it. the game thread takes the ones for us out with their real sender, PlayerCustomization also feeds the gender list
 */
 #pragma once
 
+#include "net/GameMessages.hpp"
 #include "net/SessionMessages.hpp"
 
 #include <atomic>
@@ -32,6 +35,12 @@ struct SessionConfig
     uint64_t GameVersion = 0;
     uint64_t InstallId = 0;
     uint32_t StatesPerSecond = 20;
+};
+
+struct IncomingGameMessage
+{
+    uint32_t FromPeer = 0;
+    std::vector<uint8_t> Message;
 };
 
 struct SessionStatus
@@ -58,7 +67,8 @@ public:
     void Stop();
 
     void SetLocalPlayerState(const PlayerState& state);
-    void SendToSession(const std::vector<uint8_t>& message);
+    void SendGameMessage(const std::vector<uint8_t>& message, int32_t toPeer = kEveryPeer, bool reliable = true);
+    std::vector<IncomingGameMessage> TakeGameMessages();
     std::vector<PlayerState> TakeRemotePlayerStates();
     std::map<uint32_t, bool> PeerGenders() const;
     SessionStatus GetStatus() const;
@@ -82,6 +92,7 @@ private:
     PlayerState m_localState;
     std::vector<PlayerState> m_remoteStates;
     std::map<uint32_t, bool> m_peerIsMale;
-    std::vector<std::vector<uint8_t>> m_outgoingMessages;
+    std::vector<GameEnvelope> m_outgoingGameMessages;
+    std::vector<IncomingGameMessage> m_incomingGameMessages;
 };
 }
