@@ -1,5 +1,6 @@
 #include "plugin/RemoteBodies.hpp"
 
+#include "plugin/BodyRecords.hpp"
 #include "plugin/GameCalls.hpp"
 #include "plugin/PartnerBodyBuilder.hpp"
 
@@ -31,7 +32,6 @@ constexpr uint64_t RetryFailedSpawnAfterMs = 10000;
 constexpr uint64_t WaitForLookMs = 5000;
 const char* FemaleBodyRecord = "Character.TPP_Player_Cutscene_Female";
 const char* MaleBodyRecord = "Character.TPP_Player_Cutscene_Male";
-const char* PlayerBodyRecord = "Character.Player_Puppet_Base";
 const char* KnownPlayerTemplates[] = {
     "ep1\\characters\\entities\\player\\player_wa_fpp_ep1.ent",
     "ep1\\characters\\entities\\player\\player_ma_fpp_ep1.ent",
@@ -181,6 +181,35 @@ void RemoteBodies::ResolvePlayerBodies()
     m_playerBodies = true;
 }
 
+std::string RemoteBodies::PlayerBodyTemplate(bool male)
+{
+    if (m_playerTemplateFamily < 0)
+    {
+        RED4ext::ScriptGameInstance gameInstance;
+        RED4ext::Handle<RED4ext::IScriptable> player;
+        RED4ext::StackArgs_t playerArgs;
+        playerArgs.emplace_back(nullptr, &gameInstance);
+        uint64_t ownTemplate = 0;
+        RED4ext::StackArgs_t noArgs;
+        if (!game::CallStatic(m_getPlayer, &player, playerArgs) || !player ||
+            !game::CallMethod(player.instance, m_getTemplatePath, &ownTemplate, noArgs))
+        {
+            return {};
+        }
+        m_playerTemplateFamily = 0;
+        for (int index = 0; index < 4; ++index)
+        {
+            if (RED4ext::ResourcePath(KnownPlayerTemplates[index]).hash == ownTemplate)
+            {
+                m_playerTemplateFamily = index / 2;
+            }
+        }
+        m_log(std::string("bodies: our player comes from the ") + (m_playerTemplateFamily == 0 ? "ep1" : "base") +
+              " player templates, PlayerPuppet bodies get the same family");
+    }
+    return KnownPlayerTemplates[m_playerTemplateFamily * 2 + (male ? 1 : 0)];
+}
+
 bool RemoteBodies::TagAsPartnerBody(RED4ext::IScriptable* spec)
 {
     auto* property = m_specClass->GetProperty("tags");
@@ -238,6 +267,7 @@ bool RemoteBodies::Spawn(const RemotePeerView& peer, uint64_t nowMs)
     std::string record = m_settings.Record;
     std::string bodyTemplate = m_settings.Template;
     RED4ext::ResourcePath bodyTemplatePath;
+    uint64_t playerBodyRecord = 0;
     bool isPlayerBody = false;
     if (record.empty() && bodyTemplate.empty())
     {
@@ -246,13 +276,17 @@ bool RemoteBodies::Spawn(const RemotePeerView& peer, uint64_t nowMs)
         {
             male = m_settings.Gender == "male";
         }
-        isPlayerBody = m_playerBodies && !male;
-        if (m_playerBodies && male && !m_maleFallbackLogged)
+        if (m_playerBodies)
         {
-            m_maleFallbackLogged = true;
-            m_log("bodies: Character.Player_Puppet_Base only brings a female PlayerPuppet, a male partner gets the male V body for now");
+            const std::string playerTemplate = PlayerBodyTemplate(male);
+            playerBodyRecord = playerTemplate.empty() ? 0 : body_records::PlayerBodyRecord(playerTemplate, male, m_log);
+            isPlayerBody = playerBodyRecord != 0;
+            record = isPlayerBody ? playerTemplate : std::string();
         }
-        record = isPlayerBody ? PlayerBodyRecord : male ? MaleBodyRecord : FemaleBodyRecord;
+        if (!isPlayerBody)
+        {
+            record = male ? MaleBodyRecord : FemaleBodyRecord;
+        }
     }
     if (!bodyTemplate.empty())
     {
@@ -275,7 +309,11 @@ bool RemoteBodies::Spawn(const RemotePeerView& peer, uint64_t nowMs)
                    WriteProperty(m_specClass, spec, "active", "Bool", true) &&
                    WriteProperty(m_specClass, spec, "persistState", "Bool", false) &&
                    WriteProperty(m_specClass, spec, "persistSpawn", "Bool", false);
-    if (bodyTemplate.empty())
+    if (isPlayerBody)
+    {
+        written = written && WriteProperty(m_specClass, spec, "recordID", "TweakDBID", RED4ext::TweakDBID(playerBodyRecord));
+    }
+    else if (bodyTemplate.empty())
     {
         written = written && WriteProperty(m_specClass, spec, "recordID", "TweakDBID", RED4ext::TweakDBID(record.c_str(), record.size()));
     }
@@ -904,6 +942,7 @@ void RemoteBodies::ForgetAll(const char* why, bool gameIsClosing)
     m_retryAfterMs.clear();
     m_firstSeenMs.clear();
     partner_body_builder::ForgetAllBodies();
+    m_playerTemplateFamily = -1;
     m_teleportationFacility.Reset();
     m_dynamicEntitySystem.Reset();
 }

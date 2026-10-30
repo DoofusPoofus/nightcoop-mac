@@ -52,9 +52,12 @@ crashing threads registers): the bodys character customization parts (genitals, 
 for its record and read it as a character record. spawning from a template path makes codeware invent a `SpawnableObject`
 record (`TweakDBID(hash, 1)`), so the lookup comes back empty and the game locks a null object. nightcoop spawns with a
 character record (`Character.TPP_Player_Cutscene_Male/Female`, `Character.Player_Puppet_Base`), so does the mac port now.
-writing the record into the spawn request from the build hook is too late, the body keeps the invented one, so the PlayerPuppet
-body is whatever template `Character.Player_Puppet_Base` brings (base female `player_wa_fpp.ent`) and male partners get the male
-V body until a male player record or a template + record spawn (nightcoops native spawn path) is ported.
+writing the record into the spawn request or onto the root object from the build hook is too late, the stub brings the
+invented one back. so like nightcoop (its `_g` records) `src/plugin/BodyRecords.cpp` clones `Character.Player_Puppet_Base` per
+template into `Character.Player_Puppet_Base_g<template hash>`: 87 flats copied (found by the record classes getter names),
+its own `entityTemplatePath`, the genders of the cutscene V record of that gender, then `TweakDB_CreateRecord` (verified on mac).
+the PlayerPuppet body spawns from that record: `player_wa_fpp_ep1.ent` / `player_ma_fpp_ep1.ent` (or the base ones, the family
+our own player came from), checked at the menu for both genders.
 
 ## 2. script callbacks of PlayerPuppet
 

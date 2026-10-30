@@ -17,9 +17,9 @@
  (CreateEntity / GetEntity / DeleteEntity), which needs codeware for mac installed
  the default body is nightcoops fallback body: the cutscene V template (player_wa_tpp_cutscene.ent or player_ma_ by the
  partners gender from their PlayerCustomization), which spawns as an NPCPuppet on mac so the npc locomotion and stance work on it.
- 'body player' in session.txt gives nightcoops real body instead: a second PlayerPuppet from the Character.Player_Puppet_Base
- record. that record only brings base\characters\entities\player\player_wa_fpp.ent (female), so a male partner gets the male
- V body until a male player record turns up. it carries the NightCoopPartnerBody tag for the script side, its id goes to the
+ 'body player' in session.txt gives nightcoops real body instead: a second PlayerPuppet from the template family our own player
+ came from (ep1 or base, player_wa_fpp / player_ma_fpp by the partners gender) with a character record cloned for that template
+ (BodyRecords). it carries the NightCoopPartnerBody tag for the script side, its id goes to the
  PartnerBodyBuilder before the game builds it, and once its in the world it gets an ActivateTPPRepresentationEvent so it shows
  its third person self. it moves by teleport and its anims come from the partners stream (AnimMirror), no npc policies or stance.
  if the builder hook or the script side (scripts/NightCoopMac, the NightCoopPartnerBodies class in rtti) is not there the
@@ -124,6 +124,7 @@ private:
     void ApplyStance(uint32_t peerNumber, Puppet& puppet, RED4ext::Handle<RED4ext::IScriptable>& body, const net::PlayerState& state, uint64_t nowMs);
     void ResolvePlayerBodies();
     void ShowThirdPerson(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body);
+    std::string PlayerBodyTemplate(bool male);
     bool TagAsPartnerBody(RED4ext::IScriptable* spec);
 
     LogFunction m_log;
@@ -171,7 +172,7 @@ private:
     RED4ext::CBaseFunction* m_getTemplatePath = nullptr;
     RED4ext::CBaseFunction* m_queueEvent = nullptr;
     RED4ext::CClass* m_activateTppEventClass = nullptr;
-    bool m_maleFallbackLogged = false;
+    int m_playerTemplateFamily = -1;
 
     RED4ext::Handle<RED4ext::IScriptable> m_teleportationFacility;
     RED4ext::Handle<RED4ext::IScriptable> m_dynamicEntitySystem;

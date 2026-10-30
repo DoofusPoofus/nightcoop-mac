@@ -21,7 +21,7 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | tested against a real windows NightCoop | not yet |
 | net code running inside the game (host / join from session.txt or the launcher) | works against a local hub |
 | our own position + yaw sent as PlayerState | works |
-| partner body in the world (spawn / teleport / cull / despawn like nightcoops puppets) | works in a loaded save and in the menu with a probe. bodies spawn from character records (`Character.TPP_Player_Cutscene_Male/Female`, `Character.Player_Puppet_Base`): a template path made codeware invent a record the bodys look parts crashed on |
+| partner body in the world (spawn / teleport / cull / despawn like nightcoops puppets) | works in a loaded save and in the menu with a probe. bodies spawn from character records (`Character.TPP_Player_Cutscene_Male/Female`, and per gender clones of `Character.Player_Puppet_Base` for the PlayerPuppet body): a template path made codeware invent a record the bodys look parts crashed on |
 | partner body walks / runs / sprints with the games move policies, crouch / aim / reload stance (nightcoops npc body mode) | runs at the main menu (the menu world never moves npcs so it falls back to teleport there), not tried in the city yet |
 | our crouch and sprint sent in PlayerState flags | works |
 | session flow: no bodies in the main menu, bodies deleted before a session ends | works (menu checked with a probe for 2.5 min) |
