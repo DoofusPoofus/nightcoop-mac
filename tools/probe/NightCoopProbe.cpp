@@ -2,10 +2,11 @@
  nightcoop probe
  a headless nightcoop client on the same RelaySession the plugin uses
  host mode opens a session prints the code and prints evry PlayerState it gets
- join mode joins by code, says its look is male, then walks a few PlayerStates along x (from X Y Z if given)
- crouching on and off, and sends PlayerAnim batches (a float, a bool, an event and a feature) in Game envelopes
+ join mode joins by code, says its look is male, then walks PlayerStates back and forth along x (from X Y Z if given,
+ 150 steps of 80 ms or STEPS of them) crouching on and off, and sends PlayerAnim batches (a float, a bool, an event and a
+ feature) in Game envelopes
  watch mode joins by code and prints the PlayerStates and game messages it gets for a while
- usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z] | watch CODE HUB [seconds]
+ usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z [STEPS]] | watch CODE HUB [seconds]
  HUB looks like 127.0.0.1:47900#FINGERPRINT
 */
 #include "net/GameMessages.hpp"
@@ -26,7 +27,7 @@ namespace
 {
 using namespace std::chrono_literals;
 
-constexpr int WalkSteps = 150;
+int WalkSteps = 150;
 float WalkStartX = -1300.0f;
 float WalkStartY = 1200.0f;
 float WalkStartZ = 18.0f;
@@ -155,7 +156,8 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     for (int step = 0; step < WalkSteps; ++step)
     {
         nightcoop_mac::net::PlayerState state;
-        state.PositionX = WalkStartX + step * 0.05f;
+        const int stepInLeg = step % 300;
+        state.PositionX = WalkStartX + (stepInLeg < 150 ? stepInLeg : 300 - stepInLeg) * 0.05f;
         state.PositionY = WalkStartY;
         state.PositionZ = WalkStartZ;
         state.Yaw = 90.0f;
@@ -186,7 +188,7 @@ int main(int argc, char** argv)
     const std::string mode = argc > 1 ? argv[1] : "";
     if ((mode != "host" || argc < 3) && ((mode != "join" && mode != "watch") || argc < 4))
     {
-        std::printf("usage: %s host HUB [states] | join CODE HUB | watch CODE HUB [seconds]\n", argv[0]);
+        std::printf("usage: %s host HUB [states] | join CODE HUB [X Y Z [STEPS]] | watch CODE HUB [seconds]\n", argv[0]);
         return 1;
     }
     nc::log::SetSink([](nc::log::Level, const char* line) { std::fprintf(stderr, "[nc] %s\n", line); });
@@ -221,6 +223,10 @@ int main(int argc, char** argv)
             WalkStartX = static_cast<float>(std::atof(argv[4]));
             WalkStartY = static_cast<float>(std::atof(argv[5]));
             WalkStartZ = static_cast<float>(std::atof(argv[6]));
+        }
+        if (argc > 7)
+        {
+            WalkSteps = std::atoi(argv[7]);
         }
         result = RunGuest(session);
     }

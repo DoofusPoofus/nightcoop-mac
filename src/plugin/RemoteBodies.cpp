@@ -328,7 +328,7 @@ bool RemoteBodies::Spawn(const RemotePeerView& peer, uint64_t nowMs)
     {
         written = written && WriteProperty(m_specClass, spec, "templatePath", "raRef:CResource", bodyTemplatePath);
     }
-    written = written && (!isPlayerBody || TagAsPartnerBody(spec));
+    written = written && TagAsPartnerBody(spec);
     if (!written)
     {
         m_log("bodies: DynamicEntitySpec has other fields than expected (" + LastPropertyProblem + "), no partner bodies");

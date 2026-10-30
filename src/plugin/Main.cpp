@@ -188,7 +188,12 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     {
         NextSampleMs = nowMs + SampleEveryMs;
         nightcoop_mac::net::PlayerState localState;
+        const bool hadLocalState = LocalStateValid;
         LocalStateValid = Sampler->Sample(localState, nowMs);
+        if (LocalStateValid != hadLocalState)
+        {
+            Log(LocalStateValid ? "our player is in a world" : "our player is gone, the world is going away");
+        }
         if (LocalStateValid)
         {
             LastLocalState = localState;

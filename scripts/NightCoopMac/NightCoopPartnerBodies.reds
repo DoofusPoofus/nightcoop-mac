@@ -7,6 +7,9 @@
 //   detach: ScriptedPuppets detach, no PlayerDetachRequest
 //   status effects, being noticed, laser sights and car hits do nothing, death / item slots go to ScriptedPuppet,
 //   kills, inventory, item appearance and encumbrance callbacks of the local player are skipped, the corpse is not lootable
+// every partner body (npc ones too) carries the tag, and right before a game session ends (loading, quitting, the intro
+// world giving way to the menu) NightCoopBodyCleanup deletes them all thru codeware. a body still standing when the world goes
+// crashes the game in its look code, the player it copies is already gone by then
 // the plugin looks for the NightCoopPartnerBodies class at runtime and only spawns PlayerPuppet bodies when its there.
 // needs codeware for its DynamicEntitySystem tags and redscript for mac (engine/tools/scc) to compile
 
@@ -17,6 +20,19 @@ public abstract class NightCoopPartnerBodies {
     }
     let dynamicEntities = GameInstance.GetDynamicEntitySystem();
     return IsDefined(dynamicEntities) && dynamicEntities.IsTagged(object.GetEntityID(), n"NightCoopPartnerBody");
+  }
+}
+
+public class NightCoopBodyCleanup extends ScriptableService {
+  private cb func OnLoad() {
+    GameInstance.GetCallbackSystem().RegisterCallback(n"Session/BeforeEnd", this, n"OnSessionBeforeEnd");
+  }
+
+  private cb func OnSessionBeforeEnd(event: ref<GameSessionEvent>) {
+    let dynamicEntities = GameInstance.GetDynamicEntitySystem();
+    if IsDefined(dynamicEntities) {
+      dynamicEntities.DeleteTagged(n"NightCoopPartnerBody");
+    }
   }
 }
 
