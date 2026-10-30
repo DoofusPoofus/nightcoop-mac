@@ -17,7 +17,7 @@
  the default body is nightcoops fallback body: the cutscene V template (player_wa_tpp_cutscene.ent or player_ma_ by the
  partners gender from their PlayerCustomization), which spawns as an NPCPuppet on mac so the npc locomotion and stance work on it.
  'body player' in session.txt gives nightcoops real body instead: a second PlayerPuppet from the template family our own player
- came from (codewares Entity.GetTemplatePath, the ep1 or base player_wa_fpp / player_ma_fpp by the partners gender, or our own
+ came from (codewares Entity.GetTemplatePath, raRef or ResRef once codewares scripts are compiled, the ep1 or base player_wa_fpp / player_ma_fpp by the partners gender, or our own
  template as it is when its none of those). it carries the NightCoopPartnerBody tag for the script side, its id goes to the
  PartnerBodyBuilder before the game builds it, and once its in the world it gets an ActivateTPPRepresentationEvent so it shows
  its third person self. it moves by teleport and its anims come from the partners stream (AnimMirror), no npc policies or stance.

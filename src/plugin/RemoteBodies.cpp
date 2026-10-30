@@ -151,8 +151,11 @@ void RemoteBodies::ResolvePlayerBodies()
     m_getTemplatePath = game::FindFunction("entEntity", "GetTemplatePath");
     m_queueEvent = game::FindFunction("entEntity", "QueueEvent");
     m_activateTppEventClass = RED4ext::CRTTISystem::Get()->GetClass("gameActivateTPPRepresentationEvent");
-    const bool callsFit = m_getPlayer && game::ParamsAre(m_getTemplatePath, {}) && game::ReturnIs(m_getTemplatePath, "raRef:CResource") &&
-                          game::ParamsAre(m_queueEvent, {"handle:redEvent"}) && m_activateTppEventClass;
+    const bool templatePathFits = game::ParamsAre(m_getTemplatePath, {}) && m_getTemplatePath->returnType &&
+                                  m_getTemplatePath->returnType->type->GetSize() == sizeof(uint64_t) &&
+                                  (game::ReturnIs(m_getTemplatePath, "raRef:CResource") ||
+                                   game::ReturnIs(m_getTemplatePath, "redResourceReferenceScriptToken"));
+    const bool callsFit = m_getPlayer && templatePathFits && game::ParamsAre(m_queueEvent, {"handle:redEvent"}) && m_activateTppEventClass;
     if (!callsFit)
     {
         m_log("bodies: GetTemplatePath / QueueEvent look different than expected (" + game::Describe(m_getTemplatePath) + ", " +
