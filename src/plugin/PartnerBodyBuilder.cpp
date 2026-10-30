@@ -18,9 +18,11 @@ constexpr size_t RequestEntityIdOffset = 0x20;
 constexpr size_t ExtractorResultsOffset = 0xA8;
 constexpr size_t TemplateRootIndexOffset = 0x1D8;
 constexpr size_t ComponentIsEnabledOffset = 0x8B;
+constexpr size_t ImpostorCopyDoneOffset = 0xB1;
 constexpr uint32_t MostObjectsInOneTemplate = 65536;
 constexpr size_t MostQueuedLogLines = 200;
 constexpr uint64_t PinnedRenderPlaneTrack = 0xf6c0a5626de68fc2;
+constexpr uint64_t BodyControllerIdSalt = 0x4e43424f44594354;
 constexpr uint64_t RenderPlaneParameterNames[] = {0x500468e01dd2634d, 0x44b42b9359b79f22, 0x13e09e8b9d7d102f};
 
 const char* KeptOffClassNames[] = {
@@ -76,6 +78,11 @@ struct ArrayOfStructs
 
 struct BuildCounts
 {
+    uint32_t ImpostorsDone = 0;
+    uint32_t TriggerActivatorsOff = 0;
+    bool HasBodyController = false;
+    bool HasCustomizationParts = false;
+    bool BodyControllerAdded = false;
     uint32_t KeptOff = 0;
     uint32_t NotReplaced = 0;
     uint32_t PartsShownInFpp = 0;
@@ -98,6 +105,10 @@ RED4ext::CClass* PlayerPuppetClass = nullptr;
 RED4ext::CClass* BodyPartsControllerClass = nullptr;
 RED4ext::CClass* AttachmentSlotsClass = nullptr;
 RED4ext::CClass* AnimatedComponentClass = nullptr;
+RED4ext::CClass* ImpostorClass = nullptr;
+RED4ext::CClass* TriggerActivatorClass = nullptr;
+RED4ext::CClass* BodyControllerClass = nullptr;
+RED4ext::CClass* CustomizationPartClass = nullptr;
 RED4ext::CProperty* ComponentNameProperty = nullptr;
 RED4ext::CProperty* ComponentIdProperty = nullptr;
 RED4ext::CProperty* HiddenInFppProperty = nullptr;
@@ -114,6 +125,11 @@ std::vector<std::string> QueuedLogLines;
 
 void QueueLine(std::string line)
 {
+    if (Log)
+    {
+        Log(line);
+        return;
+    }
     std::lock_guard guard(LogLinesLock);
     if (QueuedLogLines.size() < MostQueuedLogLines)
     {
@@ -283,6 +299,24 @@ bool SwapForEmptySlot(ExtractedObjects& objects, uint32_t index, RED4ext::ISeria
 
 void ApplyPartnerFixes(void* component, RED4ext::CClass* componentClass, BuildCounts& counts)
 {
+    if (BodyControllerClass && componentClass->IsA(BodyControllerClass))
+    {
+        counts.HasBodyController = true;
+    }
+    else if (CustomizationPartClass && componentClass->IsA(CustomizationPartClass))
+    {
+        counts.HasCustomizationParts = true;
+    }
+    if (ImpostorClass && componentClass->IsA(ImpostorClass))
+    {
+        static_cast<uint8_t*>(component)[ImpostorCopyDoneOffset] = 1;
+        ++counts.ImpostorsDone;
+    }
+    if (TriggerActivatorClass && componentClass->IsA(TriggerActivatorClass))
+    {
+        static_cast<uint8_t*>(component)[ComponentIsEnabledOffset] = 0;
+        ++counts.TriggerActivatorsOff;
+    }
     if (HiddenInFppProperty && BodyPartsControllerClass && componentClass->IsA(BodyPartsControllerClass))
     {
         auto* hidden = HiddenInFppProperty->GetValuePtr<bool>(component);
@@ -300,6 +334,22 @@ void ApplyPartnerFixes(void* component, RED4ext::CClass* componentClass, BuildCo
     {
         counts.RenderPlaneParamsPinned += PinRenderPlaneParams(component);
     }
+}
+
+bool AddBodyController(ExtractedObjects& objects, uint64_t entityHash)
+{
+    auto* controller = static_cast<RED4ext::ISerializable*>(BodyControllerClass->CreateInstance(true));
+    if (!controller)
+    {
+        return false;
+    }
+    *ComponentNameProperty->GetValuePtr<RED4ext::CName>(controller) = RED4ext::CName("NightCoopBodyController");
+    const uint64_t controllerId = entityHash ^ BodyControllerIdSalt;
+    std::memcpy(ComponentIdProperty->GetValuePtr<uint8_t>(controller), &controllerId, sizeof(controllerId));
+    reinterpret_cast<uint8_t*>(controller)[ComponentIsEnabledOffset] = 1;
+    reinterpret_cast<RED4ext::DynArray<RED4ext::Handle<RED4ext::ISerializable>>*>(&objects)->PushBack(
+        RED4ext::Handle<RED4ext::ISerializable>(controller));
+    return true;
 }
 
 bool IsExpected(uint64_t entityHash)
@@ -342,13 +392,13 @@ void BuildIfPartnerBody(uint8_t* builder)
     }
     auto* root = objects.Entries[rootIndex].instance;
     auto* rootClass = root ? root->GetType() : nullptr;
-    if (!rootClass || !rootClass->IsA(PlayerPuppetClass))
+    if (!rootClass)
     {
-        std::snprintf(line, sizeof(line), "builder: partner body %#llx has a %s root, not a PlayerPuppet, left as is",
-                      static_cast<unsigned long long>(entityHash), rootClass ? NameText(rootClass->GetName()).c_str() : "missing");
+        std::snprintf(line, sizeof(line), "builder: partner body %#llx has no root object, left as is", static_cast<unsigned long long>(entityHash));
         QueueLine(line);
         return;
     }
+    const bool isPlayerPuppet = rootClass->IsA(PlayerPuppetClass);
 
     BuildCounts counts;
     for (uint32_t index = static_cast<uint32_t>(rootIndex) + 1; index < objects.Size; ++index)
@@ -359,7 +409,7 @@ void BuildIfPartnerBody(uint8_t* builder)
         {
             continue;
         }
-        if (IsKeptOff(objectClass))
+        if (isPlayerPuppet && IsKeptOff(objectClass))
         {
             if (SwapForEmptySlot(objects, index, object, counts))
             {
@@ -374,12 +424,19 @@ void BuildIfPartnerBody(uint8_t* builder)
         }
         ApplyPartnerFixes(object, objectClass, counts);
     }
+    if (counts.HasCustomizationParts && !counts.HasBodyController && BodyControllerClass)
+    {
+        counts.BodyControllerAdded = AddBodyController(objects, entityHash);
+    }
     std::snprintf(line, sizeof(line),
-                  "builder: partner body %#llx built as a PlayerPuppet from %u object(s): %u component(s) kept off (%s), %u only turned off, "
-                  "%u part(s) no longer hidden in first person, %u slot option(s) off the weapon plane, %u render plane param(s) pinned",
-                  static_cast<unsigned long long>(entityHash), objects.Size - rootIndex - 1, counts.KeptOff,
-                  counts.KeptOffNames.empty() ? "none" : counts.KeptOffNames.c_str(), counts.NotReplaced, counts.PartsShownInFpp,
-                  counts.SlotOptionsOffWeaponPlane, counts.RenderPlaneParamsPinned);
+                  "builder: partner body %#llx built as a %s from %u object(s): %u impostor(s) told the copy is done, %u trigger activator(s) off, "
+                  "body controller %s, "
+                  "%u component(s) kept off (%s), %u only turned off, %u part(s) no longer hidden in first person, %u slot option(s) off the "
+                  "weapon plane, %u render plane param(s) pinned",
+                  static_cast<unsigned long long>(entityHash), NameText(rootClass->GetName()).c_str(), objects.Size - rootIndex - 1,
+                  counts.ImpostorsDone, counts.TriggerActivatorsOff,
+                  counts.BodyControllerAdded ? "added" : counts.HasBodyController ? "in the template" : "not needed", counts.KeptOff, counts.KeptOffNames.empty() ? "none" : counts.KeptOffNames.c_str(),
+                  counts.NotReplaced, counts.PartsShownInFpp, counts.SlotOptionsOffWeaponPlane, counts.RenderPlaneParamsPinned);
     QueueLine(line);
 }
 
@@ -438,11 +495,15 @@ bool PrepareForBodies()
     BodyPartsControllerClass = rtti->GetClass("gameuiCharacterCustomizationBodyPartsController");
     AttachmentSlotsClass = rtti->GetClass("gameAttachmentSlots");
     AnimatedComponentClass = rtti->GetClass("entAnimatedComponent");
+    ImpostorClass = rtti->GetClass("gameImpostorComponent");
+    TriggerActivatorClass = rtti->GetClass("entTriggerActivatorComponent");
+    BodyControllerClass = rtti->GetClass("gameuiCharacterCustomizationBodyController");
+    CustomizationPartClass = rtti->GetClass("gameuiICharacterCustomizationComponent");
 
     std::string missing;
     ComponentNameProperty = FindProperty(ComponentClass, "name", "CName", 8, missing);
     ComponentIdProperty = FindProperty(ComponentClass, "id", "CRUID", 8, missing);
-    if (!ComponentClass || !SlotComponentClass || !PlayerPuppetClass || !ComponentNameProperty || !ComponentIdProperty)
+    if (!ComponentClass || !SlotComponentClass || !PlayerPuppetClass || !ImpostorClass || !ComponentNameProperty || !ComponentIdProperty)
     {
         Log("builder: the component classes look different than expected (" + missing + "), no PlayerPuppet partner bodies");
         return false;

@@ -4,13 +4,15 @@
  once the game is in its Running state the relay session starts on its own thread
  evry frame (at most 30 times a second) the main thread samples our player for PlayerState
  remote states drive RemoteBodies (partner bodies like nightcoops puppets) and get logged evry 2 s
- with 'body player' the entity build job gets hooked at load (PartnerBodyBuilder) so partner PlayerPuppets come out stripped
+ with bodies on the entity build job gets hooked at load (PartnerBodyBuilder) so partner bodies come out built like nightcoops
  SessionFlow says when bodies may exist at all: only in a loaded save, never in the main menu or a session thats ending
  game messages from partners go to AnimMirror, which plays their anim streams on their bodies
  session-status.txt next to the plugin always says wats going on (the hosting code ends up there too)
+ a crash in game code leaves crash-notes.txt there, naming the game objects the crashing thread had in its registers
 */
 #include "net/RelaySession.hpp"
 #include "plugin/AnimMirror.hpp"
+#include "plugin/CrashNotes.hpp"
 #include "plugin/GameVersion.hpp"
 #include "plugin/PartnerBodyBuilder.hpp"
 #include "plugin/PlayerSampler.hpp"
@@ -63,6 +65,7 @@ struct RemotePeerSighting
 std::map<uint32_t, RemotePeerSighting> LatestRemoteStates;
 uint64_t NextSampleMs = 0;
 uint64_t NextRemoteReportMs = 0;
+uint64_t NextCrashNotesCheckMs = 0;
 std::string LastStatusLine;
 
 uint64_t SteadyMs()
@@ -116,6 +119,7 @@ std::string DescribeStatus(const nightcoop_mac::net::SessionStatus& status)
 
 bool OnRunningEnter(RED4ext::CGameApplication*)
 {
+    nightcoop_mac::InstallCrashNotes(PluginFolder);
     if (nightcoop_mac::WriteRttiDumpIfRequested(PluginFolder))
     {
         Log("wrote rtti-dump.txt");
@@ -182,6 +186,11 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         return false;
     }
     const uint64_t nowMs = SteadyMs();
+    if (nowMs >= NextCrashNotesCheckMs)
+    {
+        NextCrashNotesCheckMs = nowMs + 5000;
+        nightcoop_mac::KeepCrashNotesOnTop();
+    }
     WriteStatusFile(DescribeStatus(Session->GetStatus()));
     TakeRemoteStates(nowMs);
     for (const auto& message : Session->TakeGameMessages())
@@ -203,7 +212,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             LastLocalState = localState;
             Session->SetLocalPlayerState(localState);
         }
-        Bodies->Tick(nowMs, RemotePeerViews(), LocalStateValid ? &LastLocalState : nullptr, Flow->BodiesAllowed(nowMs));
+        Bodies->Tick(nowMs, RemotePeerViews(), LocalStateValid ? &LastLocalState : nullptr, Flow->BodiesAllowed(nowMs) || Plan->Bodies.InMenuForTesting);
         Mirror->Tick(nowMs, *Bodies, *Session);
     }
     ReportRemoteStates(nowMs);
@@ -257,7 +266,7 @@ void SetUpSession()
         return;
     }
     Log(Plan->IsHost ? "session.txt: host on " + Plan->Hub : "session.txt: join " + Plan->JoinCode + " on " + Plan->Hub);
-    if (Plan->Bodies.Enabled && Plan->Bodies.PlayerBody)
+    if (Plan->Bodies.Enabled)
     {
         nightcoop_mac::partner_body_builder::Install(GameSdk, PluginHandle, Log);
     }

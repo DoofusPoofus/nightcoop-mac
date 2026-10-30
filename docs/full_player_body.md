@@ -47,6 +47,15 @@ still open here: copying our live players anim setup (`rig`, `graph`, `animTags`
 component, after clearing the template extensions), the impostor flag (`+0xB1`, not in rtti), the added sense / hit / body
 controller components, nightcoops `SceneItemPlanes` / `SceneRenderPlanes` on items attached later and the `SetPlaneSetting` event.
 
+**the crash a moment after a body spawned** (found with `src/plugin/CrashNotes.cpp`, which names the game objects in the
+crashing threads registers): the bodys character customization parts (genitals, hairstyle, feet controllers ...) ask the body
+for its record and read it as a character record. spawning from a template path makes codeware invent a `SpawnableObject`
+record (`TweakDBID(hash, 1)`), so the lookup comes back empty and the game locks a null object. nightcoop spawns with a
+character record (`Character.TPP_Player_Cutscene_Male/Female`, `Character.Player_Puppet_Base`), so does the mac port now.
+writing the record into the spawn request from the build hook is too late, the body keeps the invented one, so the PlayerPuppet
+body is whatever template `Character.Player_Puppet_Base` brings (base female `player_wa_fpp.ent`) and male partners get the male
+V body until a male player record or a template + record spawn (nightcoops native spawn path) is ported.
+
 ## 2. script callbacks of PlayerPuppet
 
 about 30 scripted callbacks are cut for remote bodies so they dont act like a second local player: `OnStatusEffectApplied`,

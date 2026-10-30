@@ -46,6 +46,7 @@ add_subdirectory(${RED4EXT_SDK_DIR} red4ext_sdk EXCLUDE_FROM_ALL)
 add_library(NightCoopMac SHARED
   src/plugin/Main.cpp
   src/plugin/AnimMirror.cpp
+  src/plugin/CrashNotes.cpp
   src/plugin/GameVersion.cpp
   src/plugin/GameCalls.cpp
   src/plugin/PartnerBodyBuilder.cpp
