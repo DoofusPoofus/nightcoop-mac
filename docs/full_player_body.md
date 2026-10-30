@@ -59,6 +59,20 @@ its own `entityTemplatePath`, the genders of the cutscene V record of that gende
 the PlayerPuppet body spawns from that record: `player_wa_fpp_ep1.ent` / `player_ma_fpp_ep1.ent` (or the base ones, the family
 our own player came from), checked at the menu for both genders.
 
+## partner look (done on mac, checked in a save with a probe)
+
+nightcoops PartnerLook, rebuilt: `src/net/LookMessages.cpp` reads and writes the full PlayerCustomization (33) (gender, head /
+body / arms groups with their parts and morphs, perspectives, tags, all CName hashes), `src/plugin/LookStates.cpp` reads our
+own look out of the customization systems state (+0x41 / +0x44 / +0x45 / +0xC0 and the arrays at +0x70..+0xB0, walked thru the
+rtti types of `gameuiCharacterCustomizationPreset`) and builds a fresh state per partner, `src/plugin/PartnerLook.cpp` hooks
+the systems `GetState(isMale)` (vtable 0x1f8, game+0x4bc7228) and `GetState()` (0x1f0, game+0x4bc6098), both checked by their
+code bytes. a partner body is found by the callers callee saved registers (an asm entry hands x19..x28 to the detour; the part
+or entity of a partner body is in one of them), the menu only look part function (game+0x4bacda8) sets a thread local scope,
+and an other gender call outside any scope goes to the only partner of that gender like nightcoops fallback. in a save our look
+read back as 11 head, 5 body, 34 arms groups (3880 bytes) and a body bound to it got its own state for evry request.
+not done: DetachUpdaters (our own look changes may still repaint partners), respawn on a look change, clothes (PlayerLook 31,
+the wardrobe module), the 4 extra scope hooks nightcoop has for items. tests can load a save alone with `auto_continue`.
+
 ## 2. script callbacks of PlayerPuppet
 
 about 30 scripted callbacks are cut for remote bodies so they dont act like a second local player: `OnStatusEffectApplied`,
