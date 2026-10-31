@@ -53,6 +53,7 @@ add_library(NightCoopMac SHARED
   src/plugin/Items.cpp
   src/plugin/LookStates.cpp
   src/plugin/GameCalls.cpp
+  src/plugin/GameClock.cpp
   src/plugin/PartnerBodyBuilder.cpp
   src/plugin/PartnerLook.cpp
   src/plugin/PlayerSampler.cpp

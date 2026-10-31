@@ -31,6 +31,7 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | partner clothes and arms (PlayerLook 31, nightcoops wardrobe: visible items incl transmog, arms cyberware, a third person head) | works in a save with a probe sending a real outfit (7 pieces put on, logs only) |
 | our weapons in PlayerState (right / left record, shot counts from magazine drops, psm weapon states, aim / shoot / reload / silenced flags) | works in a save (`test_weapon` draws a gun and fakes shots), checked with a probe |
 | partner weapons on their body (WeaponRight / WeaponLeft, npc weapon effects, Shoot anim event and muzzle flash per shot) | works in a save on both body kinds with a probe holding a gun (logs only). nightcoops native weapon sound is left out |
+| time of day follows the host (GameClock 46, a guest more than 120 s off takes the hosts game time) | works both ways, checked with a probe as guest and as host |
 | everything else (npcs quests vehicles dialog votes loot ...) | not yet |
 
 NightCoop is in beta and its protocol changes with its releases, so this has to keep up with it. it targets NightCoop 0.1.2 (protocol 143) rn.

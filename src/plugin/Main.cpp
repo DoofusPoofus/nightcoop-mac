@@ -20,6 +20,7 @@
 #include "plugin/AnimTap.hpp"
 #include "plugin/CrashNotes.hpp"
 #include "plugin/GameCalls.hpp"
+#include "plugin/GameClock.hpp"
 #include "plugin/GameVersion.hpp"
 #include "plugin/LookStates.hpp"
 #include "plugin/PartnerBodyBuilder.hpp"
@@ -390,6 +391,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     }
     WriteStatusFile(DescribeStatus(Session->GetStatus()));
     TakeRemoteStates(nowMs);
+    const bool inSave = LocalStateValid && Flow->BodiesAllowed(nowMs);
     for (const auto& message : Session->TakeGameMessages())
     {
         if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PlayerCustomization))
@@ -403,6 +405,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PlayerAnimWant))
         {
             nightcoop_mac::anim_tap::SendFullState(message.FromPeer, *Session);
+        }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::GameClock))
+        {
+            nightcoop_mac::game_clock::OnMessage(message.FromPeer, message.Message, inSave, Session->GetStatus().MyPeerNumber == 0, Log);
         }
         Mirror->OnGameMessage(message.FromPeer, message.Message, nowMs);
     }
@@ -437,6 +443,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
                 Log("test moves: pressed c (" + std::to_string(TestMovesDone) + " of 8)");
             }
         }
+        nightcoop_mac::game_clock::Tick(nowMs, bodiesAllowed && LocalStateValid, *Session, Log);
         if (Plan->TestWeapon && bodiesAllowed)
         {
             RunWeaponTest(nowMs);

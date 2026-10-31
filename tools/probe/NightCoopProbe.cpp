@@ -9,6 +9,7 @@
  usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z [STEPS [LOOKFILE [CLOTHESFILE]]]] | watch CODE HUB [seconds]
  CLOTHESFILE is a PlayerLook (31) as it is (the plugin writes own-clothes.bin), sent right after the look
  its look (PlayerCustomization 33) is LOOKFILE as it is (the plugin writes own-look.bin) or a male look with no parts
+ PROBE_CLOCK=<game seconds> makes the host send that GameClock evry 5 s to its guests and stay up for 10 min
  PROBE_WEAPON=0x<tweakdbid> in the environment makes the joiner hold that weapon and fire a shot evry 2 s (aim + shoot flags),
  and the joiner prints the hosts weapon fields whenever they change (health, camera and velocity evry 100 states)
  HUB looks like 127.0.0.1:47900#FINGERPRINT
@@ -47,9 +48,17 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
 {
     bool printedCode = false;
     int statesSeen = 0;
-    const auto deadline = std::chrono::steady_clock::now() + ProbeTimeout;
+    const char* clock = std::getenv("PROBE_CLOCK");
+    const uint32_t clockSeconds = clock ? static_cast<uint32_t>(std::strtoul(clock, nullptr, 0)) : 0;
+    auto nextClock = std::chrono::steady_clock::now();
+    auto deadline = std::chrono::steady_clock::now() + (clock ? 600s : ProbeTimeout);
     while (std::chrono::steady_clock::now() < deadline)
     {
+        if (clock && session.GetStatus().ConnectedPeers > 0 && std::chrono::steady_clock::now() >= nextClock)
+        {
+            nextClock = std::chrono::steady_clock::now() + 5s;
+            session.SendGameMessage(nightcoop_mac::net::WriteGameClock(clockSeconds), nightcoop_mac::net::kEveryPeer, false);
+        }
         const auto status = session.GetStatus();
         if (!status.Running)
         {
@@ -64,11 +73,15 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
         }
         for (const auto& state : session.TakeRemotePlayerStates())
         {
+            if (clock && statesSeen++ % 100 != 0)
+            {
+                continue;
+            }
             std::printf("probe: PlayerState from peer %u: pos %.2f %.2f %.2f yaw %.1f speed %.2f t %llu\n", state.PeerNumber,
                         state.PositionX, state.PositionY, state.PositionZ, state.Yaw, state.Speed,
                         static_cast<unsigned long long>(state.SessionTimeMs));
             std::fflush(stdout);
-            if (++statesSeen >= statesToWaitFor)
+            if (!clock && ++statesSeen >= statesToWaitFor)
             {
                 return 0;
             }
@@ -251,7 +264,12 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
         {
             nightcoop_mac::net::AnimWant want;
             nightcoop_mac::net::AnimBatch batch;
-            if (nightcoop_mac::net::ReadAnimWant(message.Message, want))
+            uint32_t gameSeconds = 0;
+            if (nightcoop_mac::net::ReadGameClock(message.Message, gameSeconds))
+            {
+                std::printf("probe: peer %u game clock %u s (%02u:%02u)\n", message.FromPeer, gameSeconds, gameSeconds / 3600 % 24, gameSeconds / 60 % 60);
+            }
+            else if (nightcoop_mac::net::ReadAnimWant(message.Message, want))
             {
                 std::printf("probe: peer %u asked us for our full anim state (%d %d)\n", message.FromPeer, want.First, want.Second);
             }

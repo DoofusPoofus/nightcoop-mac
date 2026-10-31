@@ -12,6 +12,7 @@
  PlayerAnimWant (30): u8 | u8, a partner asks for our full anim state (sent to one peer, once a second at most)
  PlayerAnimSetup (34): u64 rig | u16 sets (max 512) | the sets. only rig and count are read here
  the u32 / u64 / u32 batch header words are passed along as they came, wat they mean is not pinned down yet
+ GameClock (46): u32 game seconds (the time systems GetGameTime). the host sends it to evryone evry 5 s, unreliable
 */
 #pragma once
 
@@ -98,4 +99,7 @@ std::vector<uint8_t> WriteAnimWant(const AnimWant& want);
 bool ReadAnimWant(const std::vector<uint8_t>& message, AnimWant& want);
 
 bool ReadAnimSetup(const std::vector<uint8_t>& message, AnimSetup& setup);
+
+std::vector<uint8_t> WriteGameClock(uint32_t gameSeconds);
+bool ReadGameClock(const std::vector<uint8_t>& message, uint32_t& gameSeconds);
 }

@@ -251,4 +251,22 @@ bool ReadAnimSetup(const std::vector<uint8_t>& message, AnimSetup& setup)
     setup.SetCount = reader.GetU16();
     return reader.Ok() && setup.SetCount <= MaxAnimSets;
 }
+
+std::vector<uint8_t> WriteGameClock(uint32_t gameSeconds)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::GameClock);
+    writer.PutU32(gameSeconds);
+    return writer.Data();
+}
+
+bool ReadGameClock(const std::vector<uint8_t>& message, uint32_t& gameSeconds)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (!OpenMessage(reader, nc::proto::MsgType::GameClock))
+    {
+        return false;
+    }
+    gameSeconds = reader.GetU32();
+    return reader.Ok();
+}
 }

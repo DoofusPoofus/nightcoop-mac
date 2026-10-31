@@ -100,6 +100,10 @@ int main()
     AnimWant want;
     Check(ReadAnimWant(WriteAnimWant({true, false}), want) && want.First && !want.Second, "anim want round trip");
 
+    const auto clock = WriteGameClock(123456);
+    uint32_t gameSeconds = 0;
+    Check(clock.size() == 9 && clock[4] == 46 && ReadGameClock(clock, gameSeconds) && gameSeconds == 123456, "game clock is magic | 46 | u32 seconds");
+
     const std::vector<uint8_t> setupBytes = {0x50, 0x4F, 0x43, 0x4E, 34, 1, 2, 3, 4, 5, 6, 7, 8, 2, 0};
     AnimSetup setup;
     Check(ReadAnimSetup(setupBytes, setup) && setup.Rig == 0x0807060504030201ULL && setup.SetCount == 2, "anim setup rig and count");
