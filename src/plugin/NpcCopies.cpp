@@ -3,6 +3,7 @@
 #include "net/GameMessages.hpp"
 #include "net/RelaySession.hpp"
 #include "plugin/GameCalls.hpp"
+#include "plugin/NpcStates.hpp"
 
 #include <ProtocolCore.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
@@ -10,6 +11,7 @@
 #include <RED4ext/Scripting/Natives/entEntityID.hpp>
 #include <RED4ext/TweakDB.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -30,6 +32,11 @@ constexpr uint8_t DiedReason = 3;
 constexpr size_t MostPendingAnimBatches = 32;
 constexpr uint64_t AnimWantAtMostEveryMs = 1000;
 constexpr uint64_t ReportEveryMs = 10000;
+constexpr uint64_t StatesEveryMs = 200;
+constexpr uint64_t HandCheckEveryMs = 2000;
+constexpr uint32_t MostHandTries = 5;
+constexpr float HealthStepPercent = 1.0f;
+constexpr float LowestLivingHealth = 1.0f;
 const char* CopyTag = "NightCoopNpcCopy";
 const char* ComponentsTurnedOff[] = {"AIHumanComponent",          "senseComponent", "ReactionManagerComponent", "StimBroadcasterComponent",
                                      "AITargetTrackerComponent", "moveComponent",  "moveMotionPlannerComponent"};
@@ -93,6 +100,8 @@ bool NpcCopies::Resolve()
     m_toggle = game::FindFunction("entIComponent", "Toggle");
     m_setDisableRagdoll = game::FindFunction("NPCPuppet", "SetDisableRagdoll");
     m_kill = game::FindFunction("NPCPuppet", "Kill");
+    m_getPlayer = rtti->GetFunction("GetPlayer;GameInstance");
+    npc_states::Ready();
     m_specClass = rtti->GetClass("DynamicEntitySpec");
     m_npcClass = rtti->GetClass("NPCPuppet");
     for (const char* className : ComponentsTurnedOff)
@@ -201,6 +210,8 @@ void NpcCopies::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message
         std::memcpy(sample.Position, snapshot.Position, sizeof(sample.Position));
         sample.Yaw = snapshot.Yaw;
         copy->second.Samples.push_back(sample);
+        copy->second.Latest = snapshot;
+        copy->second.HasSnapshot = true;
         while (copy->second.Samples.size() > MostSamples)
         {
             copy->second.Samples.pop_front();
@@ -404,6 +415,123 @@ void NpcCopies::PlayAnim(uint32_t netId, Copy& copy, RED4ext::Handle<RED4ext::IS
     copy.PendingAnim.clear();
 }
 
+void NpcCopies::ApplyStates(uint32_t netId, Copy& copy, RED4ext::Handle<RED4ext::IScriptable>& npc, uint64_t nowMs, uint32_t ourPeer)
+{
+    if (!copy.HasSnapshot || nowMs < copy.NextStatesMs)
+    {
+        return;
+    }
+    copy.NextStatesMs = nowMs + StatesEveryMs;
+    const auto& latest = copy.Latest;
+    const float wantedHealth = std::max(latest.Health, LowestLivingHealth);
+    if (copy.AppliedHealth < 0.0f || std::fabs(wantedHealth - copy.AppliedHealth) >= HealthStepPercent)
+    {
+        if (npc_states::SetHealthPercent(copy.EntityHash, wantedHealth))
+        {
+            copy.AppliedHealth = wantedHealth;
+            ++m_healthWrites;
+        }
+    }
+    for (int slot = 0; slot < npc_states::StateCount; ++slot)
+    {
+        uint8_t wanted = latest.States[slot];
+        if (slot == npc_states::HighLevelStateSlot && wanted == npc_states::HighLevelDead)
+        {
+            continue;
+        }
+        if (slot == npc_states::StanceStateSlot && wanted == npc_states::StanceCover)
+        {
+            wanted = npc_states::StanceCrouch;
+        }
+        if (wanted != copy.AppliedStates[slot] && npc_states::WriteState(npc, slot, wanted))
+        {
+            copy.AppliedStates[slot] = wanted;
+            ++m_stateWrites;
+        }
+    }
+    int wantedAttitude = -1;
+    for (const auto& partnerAttitude : latest.PartnerAttitudes)
+    {
+        if (partnerAttitude.Peer == ourPeer)
+        {
+            wantedAttitude = partnerAttitude.Attitude;
+        }
+    }
+    if (wantedAttitude >= 0 && wantedAttitude != copy.AppliedAttitude)
+    {
+        auto copyAgent = npc_states::AttitudeAgentOf(npc);
+        if (!copyAgent || !m_playerAgent)
+        {
+            if (!m_attitudeTroubleLogged)
+            {
+                m_attitudeTroubleLogged = true;
+                m_log(std::string("npcs: cant set a copys attitude, ") + (copyAgent ? "" : "the copy has no attitude agent ") +
+                      (m_playerAgent ? "" : "our player has no attitude agent"));
+            }
+        }
+        else if (npc_states::SetAttitudeTowards(copyAgent, m_playerAgent, static_cast<uint8_t>(wantedAttitude)))
+        {
+            copy.AppliedAttitude = wantedAttitude;
+            ++m_attitudeWrites;
+            m_log("npcs: copy of " + NetIdText(netId) + " is now " +
+                  (wantedAttitude == 2 ? "hostile" : wantedAttitude == 0 ? "friendly" : "neutral") + " to us like its owners npc is to our body");
+        }
+    }
+    ApplyHands(netId, copy, npc, nowMs);
+}
+
+void NpcCopies::ApplyHands(uint32_t netId, Copy& copy, RED4ext::Handle<RED4ext::IScriptable>& npc, uint64_t nowMs)
+{
+    const uint64_t wantedRecords[2] = {copy.Latest.RightHandItem & 0xFFFFFFFFFFULL, copy.Latest.LeftHandItem & 0xFFFFFFFFFFULL};
+    for (int hand = 0; hand < 2; ++hand)
+    {
+        const bool rightHand = hand == 0;
+        if (wantedRecords[hand] != copy.HandRecords[hand])
+        {
+            copy.HandRecords[hand] = wantedRecords[hand];
+            copy.HandTries[hand] = 0;
+            if (!wantedRecords[hand])
+            {
+                npc_states::EmptyHand(npc, rightHand);
+                continue;
+            }
+            if (npc_states::PutInHand(npc, wantedRecords[hand], rightHand))
+            {
+                ++m_handWrites;
+                char line[160];
+                std::snprintf(line, sizeof(line), "npcs: copy of %s holds %#llx in the %s hand like its owners npc", NetIdText(netId).c_str(),
+                              static_cast<unsigned long long>(wantedRecords[hand]), rightHand ? "right" : "left");
+                m_log(line);
+            }
+            copy.NextHandCheckMs = nowMs + HandCheckEveryMs;
+        }
+    }
+    if (nowMs < copy.NextHandCheckMs)
+    {
+        return;
+    }
+    copy.NextHandCheckMs = nowMs + HandCheckEveryMs;
+    for (int hand = 0; hand < 2; ++hand)
+    {
+        const bool rightHand = hand == 0;
+        if (!copy.HandRecords[hand] || copy.HandTries[hand] >= MostHandTries)
+        {
+            continue;
+        }
+        if ((npc_states::HandRecord(npc, rightHand) & 0xFFFFFFFFFFULL) == copy.HandRecords[hand])
+        {
+            copy.HandTries[hand] = 0;
+            continue;
+        }
+        if (++copy.HandTries[hand] == MostHandTries)
+        {
+            m_log("npcs: copy of " + NetIdText(netId) + " never kept its " + (rightHand ? "right" : "left") + " hand weapon, gave up");
+            continue;
+        }
+        npc_states::PutInHand(npc, copy.HandRecords[hand], rightHand);
+    }
+}
+
 void NpcCopies::Report(uint64_t nowMs)
 {
     if (nowMs < m_nextReportMs)
@@ -415,13 +543,15 @@ void NpcCopies::Report(uint64_t nowMs)
     {
         return;
     }
-    char line[300];
+    char line[400];
     std::snprintf(line, sizeof(line),
                   "npcs: %zu copy(s), npc anim in 10 s: %u batch(es), %u full state(s), %u waited for a full state, %u played, %u failed, %u no setter, "
-                  "%u ask(s) for a full state",
-                  m_copies.size(), m_animBatches, m_animFullStates, m_animWaited, m_animPlayed, m_animFailed, m_animOther, m_animWants);
+                  "%u ask(s) for a full state; %u health, %u state, %u attitude and %u hand write(s)",
+                  m_copies.size(), m_animBatches, m_animFullStates, m_animWaited, m_animPlayed, m_animFailed, m_animOther, m_animWants, m_healthWrites,
+                  m_stateWrites, m_attitudeWrites, m_handWrites);
     m_log(line);
     m_animBatches = m_animFullStates = m_animWaited = m_animPlayed = m_animFailed = m_animOther = m_animWants = 0;
+    m_healthWrites = m_stateWrites = m_attitudeWrites = m_handWrites = 0;
 }
 
 void NpcCopies::Kill(RED4ext::Handle<RED4ext::IScriptable>& npc)
@@ -460,6 +590,7 @@ void NpcCopies::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session)
         if (!m_copies.empty())
         {
             m_copies.clear();
+            m_playerAgent.Reset();
             m_dynamicEntitySystem.Reset();
             m_teleportationFacility.Reset();
         }
@@ -485,6 +616,16 @@ void NpcCopies::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session)
     {
         return;
     }
+    if (m_getPlayer)
+    {
+        RED4ext::ScriptGameInstance gameInstance;
+        RED4ext::Handle<RED4ext::IScriptable> player;
+        RED4ext::StackArgs_t playerArgs;
+        playerArgs.emplace_back(nullptr, &gameInstance);
+        game::CallStatic(m_getPlayer, &player, playerArgs);
+        m_playerAgent = npc_states::AttitudeAgentOf(player);
+    }
+    const uint32_t ourPeer = session.GetStatus().MyPeerNumber;
     for (auto copyEntry = m_copies.begin(); copyEntry != m_copies.end();)
     {
         auto& [netId, copy] = *copyEntry;
@@ -510,6 +651,7 @@ void NpcCopies::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session)
                 }
                 Place(copy, npc, nowMs);
                 PlayAnim(netId, copy, npc, nowMs, session);
+                ApplyStates(netId, copy, npc, nowMs, ourPeer);
             }
         }
         ++copyEntry;

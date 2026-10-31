@@ -498,7 +498,9 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             if (Plan->ShareNpcsAlways || (weAreHost && nightcoop_mac::partner_roster::PeerInHostWorld(view.PeerNumber)))
             {
-                npcPartners.push_back({view.PeerNumber, {view.State.PositionX, view.State.PositionY, view.State.PositionZ}});
+                nightcoop_mac::NpcShare::Partner partner {view.PeerNumber, {view.State.PositionX, view.State.PositionY, view.State.PositionZ}, {}};
+                Bodies->GetBody(view.PeerNumber, partner.Body);
+                npcPartners.push_back(std::move(partner));
             }
         }
         OurNpcs->Tick(nowMs, inSave, npcPartners, *Session);

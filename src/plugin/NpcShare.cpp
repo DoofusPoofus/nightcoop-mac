@@ -4,8 +4,8 @@
 #include "net/RelaySession.hpp"
 #include "plugin/AnimTap.hpp"
 #include "plugin/GameCalls.hpp"
+#include "plugin/NpcStates.hpp"
 
-#include <RED4ext/Scripting/Natives/Generated/game/StatsObjectID.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
 #include <RED4ext/Scripting/Natives/entEntityID.hpp>
@@ -21,6 +21,9 @@ namespace
 constexpr uint64_t ScanEveryMs = 750;
 constexpr uint64_t SpawnEveryMs = 625;
 constexpr uint64_t SnapshotEveryMs = 100;
+constexpr uint64_t HandsEveryMs = 500;
+constexpr size_t MostPartnerAttitudes = 7;
+constexpr uint8_t FlagIncapacitated = 0x80;
 constexpr uint64_t ReportEveryMs = 10000;
 constexpr float ShareWithinMeters = 150.0f;
 constexpr float StopPastMeters = 180.0f;
@@ -66,25 +69,13 @@ bool NpcShare::Resolve()
     m_isDead = game::FindFunction("gameObject", "IsDead");
     m_getDynamicEntitySystem = game::FindFunction("ScriptGameInstance", "GetDynamicEntitySystem");
     m_isManaged = game::FindFunction("DynamicEntitySystem", "IsManaged");
-    m_getStatPoolsSystem = game::FindFunction("ScriptGameInstance", "GetStatPoolsSystem");
-    m_getStatPoolValue = game::FindFunction("gameStatPoolsSystem", "GetStatPoolValue");
     m_getAnimationController = game::FindFunction("ScriptedPuppet", "GetAnimationControllerComponent");
+    m_getPlayer = RED4ext::CRTTISystem::Get()->GetFunction("GetPlayer;GameInstance");
     m_npcClass = rtti->GetClass("NPCPuppet");
-    if (auto* pools = rtti->GetEnum("gamedataStatPoolType"))
-    {
-        for (uint32_t index = 0; index < pools->hashList.Size() && index < pools->valueList.Size(); ++index)
-        {
-            if (pools->hashList[index] == RED4ext::CName("Health"))
-            {
-                m_healthPool = static_cast<uint32_t>(pools->valueList[index]);
-            }
-        }
-    }
     m_usable = game::ParamsAre(m_getEntityList, {"ScriptGameInstance"}) && game::ParamsAre(m_getEntityId, {}) &&
                game::ParamsAre(m_getWorldPosition, {}) && game::ParamsAre(m_getWorldYaw, {}) && game::ParamsAre(m_getRecordId, {}) &&
                game::ParamsAre(m_getAppearance, {}) && game::ParamsAre(m_isDead, {}) && game::ParamsAre(m_getDynamicEntitySystem, {}) &&
-               game::ParamsAre(m_isManaged, {"entEntityID"}) && game::ParamsAre(m_getStatPoolsSystem, {"ScriptGameInstance"}) &&
-               game::ParamsAre(m_getStatPoolValue, {"gameStatsObjectID", "gamedataStatPoolType", "Bool"}) && m_npcClass;
+               game::ParamsAre(m_isManaged, {"entEntityID"}) && npc_states::Ready() && m_npcClass;
     m_log(m_usable ? "npcs: our npcs near partners in our world go to them" : "npcs: the entity list or npc calls look different than expected, our npcs stay ours");
     return m_usable;
 }
@@ -119,9 +110,43 @@ void NpcShare::LetGoOfAll()
         new RED4ext::Handle<RED4ext::IScriptable>(std::move(source.Body));
     }
     m_sources.clear();
+    m_playerAgent.Reset();
+    m_partnerAgents.clear();
 }
 
-void NpcShare::Send(uint64_t nowMs, uint64_t entityHash, Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc, net::RelaySession& session)
+void NpcShare::FillStates(uint64_t nowMs, Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc, const std::vector<Partner>& partners,
+                          net::NpcSnapshot& snapshot)
+{
+    npc_states::ReadStates(npc, snapshot.States);
+    auto npcAgent = npc_states::AttitudeAgentOf(npc);
+    snapshot.Attitude = npc_states::AttitudeTowards(npcAgent, m_playerAgent);
+    for (size_t index = 0; index < partners.size() && index < m_partnerAgents.size() && snapshot.PartnerAttitudes.size() < MostPartnerAttitudes; ++index)
+    {
+        if (m_partnerAgents[index])
+        {
+            snapshot.PartnerAttitudes.push_back(
+                {static_cast<uint8_t>(partners[index].PeerNumber), npc_states::AttitudeTowards(npcAgent, m_partnerAgents[index])});
+        }
+    }
+    if (nowMs >= source.NextHandsMs)
+    {
+        source.NextHandsMs = nowMs + HandsEveryMs;
+        source.RightHandRecord = npc_states::HandRecord(npc, true);
+        source.LeftHandRecord = npc_states::HandRecord(npc, false);
+    }
+    snapshot.RightHandItem = source.RightHandRecord;
+    snapshot.LeftHandItem = source.LeftHandRecord;
+    bool ignoresGlobal = false;
+    snapshot.TimeDilation = npc_states::TimeDilation(npc, ignoresGlobal);
+    snapshot.DilationFlags = static_cast<uint8_t>(ignoresGlobal ? 3 : 1);
+    if (npc_states::IsIncapacitated(npc) && snapshot.Health > 0.0f)
+    {
+        snapshot.Flags |= FlagIncapacitated;
+    }
+}
+
+void NpcShare::Send(uint64_t nowMs, uint64_t entityHash, Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc, const std::vector<Partner>& partners,
+                    net::RelaySession& session)
 {
     RED4ext::StackArgs_t noArgs;
     RED4ext::Vector4 position {};
@@ -158,24 +183,7 @@ void NpcShare::Send(uint64_t nowMs, uint64_t entityHash, Source& source, RED4ext
     source.LastPosition[1] = position.Y;
     source.LastPosition[2] = position.Z;
     source.LastSampleMs = nowMs;
-    float health = 100.0f;
-    RED4ext::ScriptGameInstance gameInstance;
-    RED4ext::Handle<RED4ext::IScriptable> pools;
-    RED4ext::StackArgs_t poolArgs;
-    poolArgs.emplace_back(nullptr, &gameInstance);
-    if (game::CallStatic(m_getStatPoolsSystem, &pools, poolArgs) && pools)
-    {
-        RED4ext::game::StatsObjectID statsObject {};
-        statsObject.entityHash = entityHash;
-        statsObject.idType = RED4ext::game::StatIDType::EntityID;
-        uint32_t poolType = m_healthPool;
-        bool inPercent = true;
-        RED4ext::StackArgs_t valueArgs;
-        valueArgs.emplace_back(nullptr, &statsObject);
-        valueArgs.emplace_back(nullptr, &poolType);
-        valueArgs.emplace_back(nullptr, &inPercent);
-        game::CallMethod(pools.instance, m_getStatPoolValue, &health, valueArgs);
-    }
+    const float health = npc_states::HealthPercent(entityHash);
     net::NpcSnapshot snapshot;
     snapshot.NetId = source.NetId;
     snapshot.Position[0] = position.X;
@@ -185,6 +193,7 @@ void NpcShare::Send(uint64_t nowMs, uint64_t entityHash, Source& source, RED4ext
     snapshot.Speed = std::isfinite(speed) && speed < 100.0f ? speed : 0.0f;
     snapshot.Health = std::isfinite(health) ? std::clamp(health, 0.0f, 100.0f) : 100.0f;
     snapshot.OwnerClockMs = session.SessionClockMs();
+    FillStates(nowMs, source, npc, partners, snapshot);
     session.SendGameMessage(net::WriteNpcSnapshot(snapshot), net::kEveryPeer, false);
 }
 
@@ -241,6 +250,8 @@ void NpcShare::Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::R
     {
         candidates.resize(MostShared);
     }
+    m_lastScanCandidates = static_cast<uint32_t>(candidates.size());
+    m_lastScanDead = 0;
     for (auto& [hash, source] : m_sources)
     {
         source.Seen = false;
@@ -256,6 +267,7 @@ void NpcShare::Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::R
         {
             if (dead)
             {
+                ++m_lastScanDead;
                 continue;
             }
             Source fresh;
@@ -307,7 +319,20 @@ void NpcShare::Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& par
         Scan(nowMs, partners, session);
     }
     RED4ext::ScriptGameInstance gameInstance;
-    RED4ext::Handle<RED4ext::IScriptable> dynamicEntities;
+    RED4ext::Handle<RED4ext::IScriptable> player;
+    RED4ext::StackArgs_t playerArgs;
+    playerArgs.emplace_back(nullptr, &gameInstance);
+    if (m_getPlayer)
+    {
+        game::CallStatic(m_getPlayer, &player, playerArgs);
+    }
+    m_playerAgent = npc_states::AttitudeAgentOf(player);
+    m_partnerAgents.clear();
+    for (const auto& partner : partners)
+    {
+        auto body = partner.Body;
+        m_partnerAgents.push_back(npc_states::AttitudeAgentOf(body));
+    }
     for (auto source = m_sources.begin(); source != m_sources.end();)
     {
         RED4ext::Handle<RED4ext::IScriptable> npc;
@@ -322,7 +347,7 @@ void NpcShare::Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& par
             source = m_sources.erase(source);
             continue;
         }
-        Send(nowMs, source->first, source->second, npc, session);
+        Send(nowMs, source->first, source->second, npc, partners, session);
         ++source;
     }
     if (nowMs >= m_nextReportMs)
@@ -330,7 +355,7 @@ void NpcShare::Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& par
         m_nextReportMs = nowMs + ReportEveryMs;
         m_log("npcs: " + std::to_string(m_sources.size()) + " of our npc(s) shared now, " + std::to_string(m_sharesStarted) +
               " started so far, " + std::to_string(anim_tap::WatchedNpcCount()) + " graph(s) streamed (last scan: " + std::to_string(m_lastScanEntities) + " entities, " + std::to_string(m_lastScanNpcs) + " npcs, " +
-              std::to_string(m_lastScanManaged) + " ours, nearest " + std::to_string(static_cast<int>(m_lastScanNearest)) + " m from a partner)");
+              std::to_string(m_lastScanManaged) + " ours, " + std::to_string(m_lastScanCandidates) + " near, " + std::to_string(m_lastScanDead) + " dead, nearest " + std::to_string(static_cast<int>(m_lastScanNearest)) + " m from a partner)");
     }
 }
 }

@@ -17,7 +17,8 @@
  PROBE_NPC=0x<character record> makes the joiner share an npc of that record that walks 2 m beside it (NpcSpawn evry 625 ms,
  NpcSnapshot evry step) and lets it go at the end (NpcDespawn). its NpcAnim stream answers a NpcAnimWant with a full state and
  sends a float and an event evry step after that. npcs the host shares get counted with their NpcAnim batches, the first one
- gets a NpcAnimWant
+ gets a NpcAnimWant. the probe npc turns hostile to the host halfway with 60 % health and combat states, and holds
+ PROBE_NPC_WEAPON=0x<record> then
  PROBE_LIFT=1 makes the joiner ask the host for a lift that does not exist (LiftSync kind 3) and print the answer
  PROBE_RIDE=1 makes the joiner sit in the front right seat of the car the host shares (VehicleSeat evry step)
  PROBE_DOWN=1 makes the joiner lie downed (flag 0x100) right next to the host (0.5 m) until a PlayerRevive comes
@@ -295,6 +296,12 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint32_t hostNpcAnimFullStates = 0;
     std::set<uint32_t> hostNpcsAnimated;
     bool hostNpcAnimAsked = false;
+    uint32_t hostNpcSnapshots = 0;
+    uint32_t hostNpcsArmed = 0;
+    uint32_t hostNpcsStated = 0;
+    uint32_t hostNpcAttitudesToUs[3] = {0, 0, 0};
+    std::set<uint8_t> hostNpcHighLevels;
+    std::set<uint32_t> hostNpcsArmedSeen;
     bool probeNpcWanted = false;
     uint32_t probeNpcSequence = 0;
     uint32_t rosterRevision = 0xFFFFFFFF;
@@ -408,6 +415,15 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             npcState.Yaw = state.Yaw;
             npcState.Speed = state.Speed;
             npcState.OwnerClockMs = session.SessionClockMs();
+            npcState.Health = step < WalkSteps / 2 ? 100.0f : 60.0f;
+            npcState.States[0] = 3;
+            npcState.States[1] = step < WalkSteps / 2 ? 6 : 0;
+            npcState.States[2] = step < WalkSteps / 2 ? 5 : 2;
+            npcState.PartnerAttitudes.push_back({0, static_cast<uint8_t>(step < WalkSteps / 2 ? 1 : 2)});
+            if (const char* npcWeapon = std::getenv("PROBE_NPC_WEAPON"))
+            {
+                npcState.RightHandItem = step < WalkSteps / 2 ? 0 : std::strtoull(npcWeapon, nullptr, 0);
+            }
             session.SendGameMessage(nightcoop_mac::net::WriteNpcSnapshot(npcState), nightcoop_mac::net::kEveryPeer, false);
             if (probeNpcWanted)
             {
@@ -533,6 +549,28 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                 ++hostNpcsGone;
                 continue;
             }
+            nightcoop_mac::net::NpcSnapshot hostNpcState;
+            if (nightcoop_mac::net::ReadNpcSnapshot(message.Message, hostNpcState))
+            {
+                ++hostNpcSnapshots;
+                hostNpcsArmed += hostNpcState.RightHandItem ? 1 : 0;
+                hostNpcsStated += (hostNpcState.States[0] || hostNpcState.States[2]) ? 1 : 0;
+                hostNpcHighLevels.insert(hostNpcState.States[2]);
+                for (const auto& partnerAttitude : hostNpcState.PartnerAttitudes)
+                {
+                    if (partnerAttitude.Peer == session.GetStatus().MyPeerNumber)
+                    {
+                        ++hostNpcAttitudesToUs[partnerAttitude.Attitude <= 2 ? partnerAttitude.Attitude : 1];
+                    }
+                }
+                if (hostNpcState.RightHandItem && hostNpcsArmedSeen.insert(hostNpcState.NetId).second && hostNpcsArmedSeen.size() <= 3)
+                {
+                    std::printf("probe: host npc %#010x holds %#llx, states %u %u %u %u, health %.0f\n", hostNpcState.NetId,
+                                static_cast<unsigned long long>(hostNpcState.RightHandItem), hostNpcState.States[0], hostNpcState.States[1],
+                                hostNpcState.States[2], hostNpcState.States[3], hostNpcState.Health);
+                }
+                continue;
+            }
             nightcoop_mac::net::AnimBatch npcAnim;
             if (nightcoop_mac::net::ReadNpcAnim(message.Message, npcAnim))
             {
@@ -642,6 +680,10 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     if (!hostNpcs.empty() || hostNpcsGone)
     {
         std::printf("probe: the host shared %zu npc(s) with us, %u despawn(s)\n", hostNpcs.size(), hostNpcsGone);
+        std::printf("probe: %u npc snapshot(s) from the host, %u with a right hand weapon (%zu npcs), %u with states, %zu high level state(s), "
+                    "attitude to us friendly %u neutral %u hostile %u\n",
+                    hostNpcSnapshots, hostNpcsArmed, hostNpcsArmedSeen.size(), hostNpcsStated, hostNpcHighLevels.size(), hostNpcAttitudesToUs[0],
+                    hostNpcAttitudesToUs[1], hostNpcAttitudesToUs[2]);
         std::printf("probe: npc anim from the host: %u batch(es), %u input(s), %u full state(s), %zu npc(s) animated\n", hostNpcAnimBatches,
                     hostNpcAnimInputs, hostNpcAnimFullStates, hostNpcsAnimated.size());
     }

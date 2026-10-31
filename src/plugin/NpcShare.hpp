@@ -8,7 +8,9 @@
  << 24 | counter) and goes out as NpcSpawn (record, appearance, entity id, place, yaw) evry 625 ms and NpcSnapshot 10 times a
  second (place, yaw, speed, health %), and NpcDespawn when it is past 180 m from them (reason 1), gone (2) or dead (3)
  each shared npcs anim controller and event queue go under the anim tap, which streams its graph writes as NpcAnim (23)
- not done yet: match keys, ai net states, attitudes, weapons, handoffs, claims and orphans
+ snapshots also carry its 8 ai net states, its attitude to our player and to evry partner body, its hand weapons (checked
+ evry 500 ms), time dilation and the incapacitated flag (npc states does the game calls)
+ not done yet: match keys, workspot flags, handoffs, claims and orphans
 */
 #pragma once
 
@@ -25,6 +27,7 @@ namespace nightcoop_mac
 namespace net
 {
 class RelaySession;
+struct NpcSnapshot;
 }
 
 class NpcShare
@@ -36,6 +39,7 @@ public:
     {
         uint32_t PeerNumber = 0;
         float Position[3] = {0, 0, 0};
+        RED4ext::Handle<RED4ext::IScriptable> Body;
     };
 
     explicit NpcShare(LogFunction log);
@@ -55,11 +59,17 @@ private:
         bool Seen = false;
         RED4ext::Handle<RED4ext::IScriptable> Controller;
         RED4ext::Handle<RED4ext::IScriptable> Body;
+        uint64_t RightHandRecord = 0;
+        uint64_t LeftHandRecord = 0;
+        uint64_t NextHandsMs = 0;
     };
 
     bool Resolve();
     void Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::RelaySession& session);
-    void Send(uint64_t nowMs, uint64_t entityHash, Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc, net::RelaySession& session);
+    void Send(uint64_t nowMs, uint64_t entityHash, Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc, const std::vector<Partner>& partners,
+              net::RelaySession& session);
+    void FillStates(uint64_t nowMs, Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc, const std::vector<Partner>& partners,
+                    net::NpcSnapshot& snapshot);
     void StopSharing(uint64_t entityHash, Source& source, uint8_t reason, net::RelaySession& session);
     void WatchGraph(Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc);
     void LetGoOfAll();
@@ -76,11 +86,11 @@ private:
     RED4ext::CBaseFunction* m_isDead = nullptr;
     RED4ext::CBaseFunction* m_getDynamicEntitySystem = nullptr;
     RED4ext::CBaseFunction* m_isManaged = nullptr;
-    RED4ext::CBaseFunction* m_getStatPoolsSystem = nullptr;
-    RED4ext::CBaseFunction* m_getStatPoolValue = nullptr;
     RED4ext::CBaseFunction* m_getAnimationController = nullptr;
+    RED4ext::CBaseFunction* m_getPlayer = nullptr;
+    RED4ext::Handle<RED4ext::IScriptable> m_playerAgent;
+    std::vector<RED4ext::Handle<RED4ext::IScriptable>> m_partnerAgents;
     RED4ext::CClass* m_npcClass = nullptr;
-    uint32_t m_healthPool = 0;
     std::map<uint64_t, Source> m_sources;
     uint32_t m_netIdCounter = 0;
     uint64_t m_nextScanMs = 0;
@@ -90,6 +100,8 @@ private:
     uint32_t m_lastScanEntities = 0;
     uint32_t m_lastScanNpcs = 0;
     uint32_t m_lastScanManaged = 0;
+    uint32_t m_lastScanCandidates = 0;
+    uint32_t m_lastScanDead = 0;
     float m_lastScanNearest = 1e9f;
 };
 }

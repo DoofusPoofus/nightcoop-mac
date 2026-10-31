@@ -58,6 +58,7 @@ add_library(NightCoopMac SHARED
   src/plugin/LiftSync.cpp
   src/plugin/NpcCopies.cpp
   src/plugin/NpcShare.cpp
+  src/plugin/NpcStates.cpp
   src/plugin/Items.cpp
   src/plugin/LookStates.cpp
   src/plugin/GameCalls.cpp
