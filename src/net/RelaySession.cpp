@@ -145,6 +145,12 @@ std::map<uint32_t, bool> RelaySession::PeerGenders() const
     return m_peerIsMale;
 }
 
+std::map<uint32_t, std::string> RelaySession::PeerNicknames() const
+{
+    std::lock_guard guard(m_lock);
+    return m_peerNicknames;
+}
+
 SessionStatus RelaySession::GetStatus() const
 {
     std::lock_guard guard(m_lock);
@@ -277,6 +283,10 @@ void RelaySession::NetworkThread()
             }
             sendSessionMessage(fromPeer, WriteWelcome({fromPeer, static_cast<int64_t>(SessionClockMs())}), true);
             net.WelcomedGuests[fromPeer] = true;
+            {
+                std::lock_guard guard(m_lock);
+                m_peerNicknames[fromPeer] = hello.Nickname;
+            }
             m_log("session: '" + hello.Nickname + "' joined as peer " + std::to_string(fromPeer));
             updatePeerCount();
         }
@@ -469,6 +479,7 @@ void RelaySession::NetworkThread()
             {
                 std::lock_guard guard(m_lock);
                 m_peerIsMale.erase(peerId);
+                m_peerNicknames.erase(peerId);
             }
             m_log("session: peer " + std::to_string(peerId) + " left");
             updatePeerCount();

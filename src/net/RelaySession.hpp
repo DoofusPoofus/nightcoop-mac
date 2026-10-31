@@ -71,6 +71,7 @@ public:
     std::vector<IncomingGameMessage> TakeGameMessages();
     std::vector<PlayerState> TakeRemotePlayerStates();
     std::map<uint32_t, bool> PeerGenders() const;
+    std::map<uint32_t, std::string> PeerNicknames() const;
     SessionStatus GetStatus() const;
     uint64_t SessionClockMs() const;
 
@@ -92,6 +93,7 @@ private:
     PlayerState m_localState;
     std::vector<PlayerState> m_remoteStates;
     std::map<uint32_t, bool> m_peerIsMale;
+    std::map<uint32_t, std::string> m_peerNicknames;
     std::vector<GameEnvelope> m_outgoingGameMessages;
     std::vector<IncomingGameMessage> m_incomingGameMessages;
 };

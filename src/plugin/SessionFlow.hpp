@@ -40,6 +40,7 @@ public:
 
     bool BodiesAllowed(uint64_t nowMs);
     void AskForAutoContinue();
+    int32_t PartnerPinProfiles();
 
 private:
     LogFunction m_log;
@@ -55,6 +56,7 @@ private:
     RED4ext::CProperty* m_sessionsStarted = nullptr;
     RED4ext::CProperty* m_autoContinue = nullptr;
     RED4ext::CProperty* m_menuSteps = nullptr;
+    RED4ext::CProperty* m_partnerPinProfiles = nullptr;
     uint64_t m_nextStepsCheckMs = 0;
     int32_t m_lastMenuSteps = 0;
     uint32_t m_spacePresses = 0;

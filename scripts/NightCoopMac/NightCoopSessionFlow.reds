@@ -8,6 +8,7 @@
 // save with nobody at the keyboard (the plugin presses a key on the press any key screen, see SessionFlow). a locked mac
 // screen lets no key thru, so tests start the game with -save=<save folder> -skipStartScreen instead, that skips the menu
 // menuSteps keeps the menu steps seen as decimal digits (1 start screen, 2 saves listed, 3 no saves, 4 load asked)
+// partnerPinProfiles counts the minimap looks made for partner pins (NightCoopPartnerMarkers)
 
 public class NightCoopSessionFlow extends ScriptableService {
   private let m_sessionRunning: Bool;
@@ -16,6 +17,7 @@ public class NightCoopSessionFlow extends ScriptableService {
   private let m_autoContinue: Bool;
   private let m_autoContinueDone: Bool;
   private let m_menuSteps: Int32;
+  private let m_partnerPinProfiles: Int32;
 
   private cb func OnLoad() {
     let callbacks = GameInstance.GetCallbackSystem();
@@ -41,6 +43,13 @@ public class NightCoopSessionFlow extends ScriptableService {
     let flow = GameInstance.GetScriptableServiceContainer().GetService(n"NightCoopSessionFlow") as NightCoopSessionFlow;
     if IsDefined(flow) {
       flow.m_menuSteps = flow.m_menuSteps * 10 + step;
+    }
+  }
+
+  public static func NotePartnerPinProfile() {
+    let flow = GameInstance.GetScriptableServiceContainer().GetService(n"NightCoopSessionFlow") as NightCoopSessionFlow;
+    if IsDefined(flow) {
+      flow.m_partnerPinProfiles += 1;
     }
   }
 

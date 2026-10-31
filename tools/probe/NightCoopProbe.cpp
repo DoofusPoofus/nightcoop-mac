@@ -17,6 +17,7 @@
 #include "net/GameMessages.hpp"
 #include "net/LookMessages.hpp"
 #include "net/RelaySession.hpp"
+#include "net/RosterMessages.hpp"
 
 #include <Log.hpp>
 #include <NetCrypto.hpp>
@@ -206,6 +207,7 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint32_t fullStates = 0;
     uint64_t hostWeapon = 0;
     uint32_t hostStatesSeen = 0;
+    uint32_t rosterRevision = 0xFFFFFFFF;
     uint32_t hostShots = 0;
     uint16_t hostWeaponFlags = 0;
     uint8_t hostWeaponState = 0;
@@ -238,6 +240,14 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
         {
             session.SendGameMessage(MakeTestAnimBatch(step));
         }
+        if (step % 25 == 0)
+        {
+            nightcoop_mac::net::PlayerPresence presence;
+            presence.Name = "probe partner";
+            presence.Where = nightcoop_mac::net::kWhereInWorld;
+            presence.Flags = nightcoop_mac::net::kPresenceInHostWorld;
+            session.SendGameMessage(nightcoop_mac::net::WritePlayerPresence(presence), 0);
+        }
         for (const auto& hostState : session.TakeRemotePlayerStates())
         {
             if (hostStatesSeen++ % 100 == 0)
@@ -266,6 +276,21 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::AnimBatch batch;
             uint32_t gameSeconds = 0;
             nightcoop_mac::net::AnimSetup setup;
+            nightcoop_mac::net::SessionRoster roster;
+            if (nightcoop_mac::net::ReadSessionRoster(message.Message, roster))
+            {
+                if (roster.Revision != rosterRevision)
+                {
+                    rosterRevision = roster.Revision;
+                    std::printf("probe: roster rev %u host state %u:", roster.Revision, roster.HostState);
+                    for (const auto& entry : roster.Entries)
+                    {
+                        std::printf(" [peer %u '%s' where %u role %u]", entry.PeerNumber, entry.Name.c_str(), entry.Where, entry.Role);
+                    }
+                    std::printf("\n");
+                }
+                continue;
+            }
             if (nightcoop_mac::net::ReadAnimSetup(message.Message, setup))
             {
                 std::printf("probe: peer %u anim setup rig %#llx with %zu set(s), first %#llx priority %u with %zu variable(s)\n", message.FromPeer,

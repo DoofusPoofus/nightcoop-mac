@@ -29,6 +29,7 @@ bool SessionFlow::Resolve()
     m_sessionsStarted = m_flowClass ? m_flowClass->GetProperty("sessionsStarted") : nullptr;
     m_autoContinue = m_flowClass ? m_flowClass->GetProperty("autoContinue") : nullptr;
     m_menuSteps = m_flowClass ? m_flowClass->GetProperty("menuSteps") : nullptr;
+    m_partnerPinProfiles = m_flowClass ? m_flowClass->GetProperty("partnerPinProfiles") : nullptr;
     m_containerTakesGameInstance = game::ParamsAre(m_getContainer, {"ScriptGameInstance"});
     return (game::ParamsAre(m_getContainer, {}) || m_containerTakesGameInstance) &&
            game::ReturnIs(m_getContainer, "handle:ScriptableServiceContainer") &&
@@ -59,6 +60,16 @@ RED4ext::Handle<RED4ext::IScriptable> SessionFlow::Service()
         return {};
     }
     return service;
+}
+
+int32_t SessionFlow::PartnerPinProfiles()
+{
+    if (!m_resolved || !m_partnerPinProfiles)
+    {
+        return -1;
+    }
+    const auto service = Service();
+    return service ? *m_partnerPinProfiles->GetValuePtr<int32_t>(service.instance) : -1;
 }
 
 int32_t SessionFlow::ReadState()

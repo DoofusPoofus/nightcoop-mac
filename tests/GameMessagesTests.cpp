@@ -4,9 +4,11 @@
 */
 #include "net/GameMessages.hpp"
 #include "net/LookMessages.hpp"
+#include "net/RosterMessages.hpp"
 #include "net/SessionMessages.hpp"
 
 #include <cstdio>
+#include <string>
 
 namespace
 {
@@ -99,6 +101,41 @@ int main()
 
     AnimWant want;
     Check(ReadAnimWant(WriteAnimWant({true, false}), want) && want.First && !want.Second, "anim want round trip");
+
+    PlayerPresence presence;
+    presence.Name = "macbook";
+    presence.Where = kWhereInWorld;
+    presence.PingMs = 42;
+    presence.Flags = kPresenceInHostWorld;
+    presence.MissingAddons = {"EP1"};
+    const auto presenceBytes = WritePlayerPresence(presence);
+    PlayerPresence parsedPresence;
+    Check(presenceBytes[4] == 111 && ReadPlayerPresence(presenceBytes, parsedPresence) && parsedPresence.Name == "macbook" &&
+              parsedPresence.Where == kWhereInWorld && parsedPresence.PingMs == 42 && parsedPresence.Flags == kPresenceInHostWorld &&
+              parsedPresence.MissingAddons.size() == 1 && parsedPresence.MissingAddons[0] == "EP1",
+          "presence round trip");
+    auto presenceWithExtra = presenceBytes;
+    presenceWithExtra.push_back(0);
+    Check(!ReadPlayerPresence(presenceWithExtra, parsedPresence), "presence with a byte left over is refused");
+    PlayerPresence longName;
+    longName.Name = std::string(60, 'x');
+    Check(ReadPlayerPresence(WritePlayerPresence(longName), parsedPresence) && parsedPresence.Name.size() == 48, "presence name is cut to 48");
+
+    SessionRoster roster;
+    roster.Revision = 7;
+    roster.WorldName = "ManualSave-47";
+    roster.Entries.push_back({0, "host mac", kWhereInWorld, 0, kRoleHost, kPresenceInHostWorld, 0, 0, "", {}, ""});
+    roster.Entries.push_back({1, "guest", kWhereLoading, 80, 0, 0, 0, 1, "", {"EP1", "x"}, "en"});
+    const auto rosterBytes = WriteSessionRoster(roster);
+    SessionRoster parsedRoster;
+    Check(rosterBytes[4] == 112 && ReadSessionRoster(rosterBytes, parsedRoster) && parsedRoster.Revision == 7 &&
+              parsedRoster.HostState == kHostStateInWorld && parsedRoster.WorldName == "ManualSave-47" && parsedRoster.Entries.size() == 2 &&
+              parsedRoster.Entries[0].Role == kRoleHost && parsedRoster.Entries[1].Name == "guest" && parsedRoster.Entries[1].PingMs == 80 &&
+              parsedRoster.Entries[1].MissingAddons.size() == 2 && parsedRoster.Entries[1].Language == "en",
+          "roster round trip");
+    auto badRoster = rosterBytes;
+    badRoster[9] = 9;
+    Check(!ReadSessionRoster(badRoster, parsedRoster), "roster with a host state over 5 is refused");
 
     const auto clock = WriteGameClock(123456);
     uint32_t gameSeconds = 0;

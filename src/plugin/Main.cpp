@@ -26,6 +26,8 @@
 #include "plugin/LookStates.hpp"
 #include "plugin/PartnerBodyBuilder.hpp"
 #include "plugin/PartnerLook.hpp"
+#include "plugin/PartnerPins.hpp"
+#include "plugin/PartnerRoster.hpp"
 #include "plugin/PlayerSampler.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/RttiDump.hpp"
@@ -94,6 +96,9 @@ uint32_t TestMovesDone = 0;
 uint64_t NextTestWeaponStepMs = 0;
 uint32_t TestWeaponSteps = 0;
 uint32_t TestWeaponShots = 0;
+uint64_t NextPinsReportMs = 0;
+uint32_t PinsReported = 0;
+int32_t ProfilesReported = -1;
 uint32_t AnsweredSinceReport = 0;
 uint64_t OwnLookSentMs = 0;
 uint64_t OwnLookFingerprint = 0;
@@ -268,6 +273,23 @@ void RunWeaponTest(uint64_t nowMs)
     }
 }
 
+void ReportPins(uint64_t nowMs)
+{
+    if (nowMs < NextPinsReportMs)
+    {
+        return;
+    }
+    NextPinsReportMs = nowMs + 10000;
+    const uint32_t pins = nightcoop_mac::partner_pins::PinCount();
+    const int32_t profiles = Flow->PartnerPinProfiles();
+    if (pins != PinsReported || profiles != ProfilesReported)
+    {
+        PinsReported = pins;
+        ProfilesReported = profiles;
+        Log("pins: " + std::to_string(pins) + " partner pin(s) up, the minimap made " + std::to_string(profiles) + " look(s) for them so far");
+    }
+}
+
 void ShareOwnClothes(uint64_t nowMs)
 {
     if (nowMs < NextOwnClothesMs || !Session->GetStatus().InSession)
@@ -407,12 +429,18 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             nightcoop_mac::anim_tap::SendFullState(message.FromPeer, *Session);
         }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PlayerPresence) ||
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::SessionRoster))
+        {
+            nightcoop_mac::partner_roster::OnMessage(message.FromPeer, message.Message, *Session, Log);
+        }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::GameClock))
         {
             nightcoop_mac::game_clock::OnMessage(message.FromPeer, message.Message, inSave, Session->GetStatus().MyPeerNumber == 0, Log);
         }
         Mirror->OnGameMessage(message.FromPeer, message.Message, nowMs);
     }
+    nightcoop_mac::partner_roster::Tick(nowMs, inSave, Plan->Nickname, *Session, Log);
     if (Plan->SamplePlayer && nowMs >= NextSampleMs)
     {
         NextSampleMs = nowMs + SampleEveryMs;
@@ -454,7 +482,16 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             Flow->AskForAutoContinue();
         }
-        Bodies->Tick(nowMs, RemotePeerViews(), LocalStateValid ? &LastLocalState : nullptr, bodiesAllowed || Plan->Bodies.InMenuForTesting);
+        const auto peerViews = RemotePeerViews();
+        Bodies->Tick(nowMs, peerViews, LocalStateValid ? &LastLocalState : nullptr, bodiesAllowed || Plan->Bodies.InMenuForTesting);
+        std::vector<nightcoop_mac::partner_pins::PartnerSpot> partnerSpots;
+        for (const auto& view : peerViews)
+        {
+            partnerSpots.push_back({view.PeerNumber, view.State.PositionX, view.State.PositionY, view.State.PositionZ,
+                                    nightcoop_mac::partner_roster::NameOf(view.PeerNumber, *Session)});
+        }
+        nightcoop_mac::partner_pins::Tick(nowMs, bodiesAllowed && LocalStateValid, partnerSpots, Log);
+        ReportPins(nowMs);
         Mirror->Tick(nowMs, *Bodies, *Session);
     }
     ReportRemoteStates(nowMs);
