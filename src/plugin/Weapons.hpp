@@ -2,8 +2,8 @@
  weapons, the mac take on the weapon parts of nightcoops player bridge and puppets. no message of its own, it all rides in
  PlayerState (records, shot counts, the psm weapon states and the aim / shoot / reload flags)
  ours: the players equippedRightHandWeapon / equippedLeftHandWeapon (weak handles) -> GetItemID gives the records, the left
- one only goes out when it is tagged DualWield like nightcoop does. the psm blackboard (GetPlayerStateMachineBlackboard with
- GetAllBlackboardDefs().PlayerStateMachine) gives RightWeapon / LeftWeapon / UpperBody. a shot is a drop of the weapons
+ one only goes out when it is tagged DualWield like nightcoop does. the state machine board gives RightWeapon / LeftWeapon /
+ UpperBody. a shot is a drop of the weapons
  MagazineAmmoCount (its GetSharedData blackboard) while the same weapon stays in that hand (a drop over 10 counts as one shot
  like nightcoop), so the counts only go up
  flags like nightcoops bridge: aim 0x04 when UpperBody is Aim, reload 0x80 when UpperBody is Reload or a hand is in Reload,
