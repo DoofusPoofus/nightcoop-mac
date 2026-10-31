@@ -47,6 +47,9 @@ public:
     void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs);
     void Tick(uint64_t nowMs, bool inSave, net::RelaySession& session);
     uint32_t CopyCount() const { return static_cast<uint32_t>(m_copies.size()); }
+    uint64_t CopyEntity(uint32_t netId, uint32_t& ownerPeer) const;
+    uint32_t NetIdOfCopy(uint64_t entityHash) const;
+    void SetHeld(uint32_t netId, bool held);
 
 private:
     struct Sample
@@ -75,6 +78,7 @@ private:
         std::vector<net::AnimBatch> PendingAnim;
         bool GotFullAnimState = false;
         uint64_t LastAnimWantMs = 0;
+        bool Held = false;
     };
 
     bool Resolve();

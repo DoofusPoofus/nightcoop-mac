@@ -8,6 +8,8 @@
 #include "net/VehicleMessages.hpp"
 #include "net/WorldMessages.hpp"
 #include "net/NpcMessages.hpp"
+#include "net/DroppedMessages.hpp"
+#include "net/PlayerExtrasMessages.hpp"
 #include "net/SessionMessages.hpp"
 
 #include <cstdio>
@@ -342,6 +344,99 @@ int main()
     Check(ReadPlayerClothes(noTail, clothesBack) && clothesBack.Slots.empty() && clothesBack.Items.size() == 2, "clothes without the slot tail");
     clothes.Slots.pop_back();
     Check(ReadPlayerClothes(WritePlayerClothes(clothes), clothesBack) && clothesBack.Slots.empty(), "mismatched slots are not sent");
+
+    PlayerCarry carry;
+    carry.CarryNumber = 3;
+    carry.SenderClockMs = 987654321;
+    carry.Kind = kCarryHolding;
+    carry.PickupAnimation = 2;
+    carry.Flags = kCarryActive | kCarryFriendly;
+    carry.NetId = (1u << 24) | 7;
+    carry.EntityHash = 0x123456789ULL;
+    carry.Record = 0x0A00000012345678ULL;
+    carry.Position[0] = -1300.5f;
+    carry.Look = 0x77;
+    const auto carryBytes = WritePlayerCarry(carry);
+    PlayerCarry parsedCarry;
+    Check(carryBytes.size() == 77 && carryBytes[4] == 92 && carryBytes[0x11] == kCarryHolding && carryBytes[0x14] == (kCarryActive | kCarryFriendly) &&
+              carryBytes[0x15] == 7 && carryBytes[0x18] == 1,
+          "player carry is 77 bytes with the look and the fields where the dll reads them");
+    Check(ReadPlayerCarry(carryBytes, parsedCarry) && parsedCarry.CarryNumber == 3 && parsedCarry.SenderClockMs == 987654321 && parsedCarry.NetId == carry.NetId &&
+              parsedCarry.Record == carry.Record && parsedCarry.Position[0] == -1300.5f && parsedCarry.HasLook && parsedCarry.Look == 0x77,
+          "player carry round trip");
+    carry.HasLook = false;
+    Check(WritePlayerCarry(carry).size() == 69 && ReadPlayerCarry(WritePlayerCarry(carry), parsedCarry) && !parsedCarry.HasLook,
+          "player carry without the look is 69 bytes");
+    carry.Kind = 9;
+    Check(!ReadPlayerCarry(WritePlayerCarry(carry), parsedCarry), "a carry kind over 8 is refused");
+    carry.Kind = kCarryDrop;
+    carry.Flags = 0x80;
+    Check(!ReadPlayerCarry(WritePlayerCarry(carry), parsedCarry), "a carry with flag bit 7 is refused");
+    carry.Flags = 0;
+    carry.NetId = 0;
+    carry.EntityHash = 0;
+    Check(!ReadPlayerCarry(WritePlayerCarry(carry), parsedCarry), "a carry of nobody is refused");
+    Check(CarryKindIsActive(kCarryPickup) && CarryKindIsActive(kCarryAim) && !CarryKindIsActive(kCarryDrop) && !CarryKindIsActive(kCarryThrow),
+          "pickup carry jump aim are the active kinds");
+
+    BuildStats build;
+    build.Revision = 4;
+    build.Stats = {{kBuildStrength, 6.0f}, {kBuildCool, 20.0f}, {kBuildLevel, 50.0f}};
+    const auto buildBytes = WriteBuildStats(build);
+    BuildStats parsedBuild;
+    Check(buildBytes.size() == 11 + 5 * 3 && buildBytes[4] == 141 && buildBytes[9] == kBuildChecksAny && buildBytes[10] == 3 &&
+              ReadBuildStats(buildBytes, parsedBuild) && parsedBuild.Revision == 4 && parsedBuild.Stats.size() == 3 && parsedBuild.Stats[1].Index == kBuildCool &&
+              parsedBuild.Stats[1].Value == 20.0f,
+          "build stats are 11 + 5 per stat and round trip");
+    build.Stats.push_back({kBuildCool, 3.0f});
+    Check(!ReadBuildStats(WriteBuildStats(build), parsedBuild), "build stats with a stat twice are refused");
+    build.Stats.pop_back();
+    build.Stats[0].Value = 10001.0f;
+    Check(!ReadBuildStats(WriteBuildStats(build), parsedBuild), "a build stat over 10000 is refused");
+    build.Stats[0].Value = 1.0f;
+    build.Flags = 0x04;
+    Check(!ReadBuildStats(WriteBuildStats(build), parsedBuild), "build stats with unknown flags are refused");
+    Check(std::string(BuildStatName(kBuildIntelligenceBonus)) == "IntelligenceSkillcheckBonus" && std::string(BuildStatName(kBuildHacking)) == "Hacking",
+          "build stat table follows nightcoops order");
+
+    PhoneSync phone;
+    phone.Kind = kPhoneCommitted;
+    phone.Action = kPhoneActionCall;
+    phone.CommitNumber = 12;
+    phone.CallId = 5;
+    phone.HostClockMs = 4242;
+    phone.Contact = "panam";
+    phone.CallPhase = 2;
+    phone.Flags = kPhoneShowAvatar | kPhoneRejectable;
+    const auto phoneBytes = WritePhoneSync(phone);
+    PhoneSync parsedPhone;
+    Check(phoneBytes.size() == 0x21 + 5 + 4 && phoneBytes[4] == 133 && phoneBytes[0x1F] == 5 && phoneBytes[0x21] == 'p' && ReadPhoneSync(phoneBytes, parsedPhone) &&
+              parsedPhone.Contact == "panam" && parsedPhone.CommitNumber == 12 && parsedPhone.CallId == 5 && parsedPhone.HostClockMs == 4242 &&
+              parsedPhone.CallPhase == 2 && parsedPhone.Flags == (kPhoneShowAvatar | kPhoneRejectable),
+          "phone sync is 0x21 + name + 4 and round trips");
+    phone.Contact = "Player";
+    Check(!ReadPhoneSync(WritePhoneSync(phone), parsedPhone), "a phone call with the player as contact is refused");
+    phone.Contact = std::string(97, 'a');
+    Check(!ReadPhoneSync(WritePhoneSync(phone), parsedPhone), "a phone contact over 96 letters is refused");
+    phone.Contact = "judy";
+    phone.Kind = 5;
+    Check(!ReadPhoneSync(WritePhoneSync(phone), parsedPhone), "a phone kind over 4 is refused");
+
+    phone.Kind = kPhoneRequest;
+    Check(CheckDroppedMessage(WritePhoneSync(phone)) == DropCheck::LooksRight && CheckDroppedMessage(carryBytes) == DropCheck::LooksRight &&
+              CheckDroppedMessage(buildBytes) == DropCheck::LooksRight,
+          "the drop readers take what our writers make");
+    std::vector<uint8_t> photo = {0x50, 0x4F, 0x43, 0x4E, 209, 1};
+    std::vector<uint8_t> blast = {0x50, 0x4F, 0x43, 0x4E, 131, 1};
+    blast.resize(6 + 24);
+    Check(CheckDroppedMessage(photo) == DropCheck::LooksRight && CheckDroppedMessage(blast) == DropCheck::LooksRight, "photo together and one blast look right");
+    photo[5] = 2;
+    blast.push_back(0);
+    Check(CheckDroppedMessage(photo) == DropCheck::Broken && CheckDroppedMessage(blast) == DropCheck::Broken, "a photo state of 2 and a blast with a byte over are broken");
+    std::vector<uint8_t> unknownType = {0x50, 0x4F, 0x43, 0x4E, 251, 0, 0};
+    Check(CheckDroppedMessage(unknownType) == DropCheck::NoSizeRule && DroppedMessageName(251) == "PerkDilation 251" && DroppedMessageName(138) == "PlayerFx 138" &&
+              DroppedMessageName(250) == "type 250",
+          "perk dilation has no size rule and names come from the protocol");
 
     std::printf("%s\n", FailedChecks ? "some checks failed" : "all game message checks passed");
     return FailedChecks ? 1 : 0;

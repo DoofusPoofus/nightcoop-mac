@@ -41,6 +41,8 @@ public:
     explicit NpcShare(LogFunction log);
 
     void Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& partners, net::RelaySession& session);
+    uint32_t NetIdOf(uint64_t entityHash) const;
+    uint64_t EntityOf(uint32_t netId) const;
 
 private:
     struct Source

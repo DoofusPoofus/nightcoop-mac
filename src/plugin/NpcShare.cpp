@@ -333,4 +333,22 @@ void NpcShare::Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& par
               std::to_string(m_lastScanManaged) + " ours, nearest " + std::to_string(static_cast<int>(m_lastScanNearest)) + " m from a partner)");
     }
 }
+
+uint32_t NpcShare::NetIdOf(uint64_t entityHash) const
+{
+    const auto source = m_sources.find(entityHash);
+    return source != m_sources.end() ? source->second.NetId : 0;
+}
+
+uint64_t NpcShare::EntityOf(uint32_t netId) const
+{
+    for (const auto& [entityHash, source] : m_sources)
+    {
+        if (netId && source.NetId == netId)
+        {
+            return entityHash;
+        }
+    }
+    return 0;
+}
 }

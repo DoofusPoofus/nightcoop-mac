@@ -44,6 +44,7 @@ using LogFunction = std::function<void(const std::string&)>;
 bool Install(const RED4ext::v1::Sdk* sdk, RED4ext::v1::PluginHandle pluginHandle, LogFunction log);
 void Tick(uint64_t nowMs, net::RelaySession& session);
 void SendFullState(uint32_t peerNumber, net::RelaySession& session);
+bool LatestOwnFeature(uint64_t name, net::AnimEntry& entry);
 bool WatchNpc(uint32_t netId, void* controller, void* entity);
 void StopWatchingNpc(uint32_t netId);
 bool SendNpcFullState(uint32_t netId, uint32_t peerNumber, uint64_t nowMs, net::RelaySession& session);

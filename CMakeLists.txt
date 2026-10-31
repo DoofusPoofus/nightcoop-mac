@@ -34,7 +34,7 @@ target_include_directories(nightcoop_shared PUBLIC ${HUB_SOURCE}/src)
 target_link_libraries(nightcoop_shared PUBLIC enet monocypher)
 set_target_properties(nightcoop_shared PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-add_library(nightcoop_mac_net STATIC src/net/SessionMessages.cpp src/net/GameMessages.cpp src/net/LookMessages.cpp src/net/RosterMessages.cpp src/net/VehicleMessages.cpp src/net/WorldMessages.cpp src/net/NpcMessages.cpp src/net/RelaySession.cpp)
+add_library(nightcoop_mac_net STATIC src/net/SessionMessages.cpp src/net/GameMessages.cpp src/net/LookMessages.cpp src/net/RosterMessages.cpp src/net/VehicleMessages.cpp src/net/WorldMessages.cpp src/net/NpcMessages.cpp src/net/PlayerExtrasMessages.cpp src/net/DroppedMessages.cpp src/net/RelaySession.cpp)
 target_include_directories(nightcoop_mac_net PUBLIC src)
 target_link_libraries(nightcoop_mac_net PUBLIC nightcoop_shared)
 target_compile_options(nightcoop_mac_net PRIVATE -Wall -Wextra -Wno-unused-parameter)
@@ -49,6 +49,7 @@ add_library(NightCoopMac SHARED
   src/plugin/AnimPlayer.cpp
   src/plugin/AnimSetup.cpp
   src/plugin/AnimTap.cpp
+  src/plugin/BodyCarry.cpp
   src/plugin/BodyRecords.cpp
   src/plugin/CrashNotes.cpp
   src/plugin/Downed.cpp
@@ -56,6 +57,7 @@ add_library(NightCoopMac SHARED
   src/plugin/Hud.cpp
   src/plugin/KeyWatch.cpp
   src/plugin/LiftSync.cpp
+  src/plugin/MessageDrops.cpp
   src/plugin/NpcCopies.cpp
   src/plugin/NpcShare.cpp
   src/plugin/Items.cpp
@@ -67,12 +69,14 @@ add_library(NightCoopMac SHARED
   src/plugin/PartnerPins.cpp
   src/plugin/PartnerPlates.cpp
   src/plugin/PartnerRoster.cpp
+  src/plugin/PlayerExtras.cpp
   src/plugin/PlayerSampler.cpp
   src/plugin/RemoteBodies.cpp
   src/plugin/RttiDump.cpp
   src/plugin/SessionFile.cpp
   src/plugin/SessionFlow.cpp
   src/plugin/StateMachineBoard.cpp
+  src/plugin/TeamBuild.cpp
   src/plugin/TestKeys.cpp
   src/plugin/Vehicles.cpp
   src/plugin/Wardrobe.cpp
