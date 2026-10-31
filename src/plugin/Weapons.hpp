@@ -12,6 +12,8 @@
  most 4 per state, the first state is just the baseline) set up the weapons npc effects once (fxPackage -> npc_vfx_set ->
  actions into SetWeaponEffects, SetWeaponOwner 1), then queue an entAnimExternalEvent Shoot on the body and the weapon and
  call TriggerWeaponEffects for the muzzle flash. nightcoops native weapon sound has no mac address and is left out
+ testing only: DrawTestWeapon gives our player a weapon and draws it (EquipItem + DrawItem on its EquipmentSystemPlayerData),
+ FakeShot takes one round out of its MagazineAmmoCount like a real shot would, DescribeOwn tells wat the reads see
 */
 #pragma once
 
@@ -61,6 +63,9 @@ struct Held
 
 bool ReadOwnWeapons(RED4ext::Handle<RED4ext::IScriptable>& player, OwnWeapons& weapons, const LogFunction& log);
 void PutInState(const OwnWeapons& weapons, net::PlayerState& state);
+bool DrawTestWeapon(RED4ext::Handle<RED4ext::IScriptable>& player, const char* recordName, const LogFunction& log);
+bool FakeShot(RED4ext::Handle<RED4ext::IScriptable>& player);
+std::string DescribeOwn(RED4ext::Handle<RED4ext::IScriptable>& player);
 void Hold(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body, const net::PlayerState& state, Held& held, uint64_t nowMs,
           const LogFunction& log);
 }

@@ -19,6 +19,7 @@
 #include "plugin/AnimMirror.hpp"
 #include "plugin/AnimTap.hpp"
 #include "plugin/CrashNotes.hpp"
+#include "plugin/GameCalls.hpp"
 #include "plugin/GameVersion.hpp"
 #include "plugin/LookStates.hpp"
 #include "plugin/PartnerBodyBuilder.hpp"
@@ -29,6 +30,7 @@
 #include "plugin/SessionFlow.hpp"
 #include "plugin/TestKeys.hpp"
 #include "plugin/Wardrobe.hpp"
+#include "plugin/Weapons.hpp"
 #include "plugin/SessionFile.hpp"
 
 #include <Log.hpp>
@@ -37,6 +39,7 @@
 
 #include <RED4ext/GameStates.hpp>
 #include <RED4ext/RED4ext.hpp>
+#include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
 
 #include <enet/enet.h>
 
@@ -86,6 +89,9 @@ uint64_t NextTrafficReportMs = 0;
 uint64_t SaveSeenAtMs = 0;
 uint64_t NextTestMoveMs = 0;
 uint32_t TestMovesDone = 0;
+uint64_t NextTestWeaponStepMs = 0;
+uint32_t TestWeaponSteps = 0;
+uint32_t TestWeaponShots = 0;
 uint32_t AnsweredSinceReport = 0;
 uint64_t OwnLookSentMs = 0;
 uint64_t OwnLookFingerprint = 0;
@@ -222,6 +228,42 @@ void ShareOwnLook(uint64_t nowMs)
     OwnLookFingerprint = fingerprint;
     OwnLookSentMs = nowMs;
     Session->SendGameMessage(message);
+}
+
+void RunWeaponTest(uint64_t nowMs)
+{
+    if (!NextTestWeaponStepMs)
+    {
+        NextTestWeaponStepMs = nowMs + 8000;
+    }
+    if (TestWeaponShots >= 10 || TestWeaponSteps > 40 || nowMs < NextTestWeaponStepMs)
+    {
+        return;
+    }
+    NextTestWeaponStepMs = nowMs + 2000;
+    static auto* getPlayer = RED4ext::CRTTISystem::Get()->GetFunction("GetPlayer;GameInstance");
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::Handle<RED4ext::IScriptable> player;
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &gameInstance);
+    if (!getPlayer || !nightcoop_mac::game::CallStatic(getPlayer, &player, args) || !player)
+    {
+        return;
+    }
+    if (TestWeaponSteps++ == 0)
+    {
+        nightcoop_mac::weapons::DrawTestWeapon(player, "Items.Preset_Lexington_Default", Log);
+        return;
+    }
+    if (nightcoop_mac::weapons::FakeShot(player))
+    {
+        Log("test weapon: fake shot " + std::to_string(++TestWeaponShots) + " of 10 took a round out (" + nightcoop_mac::weapons::DescribeOwn(player) +
+            ")");
+    }
+    else if (TestWeaponSteps % 5 == 2)
+    {
+        Log("test weapon: no shot yet (" + nightcoop_mac::weapons::DescribeOwn(player) + ")");
+    }
 }
 
 void ShareOwnClothes(uint64_t nowMs)
@@ -394,6 +436,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
                 nightcoop_mac::PressCrouchKey();
                 Log("test moves: pressed c (" + std::to_string(TestMovesDone) + " of 8)");
             }
+        }
+        if (Plan->TestWeapon && bodiesAllowed)
+        {
+            RunWeaponTest(nowMs);
         }
         if (Plan->AutoContinue)
         {

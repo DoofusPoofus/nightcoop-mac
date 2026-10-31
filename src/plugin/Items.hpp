@@ -2,7 +2,8 @@
  items, the transaction system calls the wardrobe and the weapons both need (all rtti, main thread only)
  give an item to a body, put it in an attachment slot (all 11 AddItemToSlot args, scene plane), take a slot empty, ask what
  sits in a slot (GetItemInSlot -> the item objects GetItemID, GetActiveItemInSlot as the fallback since it only knows weapon
- slots) and read tweakdb flats like a records placementSlots. Ready says once if the calls look different than expected
+ slots) and read tweakdb flats like a records placementSlots. EquipmentData is a players EquipmentSystemPlayerData (thru the
+ scriptable systems container). Ready says once if the calls look different than expected
 */
 #pragma once
 
@@ -29,6 +30,7 @@ static_assert(sizeof(ItemId) == 16);
 
 bool Ready(const LogFunction& log);
 RED4ext::Handle<RED4ext::IScriptable> TransactionSystem();
+RED4ext::Handle<RED4ext::IScriptable> EquipmentData(RED4ext::Handle<RED4ext::IScriptable>& player);
 ItemId ItemFromRecord(uint64_t record);
 ItemId ItemOf(RED4ext::Handle<RED4ext::IScriptable>& itemObject);
 bool Has(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RED4ext::IScriptable>& body, ItemId item);

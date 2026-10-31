@@ -39,6 +39,7 @@ struct OwnCalls
     RED4ext::CBaseFunction* GetAllBlackboardDefs = nullptr;
     RED4ext::CBaseFunction* GetInt = nullptr;
     RED4ext::CBaseFunction* GetUint = nullptr;
+    RED4ext::CBaseFunction* SetUint = nullptr;
     RED4ext::CBaseFunction* GetSharedData = nullptr;
     RED4ext::CBaseFunction* GetEntityId = nullptr;
     RED4ext::CBaseFunction* GetStatsSystem = nullptr;
@@ -105,6 +106,7 @@ bool ResolveOwn(const LogFunction& log)
     Own.GetAllBlackboardDefs = RED4ext::CRTTISystem::Get()->GetFunction("GetAllBlackboardDefs");
     Own.GetInt = game::FindFunction("gameIBlackboard", "GetInt");
     Own.GetUint = game::FindFunction("gameIBlackboard", "GetUint");
+    Own.SetUint = game::FindFunction("gameIBlackboard", "SetUint");
     Own.GetSharedData = game::FindFunction("gameweaponObject", "GetSharedData");
     Own.GetEntityId = game::FindFunction("entEntity", "GetEntityID");
     Own.GetStatsSystem = game::FindFunction("ScriptGameInstance", "GetStatsSystem");
@@ -508,6 +510,100 @@ void PutInState(const OwnWeapons& weapons, net::PlayerState& state)
         flags |= SilencedFlag;
     }
     state.Flags = flags;
+}
+
+bool DrawTestWeapon(RED4ext::Handle<RED4ext::IScriptable>& player, const char* recordName, const LogFunction& log)
+{
+    static auto* equipItem = game::FindFunction("EquipmentSystemPlayerData", "EquipItem;ItemIDBoolBool");
+    static auto* drawItem = game::FindFunction("EquipmentSystemPlayerData", "DrawItem;ItemIDgameEquipAnimationType");
+    if (!player || !ResolveOwn(log) || !game::ParamsAre(equipItem, {"gameItemID", "Bool", "Bool"}) ||
+        !game::ParamsAre(drawItem, {"gameItemID", "gameEquipAnimationType"}))
+    {
+        log("test weapon: no EquipItem / DrawItem like expected (" + game::Describe(equipItem) + ", " + game::Describe(drawItem) + ")");
+        return false;
+    }
+    auto transactions = items::TransactionSystem();
+    auto playerData = items::EquipmentData(player);
+    if (!transactions || !playerData)
+    {
+        return false;
+    }
+    items::ItemId item = items::ItemFromRecord(RED4ext::TweakDBID(recordName).value);
+    if (!items::Has(transactions, player, item))
+    {
+        items::Give(transactions, player, item);
+    }
+    bool blockActiveSlotsUpdate = false;
+    bool forceEquipWeapon = true;
+    RED4ext::StackArgs_t equipArgs;
+    equipArgs.emplace_back(nullptr, &item);
+    equipArgs.emplace_back(nullptr, &blockActiveSlotsUpdate);
+    equipArgs.emplace_back(nullptr, &forceEquipWeapon);
+    game::CallMethod(playerData.instance, equipItem, nullptr, equipArgs);
+    uint32_t defaultAnimation = 0;
+    RED4ext::StackArgs_t drawArgs;
+    drawArgs.emplace_back(nullptr, &item);
+    drawArgs.emplace_back(nullptr, &defaultAnimation);
+    game::CallMethod(playerData.instance, drawItem, nullptr, drawArgs);
+    log(std::string("test weapon: ") + recordName + " given, equipped and drawn");
+    return true;
+}
+
+bool FakeShot(RED4ext::Handle<RED4ext::IScriptable>& player)
+{
+    if (!player || !Own.Usable || !Own.Defs || !game::ParamsAre(Own.SetUint, {"gamebbScriptID_Uint32", "Uint32", "Bool"}))
+    {
+        return false;
+    }
+    auto weapon = Own.RightHand->GetValuePtr<RED4ext::WeakHandle<RED4ext::IScriptable>>(player.instance)->Lock();
+    RED4ext::Handle<RED4ext::IScriptable> sharedData;
+    RED4ext::StackArgs_t noArgs;
+    void* magazineId = IdIn(Own.WeaponDataDefs, Own.MagazineId);
+    uint32_t magazine = 0;
+    if (!weapon || !game::CallMethod(weapon.instance, Own.GetSharedData, &sharedData, noArgs) ||
+        !BoardValue(sharedData, Own.GetUint, magazineId, &magazine) || !magazine)
+    {
+        return false;
+    }
+    uint32_t fewer = magazine - 1;
+    bool forceFire = false;
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, magazineId);
+    args.emplace_back(nullptr, &fewer);
+    args.emplace_back(nullptr, &forceFire);
+    return game::CallMethod(sharedData.instance, Own.SetUint, nullptr, args);
+}
+
+std::string DescribeOwn(RED4ext::Handle<RED4ext::IScriptable>& player)
+{
+    if (!player || !Own.Usable || !Own.Defs)
+    {
+        return "weapon reads not ready";
+    }
+    RED4ext::Handle<RED4ext::IScriptable> stateMachine;
+    RED4ext::StackArgs_t noArgs;
+    game::CallMethod(player.instance, Own.GetPsmBlackboard, &stateMachine, noArgs);
+    int32_t rightState = -100;
+    int32_t upperBody = -100;
+    BoardValue(stateMachine, Own.GetInt, IdIn(Own.PlayerStateMachineDefs, Own.RightWeaponId), &rightState);
+    BoardValue(stateMachine, Own.GetInt, IdIn(Own.PlayerStateMachineDefs, Own.UpperBodyId), &upperBody);
+    auto weapon = Own.RightHand->GetValuePtr<RED4ext::WeakHandle<RED4ext::IScriptable>>(player.instance)->Lock();
+    RED4ext::Handle<RED4ext::IScriptable> sharedData;
+    uint32_t magazine = 12345;
+    if (weapon)
+    {
+        game::CallMethod(weapon.instance, Own.GetSharedData, &sharedData, noArgs);
+        BoardValue(sharedData, Own.GetUint, IdIn(Own.WeaponDataDefs, Own.MagazineId), &magazine);
+    }
+    const auto* rightId = static_cast<const uint32_t*>(IdIn(Own.PlayerStateMachineDefs, Own.RightWeaponId));
+    const auto* magazineId = static_cast<const uint32_t*>(IdIn(Own.WeaponDataDefs, Own.MagazineId));
+    char text[300];
+    std::snprintf(text, sizeof(text),
+                  "psm board %s, RightWeapon %d, UpperBody %d, weapon %s, shared data %s, magazine %u, ids right %08x %08x %08x %08x magazine %08x %08x %08x %08x",
+                  stateMachine ? "yes" : "no", rightState, upperBody, weapon ? RecordText(net::RecordWithoutOffset(items::ItemOf(weapon).Record)).c_str() : "none",
+                  sharedData ? "yes" : "no", magazine, rightId ? rightId[0] : 0, rightId ? rightId[1] : 0, rightId ? rightId[2] : 0, rightId ? rightId[3] : 0,
+                  magazineId ? magazineId[0] : 0, magazineId ? magazineId[1] : 0, magazineId ? magazineId[2] : 0, magazineId ? magazineId[3] : 0);
+    return text;
 }
 
 void Hold(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body, const net::PlayerState& state, Held& held, uint64_t nowMs,

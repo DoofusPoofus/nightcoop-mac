@@ -61,6 +61,10 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
             plan.Bodies.PlayerBody = kind != "npc";
             plan.Bodies.PlayerBodyWithoutScripts = kind == "player_without_scripts";
         }
+        else if (keyword == "test_weapon")
+        {
+            plan.TestWeapon = true;
+        }
         else if (keyword == "test_moves")
         {
             plan.TestMoves = true;

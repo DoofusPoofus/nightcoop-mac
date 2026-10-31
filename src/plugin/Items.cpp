@@ -25,6 +25,9 @@ struct Calls
     RED4ext::CBaseFunction* GetActiveItemInSlot = nullptr;
     RED4ext::CBaseFunction* GetItemInSlot = nullptr;
     RED4ext::CBaseFunction* GetItemObjectId = nullptr;
+    RED4ext::CBaseFunction* GetSystemsContainer = nullptr;
+    RED4ext::CBaseFunction* GetSystem = nullptr;
+    RED4ext::CBaseFunction* GetPlayerData = nullptr;
 };
 
 Calls Game;
@@ -66,6 +69,9 @@ bool Ready(const LogFunction& log)
     Game.GetActiveItemInSlot = game::FindFunction("gameTransactionSystem", "GetActiveItemInSlot");
     Game.GetItemInSlot = game::FindFunction("gameTransactionSystem", "GetItemInSlot");
     Game.GetItemObjectId = game::FindFunction("gameItemObject", "GetItemID");
+    Game.GetSystemsContainer = game::FindFunction("ScriptGameInstance", "GetScriptableSystemsContainer");
+    Game.GetSystem = game::FindFunction("gameScriptableSystemsContainer", "Get");
+    Game.GetPlayerData = game::FindFunction("EquipmentSystem", "GetPlayerData");
     Game.Usable =
         game::ParamsAre(Game.GetTransactionSystem, {"ScriptGameInstance"}) && game::ParamsAre(Game.FromTdbid, {"TweakDBID"}) &&
         game::ParamsAre(Game.HasItem, {"handle:gameObject", "gameItemID"}) &&
@@ -74,7 +80,9 @@ bool Ready(const LogFunction& log)
                                              "Bool", "CName", "gameItemID", "Bool"}) &&
         game::ParamsAre(Game.RemoveItemFromSlot, {"handle:gameObject", "TweakDBID", "Bool", "Bool", "Bool"}) &&
         game::ParamsAre(Game.GetActiveItemInSlot, {"handle:gameObject", "TweakDBID"}) &&
-        game::ParamsAre(Game.GetItemInSlot, {"handle:gameObject", "TweakDBID"}) && game::ParamsAre(Game.GetItemObjectId, {});
+        game::ParamsAre(Game.GetItemInSlot, {"handle:gameObject", "TweakDBID"}) && game::ParamsAre(Game.GetItemObjectId, {}) &&
+        game::ParamsAre(Game.GetSystemsContainer, {"ScriptGameInstance"}) && game::ParamsAre(Game.GetSystem, {"CName"}) &&
+        game::ParamsAre(Game.GetPlayerData, {"handle:gameObject"});
     if (!Game.Usable)
     {
         log("items: the transaction system calls look different than expected, nothing gets put on partner bodies");
@@ -90,6 +98,28 @@ RED4ext::Handle<RED4ext::IScriptable> TransactionSystem()
     args.emplace_back(nullptr, &gameInstance);
     game::CallStatic(Game.GetTransactionSystem, &system, args);
     return system;
+}
+
+RED4ext::Handle<RED4ext::IScriptable> EquipmentData(RED4ext::Handle<RED4ext::IScriptable>& player)
+{
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::Handle<RED4ext::IScriptable> container;
+    RED4ext::StackArgs_t containerArgs;
+    containerArgs.emplace_back(nullptr, &gameInstance);
+    RED4ext::CName equipmentName("EquipmentSystem");
+    RED4ext::Handle<RED4ext::IScriptable> equipment;
+    RED4ext::StackArgs_t systemArgs;
+    systemArgs.emplace_back(nullptr, &equipmentName);
+    RED4ext::Handle<RED4ext::IScriptable> playerData;
+    RED4ext::StackArgs_t dataArgs;
+    dataArgs.emplace_back(nullptr, &player);
+    if (!player || !game::CallStatic(Game.GetSystemsContainer, &container, containerArgs) || !container ||
+        !game::CallMethod(container.instance, Game.GetSystem, &equipment, systemArgs) || !equipment)
+    {
+        return {};
+    }
+    game::CallMethod(equipment.instance, Game.GetPlayerData, &playerData, dataArgs);
+    return playerData;
 }
 
 ItemId ItemFromRecord(uint64_t record)

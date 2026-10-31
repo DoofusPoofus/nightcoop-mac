@@ -24,9 +24,6 @@ struct Calls
     bool Resolved = false;
     bool Usable = false;
     RED4ext::CBaseFunction* GetPlayer = nullptr;
-    RED4ext::CBaseFunction* GetSystemsContainer = nullptr;
-    RED4ext::CBaseFunction* GetSystem = nullptr;
-    RED4ext::CBaseFunction* GetPlayerData = nullptr;
     RED4ext::CBaseFunction* IsBuildCensored = nullptr;
     RED4ext::CBaseFunction* ShouldShowGenitals = nullptr;
     RED4ext::CBaseFunction* IsSlotHidden = nullptr;
@@ -51,9 +48,6 @@ bool Resolve(const LogFunction& log)
     Game.Resolved = true;
     auto* rtti = RED4ext::CRTTISystem::Get();
     Game.GetPlayer = rtti->GetFunction("GetPlayer;GameInstance");
-    Game.GetSystemsContainer = game::FindFunction("ScriptGameInstance", "GetScriptableSystemsContainer");
-    Game.GetSystem = game::FindFunction("gameScriptableSystemsContainer", "Get");
-    Game.GetPlayerData = game::FindFunction("EquipmentSystem", "GetPlayerData");
     Game.IsBuildCensored = game::FindFunction("EquipmentSystemPlayerData", "IsBuildCensored");
     Game.ShouldShowGenitals = game::FindFunction("EquipmentSystemPlayerData", "ShouldShowGenitals");
     Game.IsSlotHidden = game::FindFunction("EquipmentSystemPlayerData", "IsSlotHidden");
@@ -66,9 +60,7 @@ bool Resolve(const LogFunction& log)
     Game.ChangeItemAppearance = game::FindFunction("gameTransactionSystem", "ChangeItemAppearanceByName");
     Game.EquipmentAreaEnum = rtti->GetEnum("gamedataEquipmentArea");
     Game.Usable =
-        items::Ready(log) && Game.GetPlayer && game::ParamsAre(Game.GetSystemsContainer, {"ScriptGameInstance"}) &&
-        game::ParamsAre(Game.GetSystem, {"CName"}) && game::ParamsAre(Game.GetPlayerData, {"handle:gameObject"}) &&
-        game::ParamsAre(Game.IsBuildCensored, {}) && game::ParamsAre(Game.ShouldShowGenitals, {}) &&
+        items::Ready(log) && Game.GetPlayer && game::ParamsAre(Game.IsBuildCensored, {}) && game::ParamsAre(Game.ShouldShowGenitals, {}) &&
         game::ParamsAre(Game.IsSlotHidden, {"gamedataEquipmentArea"}) &&
         game::ParamsAre(Game.GetVisualItemInSlot, {"gamedataEquipmentArea", "TweakDBID", "Bool"}) &&
         game::ParamsAre(Game.GetActiveItem, {"gamedataEquipmentArea", "Bool"}) && game::ParamsAre(Game.GetGenderName, {}) &&
@@ -116,23 +108,12 @@ bool ReadOwnClothes(net::PlayerClothes& clothes, const LogFunction& log)
     RED4ext::Handle<RED4ext::IScriptable> player;
     RED4ext::StackArgs_t playerArgs;
     playerArgs.emplace_back(nullptr, &gameInstance);
-    RED4ext::Handle<RED4ext::IScriptable> container;
-    RED4ext::StackArgs_t containerArgs;
-    containerArgs.emplace_back(nullptr, &gameInstance);
-    if (!game::CallStatic(Game.GetPlayer, &player, playerArgs) || !player || !game::CallStatic(Game.GetSystemsContainer, &container, containerArgs) ||
-        !container)
+    if (!game::CallStatic(Game.GetPlayer, &player, playerArgs) || !player)
     {
         return false;
     }
-    RED4ext::CName equipmentName("EquipmentSystem");
-    RED4ext::Handle<RED4ext::IScriptable> equipment;
-    RED4ext::StackArgs_t systemArgs;
-    systemArgs.emplace_back(nullptr, &equipmentName);
-    RED4ext::Handle<RED4ext::IScriptable> playerData;
-    RED4ext::StackArgs_t dataArgs;
-    dataArgs.emplace_back(nullptr, &player);
-    if (!game::CallMethod(container.instance, Game.GetSystem, &equipment, systemArgs) || !equipment ||
-        !game::CallMethod(equipment.instance, Game.GetPlayerData, &playerData, dataArgs) || !playerData)
+    auto playerData = items::EquipmentData(player);
+    if (!playerData)
     {
         return false;
     }
