@@ -25,6 +25,7 @@
 #include "plugin/GameClock.hpp"
 #include "plugin/GameVersion.hpp"
 #include "plugin/KeyWatch.hpp"
+#include "plugin/LiftSync.hpp"
 #include "plugin/LookStates.hpp"
 #include "plugin/PartnerBodyBuilder.hpp"
 #include "plugin/PartnerLook.hpp"
@@ -451,6 +452,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             nightcoop_mac::downed::OnMessage(message.FromPeer, message.Message, LocalStateValid ? &LastLocalState : nullptr, *Session, Log);
         }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::LiftSync))
+        {
+            nightcoop_mac::lift_sync::OnMessage(message.FromPeer, message.Message, *Session, Log);
+        }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::GameClock))
         {
             nightcoop_mac::game_clock::OnMessage(message.FromPeer, message.Message, inSave, Session->GetStatus().MyPeerNumber == 0, Log);
@@ -459,6 +464,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     }
     nightcoop_mac::partner_roster::Tick(nowMs, inSave, Plan->Nickname, *Session, Log);
     Cars->Tick(nowMs, inSave, *Session, *Bodies);
+    nightcoop_mac::lift_sync::Tick(nowMs, inSave, !LatestRemoteStates.empty(), *Session, Log);
     if (inSave)
     {
         std::vector<nightcoop_mac::partner_plates::PartnerSpot> plateSpots;

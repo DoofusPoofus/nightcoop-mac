@@ -54,6 +54,7 @@ add_library(NightCoopMac SHARED
   src/plugin/GameVersion.cpp
   src/plugin/Hud.cpp
   src/plugin/KeyWatch.cpp
+  src/plugin/LiftSync.cpp
   src/plugin/Items.cpp
   src/plugin/LookStates.cpp
   src/plugin/GameCalls.cpp

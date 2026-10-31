@@ -12,6 +12,7 @@
  PROBE_CLOCK=<game seconds> makes the host send that GameClock evry 5 s to its guests and stay up for 10 min
  PROBE_VEHICLE=0x<tweakdbid> makes the joiner share a car of that record it drives along its walk (VehicleSpawn evry ~5 s,
  VehicleState and VehicleSeat evry step), and the joiner prints the hosts vehicle messages
+ PROBE_LIFT=1 makes the joiner ask the host for a lift that does not exist (LiftSync kind 3) and print the answer
  PROBE_RIDE=1 makes the joiner sit in the front right seat of the car the host shares (VehicleSeat evry step)
  PROBE_DOWN=1 makes the joiner lie downed (flag 0x100) right next to the host (0.5 m) until a PlayerRevive comes
  PROBE_REVIVE=1 makes the joiner stand still and help the host up (PlayerRevive) 3 s after the host is down (flag 0x100)
@@ -24,6 +25,7 @@
 #include "net/RelaySession.hpp"
 #include "net/RosterMessages.hpp"
 #include "net/VehicleMessages.hpp"
+#include "net/WorldMessages.hpp"
 
 #include <Log.hpp>
 #include <NetCrypto.hpp>
@@ -304,6 +306,18 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             seat.Slot = NameHash("seat_front_left");
             session.SendGameMessage(nightcoop_mac::net::WriteVehicleSeat(seat), nightcoop_mac::net::kEveryPeer, step == 0);
         }
+        if (std::getenv("PROBE_LIFT") && step == 30)
+        {
+            nightcoop_mac::net::LiftSync request;
+            request.Kind = nightcoop_mac::net::kLiftRequest;
+            request.Peer = session.GetStatus().MyPeerNumber;
+            request.LiftKey = 0x1234;
+            request.FloorTo = 2;
+            request.RequestNumber = 1;
+            request.RequestKind = 1;
+            session.SendGameMessage(nightcoop_mac::net::WriteLiftSync(request), 0);
+            std::printf("probe: asked the host for lift 0x1234 to floor 2\n");
+        }
         if (probeRides && hostCarNetId)
         {
             nightcoop_mac::net::VehicleSeat ride;
@@ -378,6 +392,13 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::AnimWant want;
             nightcoop_mac::net::AnimBatch batch;
             uint32_t gameSeconds = 0;
+            nightcoop_mac::net::LiftSync lift;
+            if (nightcoop_mac::net::ReadLiftSync(message.Message, lift))
+            {
+                std::printf("probe: lift message kind %u for %#llx floor %d result %u\n", lift.Kind, static_cast<unsigned long long>(lift.LiftKey),
+                            lift.FloorTo, lift.Result);
+                continue;
+            }
             nightcoop_mac::net::PlayerRevive revive;
             if (nightcoop_mac::net::ReadPlayerRevive(message.Message, revive))
             {

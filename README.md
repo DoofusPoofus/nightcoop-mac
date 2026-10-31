@@ -37,7 +37,8 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | name plates over partner heads (name + distance in the hud cyan, scaled and faded like nightcoop) | the plate gets made and placed in a save with a probe (logs only, not looked at on screen yet, off screen partners are hidden instead of clamped to the edge) |
 | downed and revive (PlayerRevive 47, DownedNotice 48, flag 0x100): in co-op V falls at 1 % instead of dying (`NightCoopDowned.reds` takes over the death state like nightcoop), a partner holds F 1 s next to them to help them up, T 2 s passes out | helping a downed probe up works. the fall itself is not seen yet: the test copy pauses its world without window focus and the test V has Second Heart, where the game resurrects by itself like in nightcoop |
 | shared cars, first cut (VehicleSpawn / State / Despawn / Seat 60-63): the car we sit in goes out, a partners shows up as a codeware mirror on their track (teleported, not kinematic yet) with their body seated by the workspot system, and riding together works both ways (a partner in our car, us in theirs) | works both ways in a save (`test_vehicle` mounts us in a car, the probe drives one), logs only. no handover, npc / crowd / quest cars, doors, damage yet |
-| everything else (npcs quests vehicles dialog votes loot ...) | not yet |
+| lifts: partner bodies and mirror cars dont call lifts, one cab mode (LiftSync 86 kinds 2-4: the host owns evry lift, a guest press asks the host, the hosts departures start the guests copy) | the request / answer round trip works with a probe, not tried at a real lift yet. no in step start or hosts speed yet |
+| everything else (npcs quests dialog votes loot doors ...) | not yet |
 
 NightCoop is in beta and its protocol changes with its releases, so this has to keep up with it. it targets NightCoop 0.1.2 (protocol 143) rn.
 
