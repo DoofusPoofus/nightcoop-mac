@@ -39,7 +39,8 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | shared cars, first cut (VehicleSpawn / State / Despawn / Seat 60-63): the car we sit in goes out, a partners shows up as a codeware mirror on their track (teleported, not kinematic yet) with their body seated by the workspot system, and riding together works both ways (a partner in our car, us in theirs) | works both ways in a save (`test_vehicle` mounts us in a car, the probe drives one), logs only. no handover, npc / crowd / quest cars, doors, damage yet |
 | lifts: partner bodies and mirror cars dont call lifts, one cab mode (LiftSync 86 kinds 2-4: the host owns evry lift, a guest press asks the host, the hosts departures start the guests copy) | the request / answer round trip works with a probe, not tried at a real lift yet. no in step start or hosts speed yet |
 | world handoff, first cut (WorldWant 80 / WorldFile 81 / WorldStatus 82, `handoff` in session.txt): the host makes a manual save and streams sav.dat + metadata, a guest writes it as a new ManualSave-N and loads it. for now the hosts save as it is, without the guests character spliced in like nightcoop does | ask, stream (5 MB in 32 KiB chunks), hash check and the written folder work with a probe as host. the load itself did not start in the test copy (its world pauses without window focus), needs a focused test |
-| everything else (npcs quests dialog votes loot doors ...) | not yet |
+| partner npcs as stand ins (NpcSpawn / Snapshot / Despawn 20-22): codeware spawn from their record and look, ai components off like nightcoop, moved on their snapshot track, killed on a death | works with a probe sharing an npc (logs only). no anim stream, states, weapons or our own npcs going out yet |
+| everything else (quests dialog votes loot doors ...) | not yet |
 
 NightCoop is in beta and its protocol changes with its releases, so this has to keep up with it. it targets NightCoop 0.1.2 (protocol 143) rn.
 

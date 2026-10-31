@@ -37,6 +37,7 @@ public class NightCoopSessionFlow extends ScriptableService {
     if IsDefined(dynamicEntities) {
       dynamicEntities.DeleteTagged(n"NightCoopPartnerBody");
       dynamicEntities.DeleteTagged(n"NightCoopVehicleMirror");
+      dynamicEntities.DeleteTagged(n"NightCoopNpcCopy");
     }
   }
 

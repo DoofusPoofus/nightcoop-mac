@@ -14,6 +14,8 @@
  PROBE_CLOCK=<game seconds> makes the host send that GameClock evry 5 s to its guests and stay up for 10 min
  PROBE_VEHICLE=0x<tweakdbid> makes the joiner share a car of that record it drives along its walk (VehicleSpawn evry ~5 s,
  VehicleState and VehicleSeat evry step), and the joiner prints the hosts vehicle messages
+ PROBE_NPC=0x<character record> makes the joiner share an npc of that record that walks 2 m beside it (NpcSpawn evry 625 ms,
+ NpcSnapshot evry step) and lets it go at the end (NpcDespawn)
  PROBE_LIFT=1 makes the joiner ask the host for a lift that does not exist (LiftSync kind 3) and print the answer
  PROBE_RIDE=1 makes the joiner sit in the front right seat of the car the host shares (VehicleSeat evry step)
  PROBE_DOWN=1 makes the joiner lie downed (flag 0x100) right next to the host (0.5 m) until a PlayerRevive comes
@@ -28,6 +30,7 @@
 #include "net/RosterMessages.hpp"
 #include "net/VehicleMessages.hpp"
 #include "net/WorldMessages.hpp"
+#include "net/NpcMessages.hpp"
 
 #include <Log.hpp>
 #include <NetCrypto.hpp>
@@ -370,6 +373,34 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             seat.NetId = probeCarNetId;
             seat.Slot = NameHash("seat_front_left");
             session.SendGameMessage(nightcoop_mac::net::WriteVehicleSeat(seat), nightcoop_mac::net::kEveryPeer, step == 0);
+        }
+        if (const char* npcRecord = std::getenv("PROBE_NPC"))
+        {
+            const uint32_t npcNetId = (session.GetStatus().MyPeerNumber << 24) | 7;
+            if (step % 8 == 0)
+            {
+                nightcoop_mac::net::NpcSpawn spawn;
+                spawn.NetId = npcNetId;
+                spawn.Record = std::strtoull(npcRecord, nullptr, 0);
+                spawn.Position[0] = state.PositionX;
+                spawn.Position[1] = state.PositionY + 2.0f;
+                spawn.Position[2] = state.PositionZ;
+                spawn.Yaw = state.Yaw;
+                session.SendGameMessage(nightcoop_mac::net::WriteNpcSpawn(spawn));
+            }
+            nightcoop_mac::net::NpcSnapshot npcState;
+            npcState.NetId = npcNetId;
+            npcState.Position[0] = state.PositionX;
+            npcState.Position[1] = state.PositionY + 2.0f;
+            npcState.Position[2] = state.PositionZ;
+            npcState.Yaw = state.Yaw;
+            npcState.Speed = state.Speed;
+            npcState.OwnerClockMs = session.SessionClockMs();
+            session.SendGameMessage(nightcoop_mac::net::WriteNpcSnapshot(npcState), nightcoop_mac::net::kEveryPeer, false);
+            if (step == WalkSteps - 1)
+            {
+                session.SendGameMessage(nightcoop_mac::net::WriteNpcDespawn({npcNetId, 1, 0xFFFFFFFF}));
+            }
         }
         if (std::getenv("PROBE_LIFT") && step == 30)
         {
