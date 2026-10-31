@@ -10,7 +10,8 @@
           1 float, 7 wrapper weight (f32) | 2 int, 3 bool (i32) | 4 vector, 5 quaternion (4 x f32) | 6 event (nothing)
           8 attach, 9 detach (u64 not zero, u64)
  PlayerAnimWant (30): u8 | u8, a partner asks for our full anim state (sent to one peer, once a second at most)
- PlayerAnimSetup (34): u64 rig | u16 sets (max 512) | the sets. only rig and count are read here
+ PlayerAnimSetup (34): u64 rig | u16 sets (max 512) | per set u64 anim set path | u8 priority | u8 variables (max 32) |
+   that many u64 variable names. reliable to evryone when it changes and evry 20 s
  the u32 / u64 / u32 batch header words are passed along as they came, wat they mean is not pinned down yet
  GameClock (46): u32 game seconds (the time systems GetGameTime). the host sends it to evryone evry 5 s, unreliable
 */
@@ -81,10 +82,18 @@ struct AnimWant
     bool Second = true;
 };
 
+struct AnimSetEntry
+{
+    uint64_t AnimSet = 0;
+    uint8_t Priority = 0;
+    std::vector<uint64_t> VariableNames;
+};
+
 struct AnimSetup
 {
     uint64_t Rig = 0;
     uint16_t SetCount = 0;
+    std::vector<AnimSetEntry> Sets;
 };
 
 uint8_t MessageTypeOf(const std::vector<uint8_t>& message);
@@ -98,6 +107,7 @@ bool ReadAnimBatch(const std::vector<uint8_t>& message, AnimBatch& batch);
 std::vector<uint8_t> WriteAnimWant(const AnimWant& want);
 bool ReadAnimWant(const std::vector<uint8_t>& message, AnimWant& want);
 
+std::vector<uint8_t> WriteAnimSetup(const AnimSetup& setup);
 bool ReadAnimSetup(const std::vector<uint8_t>& message, AnimSetup& setup);
 
 std::vector<uint8_t> WriteGameClock(uint32_t gameSeconds);

@@ -2,6 +2,7 @@
 
 #include <ProtocolCore.hpp>
 
+#include <algorithm>
 #include <cstring>
 
 namespace nightcoop_mac::net
@@ -13,6 +14,7 @@ constexpr uint8_t MaxFeatureFields = 48;
 constexpr uint8_t MaxFeatureFieldBytes = 32;
 constexpr size_t SmallestAnimEntry = 10;
 constexpr uint16_t MaxAnimSets = 512;
+constexpr uint8_t MaxAnimSetVariables = 32;
 
 bool OpenMessage(nc::proto::Reader& reader, nc::proto::MsgType expectedType)
 {
@@ -240,6 +242,27 @@ bool ReadAnimWant(const std::vector<uint8_t>& message, AnimWant& want)
     return reader.Ok();
 }
 
+std::vector<uint8_t> WriteAnimSetup(const AnimSetup& setup)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::PlayerAnimSetup);
+    writer.PutU64(setup.Rig);
+    const auto setCount = static_cast<uint16_t>(std::min<size_t>(setup.Sets.size(), MaxAnimSets));
+    writer.PutU16(setCount);
+    for (uint16_t index = 0; index < setCount; ++index)
+    {
+        const auto& set = setup.Sets[index];
+        writer.PutU64(set.AnimSet);
+        writer.PutU8(set.Priority);
+        const auto variableCount = static_cast<uint8_t>(std::min<size_t>(set.VariableNames.size(), MaxAnimSetVariables));
+        writer.PutU8(variableCount);
+        for (uint8_t variable = 0; variable < variableCount; ++variable)
+        {
+            writer.PutU64(set.VariableNames[variable]);
+        }
+    }
+    return writer.Data();
+}
+
 bool ReadAnimSetup(const std::vector<uint8_t>& message, AnimSetup& setup)
 {
     nc::proto::Reader reader(message.data(), message.size());
@@ -249,7 +272,28 @@ bool ReadAnimSetup(const std::vector<uint8_t>& message, AnimSetup& setup)
     }
     setup.Rig = reader.GetU64();
     setup.SetCount = reader.GetU16();
-    return reader.Ok() && setup.SetCount <= MaxAnimSets;
+    if (!reader.Ok() || setup.SetCount > MaxAnimSets)
+    {
+        return false;
+    }
+    setup.Sets.clear();
+    for (uint16_t index = 0; index < setup.SetCount && reader.Ok(); ++index)
+    {
+        AnimSetEntry set;
+        set.AnimSet = reader.GetU64();
+        set.Priority = reader.GetU8();
+        const uint8_t variableCount = reader.GetU8();
+        if (variableCount > MaxAnimSetVariables)
+        {
+            return false;
+        }
+        for (uint8_t variable = 0; variable < variableCount; ++variable)
+        {
+            set.VariableNames.push_back(reader.GetU64());
+        }
+        setup.Sets.push_back(std::move(set));
+    }
+    return reader.Ok();
 }
 
 std::vector<uint8_t> WriteGameClock(uint32_t gameSeconds)

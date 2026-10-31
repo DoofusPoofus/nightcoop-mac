@@ -17,6 +17,7 @@
 #include "net/LookMessages.hpp"
 #include "net/RelaySession.hpp"
 #include "plugin/AnimMirror.hpp"
+#include "plugin/AnimSetup.hpp"
 #include "plugin/AnimTap.hpp"
 #include "plugin/CrashNotes.hpp"
 #include "plugin/GameCalls.hpp"
@@ -444,6 +445,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             }
         }
         nightcoop_mac::game_clock::Tick(nowMs, bodiesAllowed && LocalStateValid, *Session, Log);
+        nightcoop_mac::anim_setup::Tick(nowMs, bodiesAllowed && LocalStateValid, *Session, Log);
         if (Plan->TestWeapon && bodiesAllowed)
         {
             RunWeaponTest(nowMs);

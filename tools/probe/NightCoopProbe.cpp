@@ -265,7 +265,15 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::AnimWant want;
             nightcoop_mac::net::AnimBatch batch;
             uint32_t gameSeconds = 0;
-            if (nightcoop_mac::net::ReadGameClock(message.Message, gameSeconds))
+            nightcoop_mac::net::AnimSetup setup;
+            if (nightcoop_mac::net::ReadAnimSetup(message.Message, setup))
+            {
+                std::printf("probe: peer %u anim setup rig %#llx with %zu set(s), first %#llx priority %u with %zu variable(s)\n", message.FromPeer,
+                            static_cast<unsigned long long>(setup.Rig), setup.Sets.size(),
+                            static_cast<unsigned long long>(setup.Sets.empty() ? 0 : setup.Sets[0].AnimSet), setup.Sets.empty() ? 0 : setup.Sets[0].Priority,
+                            setup.Sets.empty() ? 0 : setup.Sets[0].VariableNames.size());
+            }
+            else if (nightcoop_mac::net::ReadGameClock(message.Message, gameSeconds))
             {
                 std::printf("probe: peer %u game clock %u s (%02u:%02u)\n", message.FromPeer, gameSeconds, gameSeconds / 3600 % 24, gameSeconds / 60 % 60);
             }
