@@ -15,9 +15,9 @@
  nightcoop spawns thru native calls on gameIDynamicEntityIDSystem / gameIEntityStubSystem / gameIPopulationSystem.
  those slots are not verified on mac so the body comes from codewares DynamicEntitySystem instead
  (CreateEntity / GetEntity / DeleteEntity), which needs codeware for mac installed
- the default body is nightcoops fallback body: the cutscene V template (player_wa_tpp_cutscene.ent or player_ma_ by the
+ 'body npc' gives nightcoops fallback body: the cutscene V template (player_wa_tpp_cutscene.ent or player_ma_ by the
  partners gender from their PlayerCustomization), which spawns as an NPCPuppet on mac so the npc locomotion and stance work on it.
- 'body player' in session.txt gives nightcoops real body instead: a second PlayerPuppet from the template family our own player
+ the default is nightcoops real body: a second PlayerPuppet from the template family our own player
  came from (ep1 or base, player_wa_fpp / player_ma_fpp by the partners gender) with a character record cloned for that template
  (BodyRecords). it carries the NightCoopPartnerBody tag for the script side, its id goes to the
  PartnerBodyBuilder before the game builds it, and once its in the world it gets an ActivateTPPRepresentationEvent so it shows
@@ -58,7 +58,7 @@ namespace nightcoop_mac
 struct BodySettings
 {
     bool Enabled = true;
-    bool PlayerBody = false;
+    bool PlayerBody = true;
     bool PlayerBodyWithoutScripts = false;
     bool InMenuForTesting = false;
     std::string Record;

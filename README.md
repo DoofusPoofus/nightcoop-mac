@@ -26,7 +26,7 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | our crouch and sprint sent in PlayerState flags | works |
 | session flow: no bodies in the main menu, bodies deleted before a session ends | works (menu checked with a probe for 2.5 min) |
 | V body (cutscene template by the partners gender from PlayerCustomization) | spawns at the main menu |
-| real PlayerPuppet partner body (`body player`): entity build hook keeps the 25 local player components off it, first person fixes, third person view, anim stream on the players own graph | spawns and plays a probe stream at the main menu (tested with `body player_without_scripts`), its script side needs redscript for mac and is not compile checked yet |
+| real PlayerPuppet partner body (default, `body npc` for the cutscene V): entity build hook keeps the 25 local player components off it, first person fixes, third person view, anim stream on the players own graph | spawns and plays a probe stream at the main menu (tested with `body player_without_scripts`), its script side needs redscript for mac and is not compile checked yet |
 | partner look (PlayerCustomization 33: their V's face, hair, body, arms) | works in a save with a probe sending a real look (logs only, not looked at on screen yet) |
 | partner clothes and arms (PlayerLook 31, nightcoops wardrobe: visible items incl transmog, arms cyberware, a third person head) | works in a save with a probe sending a real outfit (7 pieces put on, logs only) |
 | our weapons in PlayerState (right / left record, shot counts from magazine drops, psm weapon states, aim / shoot / reload / silenced flags) | works in a save (`test_weapon` draws a gun and fakes shots), checked with a probe |
@@ -60,18 +60,19 @@ build/nightcoop_mac_game_tests
 
 partner bodies need [Codeware](https://github.com/codeman101/cp2077-codeware) for mac in the game (its in the RED4ext-macos release) and [redscript for mac](https://github.com/jac3km4/redscript/releases) (`engine/tools/scc`), and they only show up in a loaded save. like nightcoops SessionFlow the plugin keeps them out of the main menu: the menu has no character look and a body copying it crashes the game. `scripts/NightCoopMac/NightCoopSessionFlow.reds` tells the plugin which session runs (codewares session events) and deletes the bodies before any session ends. nightcoop spawns its bodies with native calls that arent verified on mac, so the port uses codewares `DynamicEntitySystem` for that part. movement goes thru the same `gameTeleportationFacility.Teleport` nightcoop uses, with its thresholds (2 cm / 0.5 deg), and bodies show up within 150 m and go away past 200 m like in nightcoop.
 
-the body is nightcoops fallback body: the cutscene V (`Character.TPP_Player_Cutscene_Female`, or `_Male` when the partners look says male). on mac it spawns as an npc puppet so it can walk and crouch with the games own npc locomotion. like nightcoop it waits up to 5 s for the partners look before it spawns. change it in `session.txt`:
+the body is nightcoops real body (see below). `body npc` gives nightcoops fallback body instead: the cutscene V (`Character.TPP_Player_Cutscene_Female`, or `_Male` when the partners look says male), an npc puppet that tries the games own npc locomotion and gets teleported where that does nothing (it does nothing for codeware spawned npcs so far, in the menu and in the city). like nightcoop a body waits up to 5 s for the partners look before it spawns. change it in `session.txt`:
 
 ```
+body npc
 body_gender male
 body_record Character.Judy
 body_template base\characters\entities\...\some.ent
 bodies off
 ```
 
-### the real body (`body player`)
+### the real body (default)
 
-nightcoops default body is a second `PlayerPuppet` from ur own template, so the partners anim stream lands on the same graph it was recorded on. put `body player` in `session.txt` to get that one:
+nightcoops default body is a second `PlayerPuppet` from ur own template, so the partners anim stream lands on the same graph it was recorded on:
 
 - the plugin hooks the entity build job (`EntityBuilder_ExtractComponentsJob`, verified in the mac address db) at load and, for partner bodies only, swaps the 25 components a second local player must not have (fpp camera, vehicle cameras, sound listener, hud, state machine ...) for empty turned off slots like nightcoop, and does nightcoops first person fixes (hidden parts, weapon plane slots, render plane params)
 - the body gets the `NightCoopPartnerBody` tag and an `ActivateTPPRepresentationEvent` once its in the world, it moves by teleport and animates from the partners stream
