@@ -20,6 +20,9 @@
  gets a NpcAnimWant. the probe npc turns hostile to the host halfway with 60 % health and combat states and holds
  PROBE_NPC_WEAPON=0x<record> then. HitClaims on it get answered like an owner (HitResult NpcDespawn 3 with the killer at 0 %)
  PROBE_CLAIM claims 35 % of the first npc the host shares evry 2 s
+ PROBE_FAR=<meters> moves the joiners walk that far along x from where it was asked to stand
+ PROBE_TAKE=1 takes the first npc the host hands over (NpcHandoffAck + NpcClaim 3), owns it for 100 steps and lets it go,
+ without it evry offer gets refused
  PROBE_MIRROR shares one of the hosts own npcs back to it as our npc (same record entity id keys and spot) for 120 steps
  so the host should make its own npc our puppet and give it back after
  PROBE_HIT=<attack record name> (with PROBE_NPC) says our npc hit the hosts body with that attack evry 3 s (PlayerHit)
@@ -986,6 +989,10 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     bool mirrorChosen = false;
     bool mirrorReleased = false;
     int mirrorStartStep = 0;
+    nightcoop_mac::net::NpcHandoff takenNpc;
+    bool tookNpc = false;
+    bool takenReleased = false;
+    int takenAtStep = 0;
     uint32_t probeNpcSequence = 0;
     uint32_t rosterRevision = 0xFFFFFFFF;
     const bool probeQuests = std::getenv("PROBE_QUESTS") != nullptr;
@@ -1121,6 +1128,23 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             hit.Details.Flags = {26, 29};
             session.SendGameMessage(nightcoop_mac::net::WritePlayerHit(hit), 0);
             std::printf("probe: told the host our npc hit their body (%s = %#llx)\n", hitRecord, static_cast<unsigned long long>(hit.Details.AttackRecord));
+        }
+        if (tookNpc && !takenReleased)
+        {
+            nightcoop_mac::net::NpcSpawn takenSpawn = takenNpc.Spawn;
+            if ((step - takenAtStep) % 8 == 0)
+            {
+                session.SendGameMessage(nightcoop_mac::net::WriteNpcSpawn(takenSpawn));
+            }
+            nightcoop_mac::net::NpcSnapshot takenState = takenNpc.Snapshot;
+            takenState.OwnerClockMs = session.SessionClockMs();
+            session.SendGameMessage(nightcoop_mac::net::WriteNpcSnapshot(takenState), nightcoop_mac::net::kEveryPeer, false);
+            if (step - takenAtStep >= 100)
+            {
+                takenReleased = true;
+                session.SendGameMessage(nightcoop_mac::net::WriteNpcDespawn({takenSpawn.NetId, 1, 0xFFFFFFFF}));
+                std::printf("probe: let go of the npc the host handed us\n");
+            }
         }
         if (std::getenv("PROBE_MIRROR") && mirrorChosen && !mirrorReleased)
         {
@@ -1473,6 +1497,27 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                 }
                 continue;
             }
+            nightcoop_mac::net::NpcHandoff offered;
+            if (nightcoop_mac::net::ReadNpcHandoff(message.Message, offered))
+            {
+                const bool take = std::getenv("PROBE_TAKE") && !tookNpc;
+                nightcoop_mac::net::NpcHandoffAck answer;
+                answer.NetId = offered.Spawn.NetId;
+                answer.Accepted = take;
+                answer.Reason = take ? 0 : nightcoop_mac::net::kHandoffNoBody;
+                answer.Entity = take ? 0x4e43 : 0;
+                session.SendGameMessage(nightcoop_mac::net::WriteNpcHandoffAck(answer), static_cast<int32_t>(message.FromPeer));
+                std::printf("probe: peer %u offers us npc %#010x (record %#llx, health %.0f) and we %s it\n", message.FromPeer, offered.Spawn.NetId,
+                            static_cast<unsigned long long>(offered.Spawn.Record), offered.Snapshot.Health, take ? "take" : "refuse");
+                if (take)
+                {
+                    tookNpc = true;
+                    takenNpc = offered;
+                    takenAtStep = step;
+                    session.SendGameMessage(nightcoop_mac::net::WriteNpcClaim({offered.Spawn.NetId, nightcoop_mac::net::kClaimAfterHandoff, message.FromPeer}));
+                }
+                continue;
+            }
             nightcoop_mac::net::HitClaim claimOnUs;
             if (nightcoop_mac::net::ReadHitClaim(message.Message, claimOnUs))
             {
@@ -1722,7 +1767,7 @@ int main(int argc, char** argv)
     {
         if (argc > 6)
         {
-            WalkStartX = static_cast<float>(std::atof(argv[4]));
+            WalkStartX = static_cast<float>(std::atof(argv[4])) + (std::getenv("PROBE_FAR") ? static_cast<float>(std::atof(std::getenv("PROBE_FAR"))) : 0.0f);
             WalkStartY = static_cast<float>(std::atof(argv[5]));
             WalkStartZ = static_cast<float>(std::atof(argv[6]));
         }

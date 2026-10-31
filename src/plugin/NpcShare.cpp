@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <random>
 
 namespace nightcoop_mac
@@ -30,6 +31,14 @@ constexpr uint8_t HighLevelCombat = 2;
 constexpr uint8_t AttitudeHostile = 2;
 constexpr float ThreatWithinMeters = 35.0f;
 constexpr uint64_t ThreatEveryMs = 2000;
+constexpr uint64_t OfferCheckEveryMs = 1000;
+constexpr uint64_t OwnedBeforeOfferMs = 5000;
+constexpr uint64_t OfferWaitsMs = 5000;
+constexpr uint64_t OfferAgainMs = 10000;
+constexpr uint64_t OfferAfterRefusalMs = 30000;
+constexpr float GiveAwayPastMeters = 70.0f;
+constexpr float TakeWithinMeters = 100.0f;
+constexpr float HandoffMarginMeters = 15.0f;
 constexpr uint64_t ReportEveryMs = 10000;
 constexpr float ShareWithinMeters = 150.0f;
 constexpr float StopPastMeters = 180.0f;
@@ -137,6 +146,152 @@ uint64_t NpcShare::EntityOfNetId(uint32_t netId) const
     return 0;
 }
 
+void NpcShare::OfferHandoffs(uint64_t nowMs, const std::vector<Partner>& partners, net::RelaySession& session)
+{
+    if (!m_player)
+    {
+        return;
+    }
+    RED4ext::Vector4 ourPlace {};
+    RED4ext::StackArgs_t noArgs;
+    game::CallMethod(m_player.instance, m_getWorldPosition, &ourPlace, noArgs);
+    for (auto& [entityHash, source] : m_sources)
+    {
+        if (source.OfferedTo != 0xFFFFFFFF && nowMs - source.OfferedAtMs >= OfferWaitsMs)
+        {
+            source.OfferedTo = 0xFFFFFFFF;
+        }
+        if (source.OfferedTo != 0xFFFFFFFF || nowMs < source.NextOfferMs || nowMs - source.SharedSinceMs < OwnedBeforeOfferMs || !source.LastSampleMs)
+        {
+            continue;
+        }
+        const float ourX = source.LastPosition[0] - ourPlace.X;
+        const float ourY = source.LastPosition[1] - ourPlace.Y;
+        const float ourZ = source.LastPosition[2] - ourPlace.Z;
+        const float ourDistance = std::sqrt(ourX * ourX + ourY * ourY + ourZ * ourZ);
+        if (ourDistance <= GiveAwayPastMeters)
+        {
+            continue;
+        }
+        const Partner* taker = nullptr;
+        float takerDistance = TakeWithinMeters;
+        for (const auto& partner : partners)
+        {
+            const float deltaX = source.LastPosition[0] - partner.Position[0];
+            const float deltaY = source.LastPosition[1] - partner.Position[1];
+            const float deltaZ = source.LastPosition[2] - partner.Position[2];
+            const float distance = std::sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
+            if (distance <= takerDistance && distance + HandoffMarginMeters <= ourDistance)
+            {
+                taker = &partner;
+                takerDistance = distance;
+            }
+        }
+        if (!taker)
+        {
+            continue;
+        }
+        net::NpcHandoff handoff;
+        handoff.Spawn.NetId = source.NetId;
+        handoff.Spawn.Record = source.Record;
+        handoff.Spawn.Appearance = source.Appearance;
+        handoff.Spawn.OwnerEntity = entityHash;
+        handoff.Spawn.MatchKeyA = source.SpawnerKey;
+        handoff.Spawn.MatchKeyB = source.CommunityEntryKey;
+        std::memcpy(handoff.Spawn.Position, source.LastPosition, sizeof(handoff.Spawn.Position));
+        handoff.Spawn.Yaw = source.LastYaw;
+        handoff.Snapshot.NetId = source.NetId;
+        std::memcpy(handoff.Snapshot.Position, source.LastPosition, sizeof(handoff.Snapshot.Position));
+        handoff.Snapshot.Yaw = source.LastYaw;
+        handoff.Snapshot.Health = std::clamp(npc_states::HealthPercent(entityHash), 0.0f, 100.0f);
+        handoff.Snapshot.OwnerClockMs = session.SessionClockMs();
+        handoff.Snapshot.RightHandItem = source.RightHandRecord;
+        handoff.Snapshot.LeftHandItem = source.LeftHandRecord;
+        session.SendGameMessage(net::WriteNpcHandoff(handoff), static_cast<int32_t>(taker->PeerNumber));
+        source.OfferedTo = taker->PeerNumber;
+        source.OfferedAtMs = nowMs;
+        source.NextOfferMs = nowMs + OfferAgainMs;
+        ++m_handoffsOffered;
+        char line[200];
+        std::snprintf(line, sizeof(line), "npcs: offering net id %#010x to peer %u: it is %.0f m from us and %.0f m from them", source.NetId,
+                      taker->PeerNumber, ourDistance, takerDistance);
+        m_log(line);
+    }
+}
+
+void NpcShare::OnHandoffAck(uint32_t fromPeer, const net::NpcHandoffAck& ack, uint64_t nowMs, const HandedAway& handedAway)
+{
+    for (auto source = m_sources.begin(); source != m_sources.end(); ++source)
+    {
+        if (source->second.NetId != ack.NetId || source->second.OfferedTo != fromPeer)
+        {
+            continue;
+        }
+        char line[200];
+        if (!ack.Accepted)
+        {
+            source->second.OfferedTo = 0xFFFFFFFF;
+            source->second.NextOfferMs = nowMs + OfferAfterRefusalMs;
+            std::snprintf(line, sizeof(line), "npcs: peer %u refused net id %#010x (reason %u)", fromPeer, ack.NetId, ack.Reason);
+            m_log(line);
+            return;
+        }
+        net::NpcSpawn spawn;
+        spawn.NetId = source->second.NetId;
+        spawn.Record = source->second.Record;
+        spawn.Appearance = source->second.Appearance;
+        spawn.OwnerEntity = source->first;
+        spawn.MatchKeyA = source->second.SpawnerKey;
+        spawn.MatchKeyB = source->second.CommunityEntryKey;
+        std::memcpy(spawn.Position, source->second.LastPosition, sizeof(spawn.Position));
+        spawn.Yaw = source->second.LastYaw;
+        anim_tap::StopWatchingNpc(source->second.NetId);
+        const uint64_t entityHash = source->first;
+        m_sources.erase(source);
+        ++m_handoffsGiven;
+        std::snprintf(line, sizeof(line), "npcs: peer %u took net id %#010x (entity %#llx on its side), our npc is now its puppet", fromPeer, ack.NetId,
+                      static_cast<unsigned long long>(ack.Entity));
+        m_log(line);
+        if (handedAway)
+        {
+            handedAway(spawn.NetId, fromPeer, entityHash, spawn);
+        }
+        return;
+    }
+}
+
+bool NpcShare::TakeHanded(uint32_t netId, uint64_t entityHash, const net::NpcSpawn& spawn, uint64_t nowMs)
+{
+    if (!Resolve() || !entityHash || m_sources.count(entityHash))
+    {
+        return false;
+    }
+    Source taken;
+    taken.NetId = netId;
+    taken.Record = spawn.Record & 0xFFFFFFFFFFULL;
+    taken.Appearance = spawn.Appearance;
+    taken.SpawnerKey = spawn.MatchKeyA;
+    taken.CommunityEntryKey = spawn.MatchKeyB;
+    taken.SharedSinceMs = nowMs;
+    taken.Handed = true;
+    std::memcpy(taken.LastPosition, spawn.Position, sizeof(taken.LastPosition));
+    taken.LastYaw = spawn.Yaw;
+    auto& source = m_sources.emplace(entityHash, taken).first->second;
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::Handle<RED4ext::IScriptable> npc;
+    static auto* findEntity = game::FindFunction("ScriptGameInstance", "FindEntityByID");
+    RED4ext::ent::EntityID entityId(entityHash);
+    RED4ext::StackArgs_t findArgs;
+    findArgs.emplace_back(nullptr, &gameInstance);
+    findArgs.emplace_back(nullptr, &entityId);
+    if (findEntity && game::CallStatic(findEntity, &npc, findArgs) && npc)
+    {
+        WatchGraph(source, npc);
+    }
+    ++m_handoffsTaken;
+    return true;
+}
+
 uint32_t NpcShare::NetIdOfEntity(uint64_t entityHash) const
 {
     const auto source = m_sources.find(entityHash);
@@ -230,6 +385,7 @@ void NpcShare::Send(uint64_t nowMs, uint64_t entityHash, Source& source, RED4ext
     float yaw = 0;
     game::CallMethod(npc.instance, m_getWorldPosition, &position, noArgs);
     game::CallMethod(npc.instance, m_getWorldYaw, &yaw, noArgs);
+    source.LastYaw = yaw;
     if (nowMs >= source.NextSpawnMs)
     {
         source.NextSpawnMs = nowMs + SpawnEveryMs;
@@ -276,7 +432,7 @@ void NpcShare::Send(uint64_t nowMs, uint64_t entityHash, Source& source, RED4ext
     session.SendGameMessage(net::WriteNpcSnapshot(snapshot), net::kEveryPeer, false);
 }
 
-void NpcShare::Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::RelaySession& session)
+void NpcShare::Scan(uint64_t nowMs, bool shareOwnNpcs, const std::vector<Partner>& partners, net::RelaySession& session)
 {
     RED4ext::ScriptGameInstance gameInstance;
     RED4ext::DynArray<RED4ext::Handle<RED4ext::IScriptable>> entities;
@@ -308,7 +464,9 @@ void NpcShare::Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::R
         RED4ext::StackArgs_t managedArgs;
         managedArgs.emplace_back(nullptr, &entityId);
         game::CallMethod(dynamicEntities.instance, m_isManaged, &managed, managedArgs);
-        if (managed || (m_isPartnerPuppet && m_isPartnerPuppet(entityHash)))
+        const auto handedSource = m_sources.find(entityHash);
+        const bool handedToUs = handedSource != m_sources.end() && handedSource->second.Handed;
+        if ((managed && !handedToUs) || (m_isPartnerPuppet && m_isPartnerPuppet(entityHash)))
         {
             ++m_lastScanManaged;
             continue;
@@ -349,6 +507,10 @@ void NpcShare::Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::R
                 ++m_lastScanDead;
                 continue;
             }
+            if (!shareOwnNpcs)
+            {
+                continue;
+            }
             Source fresh;
             fresh.NetId = (session.GetStatus().MyPeerNumber << 24) | (++m_netIdCounter & 0xFFFFFF);
             RED4ext::TweakDBID record;
@@ -357,6 +519,7 @@ void NpcShare::Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::R
             game::CallMethod(npc.instance, m_getAppearance, &appearance, noArgs);
             fresh.Record = record.value & 0xFFFFFFFFFFULL;
             fresh.Appearance = appearance.hash;
+            fresh.SharedSinceMs = nowMs;
             npc_states::MatchKeys(entityHash, fresh.SpawnerKey, fresh.CommunityEntryKey);
             source = m_sources.emplace(entityHash, fresh).first;
             ++m_sharesStarted;
@@ -388,7 +551,7 @@ void NpcShare::Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::R
     }
 }
 
-void NpcShare::Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& partners, net::RelaySession& session)
+void NpcShare::Tick(uint64_t nowMs, bool inSave, bool shareOwnNpcs, const std::vector<Partner>& partners, net::RelaySession& session)
 {
     if (!inSave || !session.GetStatus().InSession || (partners.empty() && m_sources.empty()) || !Resolve())
     {
@@ -401,7 +564,7 @@ void NpcShare::Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& par
     if (nowMs >= m_nextScanMs)
     {
         m_nextScanMs = nowMs + ScanEveryMs;
-        Scan(nowMs, partners, session);
+        Scan(nowMs, shareOwnNpcs, partners, session);
     }
     RED4ext::ScriptGameInstance gameInstance;
     RED4ext::Handle<RED4ext::IScriptable> player;
@@ -440,12 +603,18 @@ void NpcShare::Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& par
         Send(nowMs, source->first, source->second, npc, partners, session);
         ++source;
     }
+    if (nowMs >= m_nextOfferCheckMs && !partners.empty())
+    {
+        m_nextOfferCheckMs = nowMs + OfferCheckEveryMs;
+        OfferHandoffs(nowMs, partners, session);
+    }
     if (nowMs >= m_nextReportMs)
     {
         m_nextReportMs = nowMs + ReportEveryMs;
         m_log("npcs: " + std::to_string(m_sources.size()) + " of our npc(s) shared now, " + std::to_string(m_sharesStarted) +
               " started so far, " + std::to_string(anim_tap::WatchedNpcCount()) + " graph(s) streamed (last scan: " + std::to_string(m_lastScanEntities) + " entities, " + std::to_string(m_lastScanNpcs) + " npcs, " +
-              std::to_string(m_lastScanManaged) + " ours, " + std::to_string(m_lastScanCandidates) + " near, " + std::to_string(m_lastScanDead) + " dead, nearest " + std::to_string(static_cast<int>(m_lastScanNearest)) + " m from a partner)");
+              std::to_string(m_lastScanManaged) + " ours, " + std::to_string(m_lastScanCandidates) + " near, " + std::to_string(m_lastScanDead) + " dead, nearest " + std::to_string(static_cast<int>(m_lastScanNearest)) + " m from a partner; handoffs " +
+              std::to_string(m_handoffsOffered) + " offered, " + std::to_string(m_handoffsGiven) + " given, " + std::to_string(m_handoffsTaken) + " taken)");
     }
 }
 }

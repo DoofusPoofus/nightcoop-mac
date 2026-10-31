@@ -12,6 +12,11 @@
    hand item
  NpcDespawn (22) owner -> evryone reliable 9 bytes: u32 net id | u8 reason (1 stopped sharing 2 body left the owners
    world 3 died) | u32 killer peer (reason 3 else 0xFFFFFFFF)
+ NpcHandoff (26) old owner -> one peer reliable: a NpcSpawn body then a NpcSnapshot body of the same net id (62 + 68 + 2n)
+ NpcHandoffAck (27) receiver -> offering peer reliable 14 bytes: u32 net id | u8 1 accepted 0 refused | u8 reason (1 no body) |
+   u64 the receivers entity id of the body it took
+ NpcClaim (28) new owner -> evryone reliable 9 bytes: u32 net id | u8 kind (1 orphan 2 by the claim rules 3 after a handoff) | u32
+   the peer it was taken from
  readers drop not finite floats positions past 100 km and bytes left over
 */
 #pragma once
@@ -66,10 +71,42 @@ struct NpcDespawn
     uint32_t Killer = 0xFFFFFFFF;
 };
 
+struct NpcHandoff
+{
+    NpcSpawn Spawn;
+    NpcSnapshot Snapshot;
+};
+
+struct NpcHandoffAck
+{
+    uint32_t NetId = 0;
+    bool Accepted = false;
+    uint8_t Reason = 0;
+    uint64_t Entity = 0;
+};
+
+inline constexpr uint8_t kClaimOrphan = 1;
+inline constexpr uint8_t kClaimByRules = 2;
+inline constexpr uint8_t kClaimAfterHandoff = 3;
+inline constexpr uint8_t kHandoffNoBody = 1;
+
+struct NpcClaim
+{
+    uint32_t NetId = 0;
+    uint8_t Kind = kClaimAfterHandoff;
+    uint32_t FromPeer = 0;
+};
+
 std::vector<uint8_t> WriteNpcSpawn(const NpcSpawn& spawn);
 bool ReadNpcSpawn(const std::vector<uint8_t>& message, NpcSpawn& spawn);
 std::vector<uint8_t> WriteNpcSnapshot(const NpcSnapshot& snapshot);
 bool ReadNpcSnapshot(const std::vector<uint8_t>& message, NpcSnapshot& snapshot);
 std::vector<uint8_t> WriteNpcDespawn(const NpcDespawn& despawn);
 bool ReadNpcDespawn(const std::vector<uint8_t>& message, NpcDespawn& despawn);
+std::vector<uint8_t> WriteNpcHandoff(const NpcHandoff& handoff);
+bool ReadNpcHandoff(const std::vector<uint8_t>& message, NpcHandoff& handoff);
+std::vector<uint8_t> WriteNpcHandoffAck(const NpcHandoffAck& ack);
+bool ReadNpcHandoffAck(const std::vector<uint8_t>& message, NpcHandoffAck& ack);
+std::vector<uint8_t> WriteNpcClaim(const NpcClaim& claim);
+bool ReadNpcClaim(const std::vector<uint8_t>& message, NpcClaim& claim);
 }

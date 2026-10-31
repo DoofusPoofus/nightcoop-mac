@@ -83,6 +83,7 @@ add_library(NightCoopMac SHARED
   src/plugin/MessageDrops.cpp
   src/plugin/NpcCopies.cpp
   src/plugin/NpcCombat.cpp
+  src/plugin/NpcHandoffs.cpp
   src/plugin/NpcShare.cpp
   src/plugin/NpcStates.cpp
   src/plugin/Items.cpp

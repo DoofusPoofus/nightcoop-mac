@@ -11,7 +11,11 @@
  snapshots also carry its 8 ai net states its attitude to our player and to evry partner body its hand weapons (checked
  evry 500 ms) time dilation and the incapacitated flag (npc states does the game calls). a shared npc in combat that is
  hostile to a partner body within 35 m gets a threat on that body evry 2 s (npc combat) so it fights partners too
- not done yet: match keys workspot flags handoffs claims and orphans
+ handoffs like nightcoop: an npc we have shared for 5 s that is past 70 m from us with a partner within 100 m of it and 15 m
+ nearer than us is offered to that partner (NpcHandoff again after 10 s an offer waits 5 s). when they take it our npc becomes
+ their puppet (npc copies) under the same net id. a npc handed to us keeps its net id and is shared even when its a codeware
+ body. a guest in the hosts world shares only npcs handed to it
+ not done yet: workspot flags claims by the rules and orphans
 */
 #pragma once
 
@@ -29,6 +33,8 @@ namespace net
 {
 class RelaySession;
 struct NpcSnapshot;
+struct NpcSpawn;
+struct NpcHandoffAck;
 }
 
 class NpcShare
@@ -45,7 +51,11 @@ public:
 
     explicit NpcShare(LogFunction log);
 
-    void Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& partners, net::RelaySession& session);
+    using HandedAway = std::function<void(uint32_t netId, uint32_t newOwner, uint64_t entityHash, const net::NpcSpawn& spawn)>;
+
+    void Tick(uint64_t nowMs, bool inSave, bool shareOwnNpcs, const std::vector<Partner>& partners, net::RelaySession& session);
+    bool TakeHanded(uint32_t netId, uint64_t entityHash, const net::NpcSpawn& spawn, uint64_t nowMs);
+    void OnHandoffAck(uint32_t fromPeer, const net::NpcHandoffAck& ack, uint64_t nowMs, const HandedAway& handedAway);
     void SetPuppetCheck(std::function<bool(uint64_t)> isPartnerPuppet) { m_isPartnerPuppet = std::move(isPartnerPuppet); }
     uint64_t EntityOfNetId(uint32_t netId) const;
     uint32_t NetIdOfEntity(uint64_t entityHash) const;
@@ -70,10 +80,17 @@ private:
         uint64_t LeftHandRecord = 0;
         uint64_t NextHandsMs = 0;
         std::map<uint32_t, uint64_t> NextThreatMsByPeer;
+        uint64_t SharedSinceMs = 0;
+        bool Handed = false;
+        uint32_t OfferedTo = 0xFFFFFFFF;
+        uint64_t OfferedAtMs = 0;
+        uint64_t NextOfferMs = 0;
+        float LastYaw = 0;
     };
 
     bool Resolve();
-    void Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::RelaySession& session);
+    void Scan(uint64_t nowMs, bool shareOwnNpcs, const std::vector<Partner>& partners, net::RelaySession& session);
+    void OfferHandoffs(uint64_t nowMs, const std::vector<Partner>& partners, net::RelaySession& session);
     void Send(uint64_t nowMs, uint64_t entityHash, Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc, const std::vector<Partner>& partners,
               net::RelaySession& session);
     void FillStates(uint64_t nowMs, Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc, const std::vector<Partner>& partners,
@@ -110,6 +127,10 @@ private:
     uint64_t m_nextReportMs = 0;
     uint32_t m_sharesStarted = 0;
     uint32_t m_graphsWatched = 0;
+    uint64_t m_nextOfferCheckMs = 0;
+    uint32_t m_handoffsOffered = 0;
+    uint32_t m_handoffsGiven = 0;
+    uint32_t m_handoffsTaken = 0;
     uint32_t m_lastScanEntities = 0;
     uint32_t m_lastScanNpcs = 0;
     uint32_t m_lastScanManaged = 0;

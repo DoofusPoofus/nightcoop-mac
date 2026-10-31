@@ -59,6 +59,9 @@ public:
     bool FindByEntity(uint64_t entityHash, uint32_t& netId, uint32_t& ownerPeer, float& ownerHealth) const;
     uint64_t EntityOfNetId(uint32_t netId) const;
     bool IsPuppet(uint64_t entityHash) const;
+    bool ReleaseForHandoff(uint32_t netId, uint32_t fromPeer, uint64_t& entityHash, net::NpcSpawn& spawn);
+    void AdoptAsPuppet(uint32_t netId, uint32_t ownerPeer, uint64_t entityHash, const net::NpcSpawn& spawn, uint64_t nowMs);
+    void FollowClaim(uint32_t fromPeer, const net::NpcClaim& claim, uint64_t nowMs);
     uint64_t CopyEntity(uint32_t netId, uint32_t& ownerPeer) const;
     uint32_t NetIdOfCopy(uint64_t entityHash) const;
     void SetHeld(uint32_t netId, bool held);

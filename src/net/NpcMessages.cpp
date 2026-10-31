@@ -18,9 +18,10 @@ bool PositionOk(const float* position)
 }
 }
 
-std::vector<uint8_t> WriteNpcSpawn(const NpcSpawn& spawn)
+namespace
 {
-    nc::proto::Writer writer(nc::proto::MsgType::NpcSpawn);
+void PutSpawnBody(nc::proto::Writer& writer, const NpcSpawn& spawn)
+{
     writer.PutU32(spawn.NetId);
     writer.PutU64(spawn.Record);
     writer.PutU64(spawn.Appearance);
@@ -34,16 +35,10 @@ std::vector<uint8_t> WriteNpcSpawn(const NpcSpawn& spawn)
     writer.PutF32(spawn.Yaw);
     writer.PutU8(spawn.HighLevelState);
     writer.PutU8(spawn.Crowd);
-    return writer.Data();
 }
 
-bool ReadNpcSpawn(const std::vector<uint8_t>& message, NpcSpawn& spawn)
+bool GetSpawnBody(nc::proto::Reader& reader, NpcSpawn& spawn)
 {
-    nc::proto::Reader reader(message.data(), message.size());
-    if (reader.ReadHeader() != nc::proto::MsgType::NpcSpawn)
-    {
-        return false;
-    }
     spawn.NetId = reader.GetU32();
     spawn.Record = reader.GetU64();
     spawn.Appearance = reader.GetU64();
@@ -57,12 +52,11 @@ bool ReadNpcSpawn(const std::vector<uint8_t>& message, NpcSpawn& spawn)
     spawn.Yaw = reader.GetF32();
     spawn.HighLevelState = reader.GetU8();
     spawn.Crowd = reader.GetU8();
-    return reader.Ok() && reader.Remaining() == 0 && PositionOk(spawn.Position) && std::isfinite(spawn.Yaw);
+    return reader.Ok() && PositionOk(spawn.Position) && std::isfinite(spawn.Yaw);
 }
 
-std::vector<uint8_t> WriteNpcSnapshot(const NpcSnapshot& snapshot)
+void PutSnapshotBody(nc::proto::Writer& writer, const NpcSnapshot& snapshot)
 {
-    nc::proto::Writer writer(nc::proto::MsgType::NpcSnapshot);
     writer.PutU32(snapshot.NetId);
     for (float coordinate : snapshot.Position)
     {
@@ -89,16 +83,10 @@ std::vector<uint8_t> WriteNpcSnapshot(const NpcSnapshot& snapshot)
     writer.PutU8(snapshot.DilationFlags);
     writer.PutU8(snapshot.Flags);
     writer.PutU64(snapshot.LeftHandItem);
-    return writer.Data();
 }
 
-bool ReadNpcSnapshot(const std::vector<uint8_t>& message, NpcSnapshot& snapshot)
+bool GetSnapshotBody(nc::proto::Reader& reader, NpcSnapshot& snapshot)
 {
-    nc::proto::Reader reader(message.data(), message.size());
-    if (reader.ReadHeader() != nc::proto::MsgType::NpcSnapshot)
-    {
-        return false;
-    }
     snapshot.NetId = reader.GetU32();
     for (float& coordinate : snapshot.Position)
     {
@@ -130,8 +118,108 @@ bool ReadNpcSnapshot(const std::vector<uint8_t>& message, NpcSnapshot& snapshot)
     snapshot.DilationFlags = reader.GetU8();
     snapshot.Flags = reader.GetU8();
     snapshot.LeftHandItem = reader.GetU64();
-    return reader.Ok() && reader.Remaining() == 0 && PositionOk(snapshot.Position) && std::isfinite(snapshot.Yaw) && std::isfinite(snapshot.Speed) &&
+    return reader.Ok() && PositionOk(snapshot.Position) && std::isfinite(snapshot.Yaw) && std::isfinite(snapshot.Speed) &&
            std::isfinite(snapshot.Health) && std::isfinite(snapshot.TimeDilation);
+}
+}
+
+std::vector<uint8_t> WriteNpcSpawn(const NpcSpawn& spawn)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::NpcSpawn);
+    PutSpawnBody(writer, spawn);
+    return writer.Data();
+}
+
+bool ReadNpcSpawn(const std::vector<uint8_t>& message, NpcSpawn& spawn)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::NpcSpawn)
+    {
+        return false;
+    }
+    return GetSpawnBody(reader, spawn) && reader.Remaining() == 0;
+}
+
+std::vector<uint8_t> WriteNpcSnapshot(const NpcSnapshot& snapshot)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::NpcSnapshot);
+    PutSnapshotBody(writer, snapshot);
+    return writer.Data();
+}
+
+bool ReadNpcSnapshot(const std::vector<uint8_t>& message, NpcSnapshot& snapshot)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::NpcSnapshot)
+    {
+        return false;
+    }
+    return GetSnapshotBody(reader, snapshot) && reader.Remaining() == 0;
+}
+
+std::vector<uint8_t> WriteNpcHandoff(const NpcHandoff& handoff)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::NpcHandoff);
+    PutSpawnBody(writer, handoff.Spawn);
+    PutSnapshotBody(writer, handoff.Snapshot);
+    return writer.Data();
+}
+
+bool ReadNpcHandoff(const std::vector<uint8_t>& message, NpcHandoff& handoff)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::NpcHandoff)
+    {
+        return false;
+    }
+    return GetSpawnBody(reader, handoff.Spawn) && GetSnapshotBody(reader, handoff.Snapshot) && reader.Remaining() == 0 && handoff.Spawn.NetId != 0 &&
+           handoff.Spawn.NetId == handoff.Snapshot.NetId;
+}
+
+std::vector<uint8_t> WriteNpcHandoffAck(const NpcHandoffAck& ack)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::NpcHandoffAck);
+    writer.PutU32(ack.NetId);
+    writer.PutU8(ack.Accepted ? 1 : 0);
+    writer.PutU8(ack.Reason);
+    writer.PutU64(ack.Entity);
+    return writer.Data();
+}
+
+bool ReadNpcHandoffAck(const std::vector<uint8_t>& message, NpcHandoffAck& ack)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::NpcHandoffAck)
+    {
+        return false;
+    }
+    ack.NetId = reader.GetU32();
+    ack.Accepted = reader.GetU8() != 0;
+    ack.Reason = reader.GetU8();
+    ack.Entity = reader.GetU64();
+    return reader.Ok() && reader.Remaining() == 0 && ack.NetId != 0;
+}
+
+std::vector<uint8_t> WriteNpcClaim(const NpcClaim& claim)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::NpcClaim);
+    writer.PutU32(claim.NetId);
+    writer.PutU8(claim.Kind);
+    writer.PutU32(claim.FromPeer);
+    return writer.Data();
+}
+
+bool ReadNpcClaim(const std::vector<uint8_t>& message, NpcClaim& claim)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::NpcClaim)
+    {
+        return false;
+    }
+    claim.NetId = reader.GetU32();
+    claim.Kind = reader.GetU8();
+    claim.FromPeer = reader.GetU32();
+    return reader.Ok() && reader.Remaining() == 0 && claim.NetId != 0 && claim.Kind >= 1 && claim.Kind <= 3;
 }
 
 std::vector<uint8_t> WriteNpcDespawn(const NpcDespawn& despawn)

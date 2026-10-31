@@ -927,6 +927,33 @@ int main()
               DroppedMessageName(250) == "type 250",
           "perk dilation has no size rule and names come from the protocol");
 
+    {
+        NpcHandoff handoff;
+        handoff.Spawn.NetId = 0x00ABCDEF;
+        handoff.Spawn.Record = 0x222a16d43eULL;
+        handoff.Spawn.Position[0] = 10.0f;
+        handoff.Snapshot.NetId = 0x00ABCDEF;
+        handoff.Snapshot.Health = 55.0f;
+        handoff.Snapshot.PartnerAttitudes = {{1, 2}};
+        const auto handoffBytes = WriteNpcHandoff(handoff);
+        NpcHandoff handoffBack;
+        Check(handoffBytes.size() == 5 + 62 + 68 + 2 && handoffBytes[4] == 26 && ReadNpcHandoff(handoffBytes, handoffBack) &&
+                  handoffBack.Spawn.Record == 0x222a16d43eULL && handoffBack.Snapshot.Health == 55.0f && handoffBack.Snapshot.PartnerAttitudes.size() == 1,
+              "npc handoff is a spawn body and a snapshot body");
+        handoff.Snapshot.NetId = 7;
+        Check(!ReadNpcHandoff(WriteNpcHandoff(handoff), handoffBack), "a handoff with two different net ids is refused");
+        NpcHandoffAck ack {0x00ABCDEF, true, 0, 0x1234};
+        NpcHandoffAck ackBack;
+        const auto ackBytes = WriteNpcHandoffAck(ack);
+        Check(ackBytes.size() == 5 + 14 && ReadNpcHandoffAck(ackBytes, ackBack) && ackBack.Accepted && ackBack.Entity == 0x1234, "npc handoff ack is 14 bytes");
+        NpcClaim npcClaim {0x00ABCDEF, kClaimAfterHandoff, 0};
+        NpcClaim npcClaimBack;
+        const auto npcClaimBytes = WriteNpcClaim(npcClaim);
+        Check(npcClaimBytes.size() == 5 + 9 && ReadNpcClaim(npcClaimBytes, npcClaimBack) && npcClaimBack.Kind == kClaimAfterHandoff, "npc claim is 9 bytes");
+        npcClaim.Kind = 4;
+        Check(!ReadNpcClaim(WriteNpcClaim(npcClaim), npcClaimBack), "a claim kind past 3 is refused");
+    }
+
     std::printf("%s\n", FailedChecks ? "some checks failed" : "all game message checks passed");
     return FailedChecks ? 1 : 0;
 }

@@ -32,6 +32,7 @@
 #include "plugin/NpcCombat.hpp"
 #include "plugin/Loot.hpp"
 #include "plugin/NpcCopies.hpp"
+#include "plugin/NpcHandoffs.hpp"
 #include "plugin/NpcShare.hpp"
 #include "plugin/LookStates.hpp"
 #include "plugin/PartnerBodyBuilder.hpp"
@@ -501,6 +502,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             Npcs->OnMessage(message.FromPeer, message.Message, nowMs, Session->GetStatus().MyPeerNumber);
         }
+        else if (nightcoop_mac::npc_handoffs::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
+        {
+            nightcoop_mac::npc_handoffs::OnMessage(message.FromPeer, message.Message, nowMs, *Npcs, *OurNpcs, *Session, Log);
+        }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::HitClaim) ||
                  nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::HitResult) ||
                  nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PlayerHit))
@@ -553,14 +558,15 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         std::vector<nightcoop_mac::NpcShare::Partner> npcPartners;
         for (const auto& view : RemotePeerViews())
         {
-            if (Plan->ShareNpcsAlways || (weAreHost && nightcoop_mac::partner_roster::PeerInHostWorld(view.PeerNumber)))
+            const bool guestSharesWithHost = !weAreHost && view.PeerNumber == 0 && nightcoop_mac::world_handoff::InHostWorld();
+            if (Plan->ShareNpcsAlways || (weAreHost && nightcoop_mac::partner_roster::PeerInHostWorld(view.PeerNumber)) || guestSharesWithHost)
             {
                 nightcoop_mac::NpcShare::Partner partner {view.PeerNumber, {view.State.PositionX, view.State.PositionY, view.State.PositionZ}, {}};
                 Bodies->GetBody(view.PeerNumber, partner.Body);
                 npcPartners.push_back(std::move(partner));
             }
         }
-        OurNpcs->Tick(nowMs, inSave, npcPartners, *Session);
+        OurNpcs->Tick(nowMs, inSave, weAreHost || Plan->ShareNpcsAlways, npcPartners, *Session);
     }
     nightcoop_mac::world_handoff::Tick(nowMs, inSave, Plan->WorldHandoff, *Session, PluginFolder, Log);
     nightcoop_mac::quest_sync::Tick(nowMs, inSave, Plan->QuestSync, Plan->QuestsInAnyWorld, *Session, Log);

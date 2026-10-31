@@ -197,6 +197,63 @@ RED4ext::Handle<RED4ext::IScriptable> NpcCopies::EntityOf(uint64_t entityHash)
     return entity;
 }
 
+bool NpcCopies::ReleaseForHandoff(uint32_t netId, uint32_t fromPeer, uint64_t& entityHash, net::NpcSpawn& spawn)
+{
+    auto copy = m_copies.find(netId);
+    if (copy == m_copies.end() || copy->second.OwnerPeer != fromPeer || !copy->second.InWorld || !copy->second.EntityHash || copy->second.RemoveAtMs)
+    {
+        return false;
+    }
+    auto npc = EntityOf(copy->second.EntityHash);
+    if (!npc)
+    {
+        return false;
+    }
+    GiveBack(netId, copy->second, npc);
+    npc_combat::ForgetCopy(copy->second.EntityHash);
+    entityHash = copy->second.EntityHash;
+    spawn = copy->second.Spawn;
+    if (!copy->second.Samples.empty())
+    {
+        std::memcpy(spawn.Position, copy->second.Samples.back().Position, sizeof(spawn.Position));
+        spawn.Yaw = copy->second.Samples.back().Yaw;
+    }
+    m_log("npcs: peer " + std::to_string(fromPeer) + " handed us " + NetIdText(netId) + ", our " + (copy->second.OwnPuppet ? "own npc" : "stand in") +
+          " runs on our ai now");
+    m_copies.erase(copy);
+    return true;
+}
+
+void NpcCopies::AdoptAsPuppet(uint32_t netId, uint32_t ownerPeer, uint64_t entityHash, const net::NpcSpawn& spawn, uint64_t nowMs)
+{
+    auto& copy = m_copies[netId];
+    copy = Copy {};
+    copy.OwnerPeer = ownerPeer;
+    copy.Spawn = spawn;
+    copy.EntityHash = entityHash;
+    copy.OwnPuppet = true;
+    copy.MatchTried = true;
+    copy.LastHeardMs = nowMs;
+    Sample first;
+    first.ArrivedMs = nowMs;
+    std::memcpy(first.Position, spawn.Position, sizeof(first.Position));
+    first.Yaw = spawn.Yaw;
+    copy.Samples.push_back(first);
+}
+
+void NpcCopies::FollowClaim(uint32_t fromPeer, const net::NpcClaim& claim, uint64_t nowMs)
+{
+    auto copy = m_copies.find(claim.NetId);
+    if (copy == m_copies.end() || copy->second.OwnerPeer == fromPeer)
+    {
+        return;
+    }
+    m_log("npcs: peer " + std::to_string(fromPeer) + " took " + NetIdText(claim.NetId) + " from peer " + std::to_string(claim.FromPeer) +
+          " (claim kind " + std::to_string(claim.Kind) + "), our copy follows them now");
+    copy->second.OwnerPeer = fromPeer;
+    copy->second.LastHeardMs = nowMs;
+}
+
 bool NpcCopies::TryMatch(uint32_t netId, Copy& copy)
 {
     copy.MatchTried = true;
