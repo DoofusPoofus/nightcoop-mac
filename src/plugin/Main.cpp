@@ -29,6 +29,7 @@
 #include "plugin/PartnerBodyBuilder.hpp"
 #include "plugin/PartnerLook.hpp"
 #include "plugin/PartnerPins.hpp"
+#include "plugin/PartnerPlates.hpp"
 #include "plugin/PartnerRoster.hpp"
 #include "plugin/PlayerSampler.hpp"
 #include "plugin/RemoteBodies.hpp"
@@ -458,6 +459,16 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     }
     nightcoop_mac::partner_roster::Tick(nowMs, inSave, Plan->Nickname, *Session, Log);
     Cars->Tick(nowMs, inSave, *Session, *Bodies);
+    if (inSave)
+    {
+        std::vector<nightcoop_mac::partner_plates::PartnerSpot> plateSpots;
+        for (const auto& view : RemotePeerViews())
+        {
+            plateSpots.push_back({view.PeerNumber, view.State.PositionX, view.State.PositionY, view.State.PositionZ,
+                                  nightcoop_mac::partner_roster::NameOf(view.PeerNumber, *Session)});
+        }
+        nightcoop_mac::partner_plates::Tick(nowMs, inSave, plateSpots, Log);
+    }
     if (Plan->TestVehicle && inSave)
     {
         Cars->RunTestCar(nowMs);

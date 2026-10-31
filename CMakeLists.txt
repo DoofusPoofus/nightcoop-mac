@@ -61,6 +61,7 @@ add_library(NightCoopMac SHARED
   src/plugin/PartnerBodyBuilder.cpp
   src/plugin/PartnerLook.cpp
   src/plugin/PartnerPins.cpp
+  src/plugin/PartnerPlates.cpp
   src/plugin/PartnerRoster.cpp
   src/plugin/PlayerSampler.cpp
   src/plugin/RemoteBodies.cpp
