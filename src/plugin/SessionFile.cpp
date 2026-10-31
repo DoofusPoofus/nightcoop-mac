@@ -61,6 +61,10 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
             plan.Bodies.PlayerBody = kind != "npc";
             plan.Bodies.PlayerBodyWithoutScripts = kind == "player_without_scripts";
         }
+        else if (keyword == "handoff")
+        {
+            plan.WorldHandoff = true;
+        }
         else if (keyword == "test_help")
         {
             plan.TestHelp = true;

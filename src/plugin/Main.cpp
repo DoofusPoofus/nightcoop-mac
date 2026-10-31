@@ -40,6 +40,7 @@
 #include "plugin/Vehicles.hpp"
 #include "plugin/Wardrobe.hpp"
 #include "plugin/Weapons.hpp"
+#include "plugin/WorldHandoff.hpp"
 #include "plugin/SessionFile.hpp"
 
 #include <Log.hpp>
@@ -456,6 +457,12 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             nightcoop_mac::lift_sync::OnMessage(message.FromPeer, message.Message, *Session, Log);
         }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::WorldWant) ||
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::WorldFile) ||
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::WorldStatus))
+        {
+            nightcoop_mac::world_handoff::OnMessage(message.FromPeer, message.Message, *Session, Log);
+        }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::GameClock))
         {
             nightcoop_mac::game_clock::OnMessage(message.FromPeer, message.Message, inSave, Session->GetStatus().MyPeerNumber == 0, Log);
@@ -464,6 +471,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     }
     nightcoop_mac::partner_roster::Tick(nowMs, inSave, Plan->Nickname, *Session, Log);
     Cars->Tick(nowMs, inSave, *Session, *Bodies);
+    nightcoop_mac::world_handoff::Tick(nowMs, inSave, Plan->WorldHandoff, *Session, PluginFolder, Log);
     nightcoop_mac::lift_sync::Tick(nowMs, inSave, !LatestRemoteStates.empty(), *Session, Log);
     if (inSave)
     {

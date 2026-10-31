@@ -195,6 +195,11 @@ bool InOurWorld(uint32_t peerNumber)
     return presence == PresenceByPeer.end() || presence->second.Where == net::kWhereInWorld || presence->second.Where == net::kWhereUnknown;
 }
 
+bool HostInItsWorld()
+{
+    return HaveRoster && RosterFromHost.HostState == net::kHostStateInWorld;
+}
+
 void Forget()
 {
     PresenceByPeer.clear();

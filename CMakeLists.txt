@@ -73,7 +73,8 @@ add_library(NightCoopMac SHARED
   src/plugin/TestKeys.cpp
   src/plugin/Vehicles.cpp
   src/plugin/Wardrobe.cpp
-  src/plugin/Weapons.cpp)
+  src/plugin/Weapons.cpp
+  src/plugin/WorldHandoff.cpp)
 target_include_directories(NightCoopMac PRIVATE src)
 target_link_libraries(NightCoopMac PRIVATE nightcoop_mac_net RED4ext::SDK "-framework CoreFoundation" "-framework AppKit" objc)
 target_link_options(NightCoopMac PRIVATE -Wl,-dead_strip)

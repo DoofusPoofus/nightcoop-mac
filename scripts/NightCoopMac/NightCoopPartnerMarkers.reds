@@ -214,5 +214,9 @@ protected cb func OnInitialize() -> Bool {
   if IsDefined(plates) {
     plates.AttachTo(this.GetRootWidget());
   }
+  let handoff = NightCoopWorldHandoff.Get();
+  if IsDefined(handoff) {
+    handoff.Capture(this.GetSystemRequestsHandler());
+  }
   return handled;
 }

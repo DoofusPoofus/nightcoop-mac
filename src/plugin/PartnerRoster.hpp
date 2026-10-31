@@ -26,5 +26,6 @@ void Tick(uint64_t nowMs, bool inWorld, const std::string& ourName, net::RelaySe
 void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::RelaySession& session, const LogFunction& log);
 std::string NameOf(uint32_t peerNumber, net::RelaySession& session);
 bool InOurWorld(uint32_t peerNumber);
+bool HostInItsWorld();
 void Forget();
 }

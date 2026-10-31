@@ -9,6 +9,8 @@
  usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z [STEPS [LOOKFILE [CLOTHESFILE]]]] | watch CODE HUB [seconds]
  CLOTHESFILE is a PlayerLook (31) as it is (the plugin writes own-clothes.bin), sent right after the look
  its look (PlayerCustomization 33) is LOOKFILE as it is (the plugin writes own-look.bin) or a male look with no parts
+ PROBE_HOST_SAVE=<save folder> makes the host say it is in its world (SessionRoster) and answer a WorldWant with that
+ folders metadata.*.json and sav.dat (WorldStatus 3 + WorldFile chunks), printing what the guest says back
  PROBE_CLOCK=<game seconds> makes the host send that GameClock evry 5 s to its guests and stay up for 10 min
  PROBE_VEHICLE=0x<tweakdbid> makes the joiner share a car of that record it drives along its walk (VehicleSpawn evry ~5 s,
  VehicleState and VehicleSeat evry step), and the joiner prints the hosts vehicle messages
@@ -62,9 +64,72 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     const char* clock = std::getenv("PROBE_CLOCK");
     const uint32_t clockSeconds = clock ? static_cast<uint32_t>(std::strtoul(clock, nullptr, 0)) : 0;
     auto nextClock = std::chrono::steady_clock::now();
-    auto deadline = std::chrono::steady_clock::now() + (clock ? 600s : ProbeTimeout);
+    const char* hostSave = std::getenv("PROBE_HOST_SAVE");
+    auto deadline = std::chrono::steady_clock::now() + (clock || hostSave ? 600s : ProbeTimeout);
+    auto nextRoster = std::chrono::steady_clock::now();
+    std::vector<uint8_t> saveBytes;
+    std::vector<uint8_t> metadataBytes;
+    size_t saveSent = 0;
+    size_t metadataSent = 0;
+    uint32_t servingPeer = 0;
     while (std::chrono::steady_clock::now() < deadline)
     {
+        if (hostSave && session.GetStatus().ConnectedPeers > 0 && std::chrono::steady_clock::now() >= nextRoster)
+        {
+            nextRoster = std::chrono::steady_clock::now() + 2s;
+            nightcoop_mac::net::SessionRoster roster;
+            roster.Revision = 1;
+            roster.HostState = nightcoop_mac::net::kHostStateInWorld;
+            roster.Entries.push_back({0, "probe host", nightcoop_mac::net::kWhereInWorld, 0, nightcoop_mac::net::kRoleHost, 0x80, 0, 0, "", {}, ""});
+            session.SendGameMessage(nightcoop_mac::net::WriteSessionRoster(roster));
+        }
+        for (const auto& message : session.TakeGameMessages())
+        {
+            nightcoop_mac::net::WorldWant want;
+            nightcoop_mac::net::WorldStatus worldStatus;
+            if (hostSave && nightcoop_mac::net::ReadWorldWant(message.Message, want))
+            {
+                std::printf("probe: peer %u wants our world (reason %u), sending %s\n", message.FromPeer, want.Reason, hostSave);
+                std::ifstream save(std::string(hostSave) + "/sav.dat", std::ios::binary);
+                saveBytes.assign(std::istreambuf_iterator<char>(save), std::istreambuf_iterator<char>());
+                std::ifstream metadata(std::string(hostSave) + "/metadata.9.json", std::ios::binary);
+                metadataBytes.assign(std::istreambuf_iterator<char>(metadata), std::istreambuf_iterator<char>());
+                saveSent = 0;
+                metadataSent = 0;
+                servingPeer = message.FromPeer;
+                session.SendGameMessage(nightcoop_mac::net::WriteWorldStatus({3, 1, "probe-host-save"}), static_cast<int32_t>(servingPeer));
+            }
+            else if (nightcoop_mac::net::ReadWorldStatus(message.Message, worldStatus))
+            {
+                std::printf("probe: peer %u says world status %u %s\n", message.FromPeer, worldStatus.Code, worldStatus.Text.c_str());
+            }
+        }
+        for (int chunkCount = 0; servingPeer && chunkCount < 8 && (metadataSent < metadataBytes.size() || saveSent < saveBytes.size()); ++chunkCount)
+        {
+            const bool metadataFirst = metadataSent < metadataBytes.size();
+            const auto& bytes = metadataFirst ? metadataBytes : saveBytes;
+            size_t& sent = metadataFirst ? metadataSent : saveSent;
+            nightcoop_mac::net::WorldFile chunk;
+            chunk.TransferId = 1;
+            chunk.Kind = metadataFirst ? nightcoop_mac::net::kWorldFileMetadata : nightcoop_mac::net::kWorldFileSave;
+            chunk.TotalSize = static_cast<uint32_t>(bytes.size());
+            static uint64_t metadataHash = 0;
+            static uint64_t saveHash = 0;
+            if (sent == 0)
+            {
+                (metadataFirst ? metadataHash : saveHash) = nightcoop_mac::net::WorldFileHash(bytes);
+            }
+            chunk.Hash = metadataFirst ? metadataHash : saveHash;
+            chunk.Offset = static_cast<uint32_t>(sent);
+            const size_t length = std::min<size_t>(nightcoop_mac::net::kWorldChunkBytes, bytes.size() - sent);
+            chunk.Bytes.assign(bytes.begin() + static_cast<std::ptrdiff_t>(sent), bytes.begin() + static_cast<std::ptrdiff_t>(sent + length));
+            session.SendGameMessage(nightcoop_mac::net::WriteWorldFile(chunk), static_cast<int32_t>(servingPeer));
+            sent += length;
+            if (!metadataFirst && sent >= bytes.size())
+            {
+                std::printf("probe: sent the whole save (%zu bytes)\n", bytes.size());
+            }
+        }
         if (clock && session.GetStatus().ConnectedPeers > 0 && std::chrono::steady_clock::now() >= nextClock)
         {
             nextClock = std::chrono::steady_clock::now() + 5s;
@@ -84,7 +149,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
         }
         for (const auto& state : session.TakeRemotePlayerStates())
         {
-            if (clock && statesSeen++ % 100 != 0)
+            if ((clock || hostSave) && statesSeen++ % 100 != 0)
             {
                 continue;
             }
@@ -92,7 +157,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
                         state.PositionX, state.PositionY, state.PositionZ, state.Yaw, state.Speed,
                         static_cast<unsigned long long>(state.SessionTimeMs));
             std::fflush(stdout);
-            if (!clock && ++statesSeen >= statesToWaitFor)
+            if (!clock && !hostSave && ++statesSeen >= statesToWaitFor)
             {
                 return 0;
             }
