@@ -12,7 +12,8 @@
  (game+0x1021abc (entity +0xd8 queue, Handle<Event>*), the native QueueEvent calls it): events queued on our player get their key
  and value (or name) read thru rtti. each is hooked only when its first 24 code bytes are the ones seen in 2.5.0. a write is kept only when the component is our
  players anim controller (looked up from the main thread evry 100 ms, so a new players setup writes get caught), features keep evry rtti field up to 32 bytes like nightcoops batches
- the main thread sends the queued writes as PlayerAnim (29) batches on slot 0 evry 50 ms, and a partners PlayerAnimWant gets a
+ a value write that repeats the last queued value of that input is not queued again (the partners graph still holds it),
+ events always go. the main thread sends the queued writes as PlayerAnim (29) batches on slot 0 evry 50 ms, and a partners PlayerAnimWant gets a
  full state batch (the last value of evry input seen) sent to them alone. wrapper weights and graph attach / detach have no
  component setter here and are not recorded
 */

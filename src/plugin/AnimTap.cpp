@@ -77,22 +77,57 @@ RED4ext::CClass* AnimFeatureClass = nullptr;
 std::mutex QueueLock;
 std::vector<net::AnimEntry> Queue;
 std::map<std::pair<uint8_t, uint64_t>, net::AnimEntry> LatestByInput;
+std::map<std::pair<uint8_t, uint64_t>, net::AnimEntry> LastQueuedByInput;
 uint32_t Dropped = 0;
 uint32_t RecordedSinceReport = 0;
+uint32_t UnchangedSinceReport = 0;
 uint32_t BatchesSinceReport = 0;
 uint64_t NextSendMs = 0;
 uint64_t NextRefreshMs = 0;
 uint64_t NextReportMs = 0;
 
+bool SameValue(const net::AnimEntry& first, const net::AnimEntry& second)
+{
+    if (std::memcmp(first.Values, second.Values, sizeof(first.Values)) != 0 || first.IntValue != second.IntValue ||
+        first.FeatureType != second.FeatureType || first.Fields.size() != second.Fields.size())
+    {
+        return false;
+    }
+    for (size_t index = 0; index < first.Fields.size(); ++index)
+    {
+        if (first.Fields[index].Name != second.Fields[index].Name || first.Fields[index].Bytes != second.Fields[index].Bytes)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 void Keep(net::AnimEntry&& entry)
 {
     std::lock_guard guard(QueueLock);
-    LatestByInput[{static_cast<uint8_t>(entry.Kind), entry.Name}] = entry;
+    const std::pair<uint8_t, uint64_t> input {static_cast<uint8_t>(entry.Kind), entry.Name};
+    LatestByInput[input] = entry;
     ++RecordedSinceReport;
+    const bool isEvent = entry.Kind == net::AnimKind::Event;
+    if (!isEvent)
+    {
+        const auto lastQueued = LastQueuedByInput.find(input);
+        if (lastQueued != LastQueuedByInput.end() && SameValue(lastQueued->second, entry))
+        {
+            ++UnchangedSinceReport;
+            return;
+        }
+    }
     if (Queue.size() >= MostQueuedEntries)
     {
         ++Dropped;
+        LastQueuedByInput.erase(input);
         return;
+    }
+    if (!isEvent)
+    {
+        LastQueuedByInput[input] = entry;
     }
     Queue.push_back(std::move(entry));
 }
@@ -371,6 +406,7 @@ void RefreshController()
         PlayerControllerHandle = controller;
         std::lock_guard guard(QueueLock);
         LatestByInput.clear();
+        LastQueuedByInput.clear();
         Queue.clear();
     }
 }
@@ -443,18 +479,21 @@ void Tick(uint64_t nowMs, net::RelaySession& session)
     {
         NextReportMs = nowMs + ReportEveryMs;
         uint32_t recorded = 0;
+        uint32_t unchanged = 0;
         uint32_t dropped = 0;
         {
             std::lock_guard guard(QueueLock);
             recorded = RecordedSinceReport;
+            unchanged = UnchangedSinceReport;
             dropped = Dropped;
             RecordedSinceReport = 0;
+            UnchangedSinceReport = 0;
             Dropped = 0;
         }
         if (recorded || BatchesSinceReport || status.InSession)
         {
-            Log("anim tap: " + std::to_string(recorded) + " input(s) of our player recorded, " + std::to_string(BatchesSinceReport) +
-                " batch(es) sent, " + std::to_string(dropped) + " dropped in 10 s");
+            Log("anim tap: " + std::to_string(recorded) + " input(s) of our player recorded (" + std::to_string(unchanged) + " unchanged, not sent), " +
+                std::to_string(BatchesSinceReport) + " batch(es) sent, " + std::to_string(dropped) + " dropped in 10 s");
         }
         BatchesSinceReport = 0;
     }
