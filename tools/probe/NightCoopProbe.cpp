@@ -23,6 +23,8 @@
  PROBE_HACK=1 quickhacks the first npc the host shares with QuickHack.BlindLvl1Hack evry 4 s (HackSync completion)
  PROBE_REWARD=<reward record name> on the host sends it as a quest reward (RewardWord kind 1) evry 10 s, the joiner prints
  the hosts rewards
+ PROBE_CALL=<contact> on the host rings that contact 25 s after the guest is there, starts the call 6 s later and ends it
+ 20 s after the ring (PhoneSync commits)
  PROBE_FAR=<meters> moves the joiners walk that far along x from where it was asked to stand
  PROBE_TAKE=1 takes the first npc the host hands over (NpcHandoffAck + NpcClaim 3), owns it for 100 steps and lets it go,
  without it evry offer gets refused
@@ -617,7 +619,11 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     float guestY = 0;
     float guestZ = 0;
     const char* probeReward = std::getenv("PROBE_REWARD");
-    const bool staysUp = clock || hostSave || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward;
+    const char* probeCall = std::getenv("PROBE_CALL");
+    auto callStartedAt = std::chrono::steady_clock::time_point::max();
+    int callPhaseSent = 0;
+    uint32_t callCommits = 0;
+    const bool staysUp = clock || hostSave || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
     auto deadline = std::chrono::steady_clock::now() + (staysUp ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
     auto nextReward = std::chrono::steady_clock::now() + 20s;
@@ -629,6 +635,32 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     uint32_t servingPeer = 0;
     while (std::chrono::steady_clock::now() < deadline)
     {
+        if (probeCall && session.GetStatus().ConnectedPeers > 0)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            if (callStartedAt == std::chrono::steady_clock::time_point::max())
+            {
+                callStartedAt = now + 25s;
+            }
+            const int wantedPhase = now >= callStartedAt + 20s ? 3 : now >= callStartedAt + 6s ? 2 : now >= callStartedAt ? 1 : 0;
+            if (wantedPhase > callPhaseSent)
+            {
+                callPhaseSent = wantedPhase;
+                nightcoop_mac::net::PhoneSync phone;
+                phone.Kind = nightcoop_mac::net::kPhoneCommitted;
+                phone.Action = nightcoop_mac::net::kPhoneActionCall;
+                phone.CommitNumber = ++callCommits;
+                phone.CallId = 1;
+                phone.HostClockMs = session.SessionClockMs();
+                phone.Contact = probeCall;
+                phone.CallPhase = static_cast<uint8_t>(wantedPhase);
+                phone.CallMode = 2;
+                phone.Flags = nightcoop_mac::net::kPhoneRejectable | nightcoop_mac::net::kPhoneShowAvatar;
+                session.SendGameMessage(nightcoop_mac::net::WritePhoneSync(phone));
+                std::printf("probe: call with %s goes to phase %d\n", probeCall, wantedPhase);
+                std::fflush(stdout);
+            }
+        }
         if (probeReward && session.GetStatus().ConnectedPeers > 0 && std::chrono::steady_clock::now() >= nextReward)
         {
             nextReward = std::chrono::steady_clock::now() + 10s;

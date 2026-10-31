@@ -14,14 +14,14 @@ works in a save with the probe:
 - getting downed n helped up
 - npcs shared both ways with anims states weapons attitude n health. the same person in ur own world becomes the owners puppet instead of a double n npcs get handed over to whoever is nearer (both ways)
 - shooting n quickhacking a partners npc (hit claims n HackSync statuses) n the killer gets the reward
-- quest facts n journal mirror (host to guest) n the hosts quest rewards for a guest
+- quest facts n journal mirror (host to guest) n the hosts quest rewards n calls for a guest
 - giving items n dropped loot bags
 - carried bodies n team build checks
 - lifts n time of day
 
 first cut but not tried in the game yet: doors devices dialog votes n the world handoff load
 
-not there yet: npc hits on u do no damage (the game drops the rebuilt hit) the handoff without splicing ur own character in braindance photo mode phone police
+not there yet: npc hits on u do no damage (the game drops the rebuilt hit) the handoff without splicing ur own character in braindance photo mode police
 
 ## what u need
 

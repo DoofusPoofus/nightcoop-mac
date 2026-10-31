@@ -95,6 +95,7 @@ add_library(NightCoopMac SHARED
   src/plugin/PartnerPins.cpp
   src/plugin/PartnerPlates.cpp
   src/plugin/PartnerRoster.cpp
+  src/plugin/PhoneShare.cpp
   src/plugin/PlayerExtras.cpp
   src/plugin/PlayerSampler.cpp
   src/plugin/QuestSync.cpp

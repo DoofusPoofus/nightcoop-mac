@@ -43,6 +43,7 @@
 #include "plugin/PlayerExtras.hpp"
 #include "plugin/PlayerSampler.hpp"
 #include "plugin/QuestSync.hpp"
+#include "plugin/PhoneShare.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/Rewards.hpp"
 #include "plugin/RttiDump.hpp"
@@ -503,6 +504,11 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             Npcs->OnMessage(message.FromPeer, message.Message, nowMs, Session->GetStatus().MyPeerNumber);
         }
+        else if (nightcoop_mac::phone_share::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
+        {
+            nightcoop_mac::phone_share::OnMessage(message.FromPeer, message.Message, Session->GetStatus().MyPeerNumber == 0,
+                                                  nightcoop_mac::world_handoff::InHostWorld() || Plan->PhoneAnyWorld, *Session, Log);
+        }
         else if (nightcoop_mac::rewards::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {
             nightcoop_mac::rewards::OnMessage(message.FromPeer, message.Message, nightcoop_mac::world_handoff::InHostWorld() || Plan->RewardsAnyWorld, Log);
@@ -555,6 +561,9 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         }
         nightcoop_mac::rewards::Tick(nowMs, inSave, Session->GetStatus().MyPeerNumber == 0, partnerInOurWorld,
                                      nightcoop_mac::world_handoff::InHostWorld() || Plan->RewardsAnyWorld, *Session, Log);
+        nightcoop_mac::phone_share::Tick(nowMs, inSave, Session->GetStatus().MyPeerNumber == 0,
+                                         partnerInOurWorld || (Plan->PhoneAnyWorld && !RemotePeerViews().empty()),
+                                         nightcoop_mac::world_handoff::InHostWorld() || Plan->PhoneAnyWorld, *Session, Log);
     }
     if (inSave && nowMs >= NextCombatBodiesMs)
     {
