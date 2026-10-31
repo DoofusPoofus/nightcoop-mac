@@ -1,7 +1,8 @@
 /*
  byte layout checks for the rebuilt game layer messages (Game envelope, PlayerAnim, PlayerAnimWant, PlayerAnimSetup,
- PlayerCustomization, NpcAnim and friends)
+ PlayerCustomization, NpcAnim, the dialog votes and friends)
 */
+#include "net/DialogMessages.hpp"
 #include "net/GameMessages.hpp"
 #include "net/LookMessages.hpp"
 #include "net/RosterMessages.hpp"
@@ -342,6 +343,109 @@ int main()
     Check(ReadPlayerClothes(noTail, clothesBack) && clothesBack.Slots.empty() && clothesBack.Items.size() == 2, "clothes without the slot tail");
     clothes.Slots.pop_back();
     Check(ReadPlayerClothes(WritePlayerClothes(clothes), clothesBack) && clothesBack.Slots.empty(), "mismatched slots are not sent");
+
+    DialogBallot ballot;
+    ballot.VoteId = 3;
+    ballot.SceneId = 0x1122334455667788ULL;
+    ballot.Flags = kBallotTimedByGame;
+    ballot.Title = "Judy";
+    ballot.Options = {{"Lets go", 0x10}, {"[Leave]", 0}};
+    ballot.Voters = {0, 1};
+    const auto ballotBytes = WriteDialogBallot(ballot);
+    DialogBallot parsedBallot;
+    Check(ballotBytes.size() == 5 + 4 + 8 + 1 + (2 + 4) + 1 + (2 + 7 + 4) + (2 + 7 + 4) + 1 + 8 + 1 + 1 && ReadDialogBallot(ballotBytes, parsedBallot) &&
+              parsedBallot.VoteId == 3 && parsedBallot.SceneId == ballot.SceneId && parsedBallot.Title == "Judy" && parsedBallot.Options.size() == 2 &&
+              parsedBallot.Options[1].Text == "[Leave]" && parsedBallot.Options[0].ChoiceType == 0x10 && parsedBallot.Voters.size() == 2 &&
+              parsedBallot.OptionKeys.empty() && parsedBallot.RowIds.empty(),
+          "dialog ballot without keys and ids is 5 + 14 + title + options + voters + 2 and round trips");
+    ballot.OptionKeys = {0xAA, 0xBB};
+    ballot.RowIds = {{0x77, 5}, {0, 0}};
+    Check(WriteDialogBallot(ballot).size() == ballotBytes.size() + 16 + 24 && ReadDialogBallot(WriteDialogBallot(ballot), parsedBallot) &&
+              parsedBallot.OptionKeys[1] == 0xBB && parsedBallot.RowIds[0].Item == 5 && parsedBallot.RowIds[1].Scene == 0,
+          "dialog ballot keys and row ids round trip");
+    ballot.RowIds = {{0, 0}, {0, 0}};
+    Check(WriteDialogBallot(ballot).size() == ballotBytes.size() + 16, "a ballot with only empty row ids sends none");
+    auto badBallot = ballotBytes;
+    badBallot[5] = 0;
+    badBallot[6] = 0;
+    badBallot[7] = 0;
+    badBallot[8] = 0;
+    Check(!ReadDialogBallot(badBallot, parsedBallot), "a ballot with vote id 0 is refused");
+    ballot.Options.clear();
+    Check(!ReadDialogBallot(WriteDialogBallot(ballot), parsedBallot), "a ballot without options is refused");
+    auto longBallot = ballotBytes;
+    longBallot.push_back(0);
+    Check(!ReadDialogBallot(longBallot, parsedBallot), "a ballot with bytes left over is refused");
+
+    DialogVote dialogVote;
+    Check(WriteDialogVote({3, 1, 0}).size() == 14 && ReadDialogVote(WriteDialogVote({3, 1, 0}), dialogVote) && dialogVote.Option == 1 &&
+              ReadDialogVote(WriteDialogVote({3, -1, 0}), dialogVote) && dialogVote.Option == -1 && !ReadDialogVote(WriteDialogVote({0, 1, 0}), dialogVote) &&
+              !ReadDialogVote(WriteDialogVote({3, 16, 0}), dialogVote),
+          "dialog vote is 14 bytes, option -1..15, vote id not 0");
+
+    DialogTally tally;
+    tally.VoteId = 3;
+    tally.State = kTallyDecided;
+    tally.Option = 1;
+    tally.Votes = {{0, 1}, {1, 1}};
+    tally.Voters = {0, 1};
+    tally.SharedTime = 987654;
+    DialogTally parsedTally;
+    Check(WriteDialogTally(tally).size() == 5 + 4 + 1 + 1 + 1 + 1 + 2 * 5 + 1 + 2 * 4 + 8 && ReadDialogTally(WriteDialogTally(tally), parsedTally) &&
+              parsedTally.State == kTallyDecided && parsedTally.Option == 1 && parsedTally.Votes.size() == 2 && parsedTally.Votes[1].Peer == 1 &&
+              parsedTally.Voters.size() == 2 && parsedTally.SharedTime == 987654,
+          "dialog tally is 5 + 9 + 5 per vote + 4 per voter + 8 and round trips");
+    tally.State = kTallyOpen;
+    tally.Option = -1;
+    Check(ReadDialogTally(WriteDialogTally(tally), parsedTally) && parsedTally.SharedTime == 0, "an open tally goes out without a shared time");
+    tally.State = kTallyDecidedByTime;
+    Check(!ReadDialogTally(WriteDialogTally(tally), parsedTally), "a decided tally without an option is refused");
+    tally.State = 5;
+    tally.Option = 0;
+    Check(!ReadDialogTally(WriteDialogTally(tally), parsedTally), "a tally state past 4 is refused");
+
+    DialogLine dialogLine;
+    dialogLine.LineId = 0x0102030405060708ULL;
+    dialogLine.LineType = 1;
+    dialogLine.Seconds = 2.5f;
+    dialogLine.Speaker = "Jackie";
+    dialogLine.Text = "Hey, choom";
+    dialogLine.Language = "en-us";
+    DialogLine parsedLine;
+    Check(WriteDialogLine(dialogLine).size() == 5 + 8 + 8 + 1 + 4 + (2 + 6) + (2 + 10) + 8 + 8 + (2 + 5) && ReadDialogLine(WriteDialogLine(dialogLine), parsedLine) &&
+              parsedLine.LineId == dialogLine.LineId && parsedLine.Seconds == 2.5f && parsedLine.Speaker == "Jackie" && parsedLine.Text == "Hey, choom" &&
+              parsedLine.Language == "en-us",
+          "dialog line round trips");
+    dialogLine.Seconds = 0.0f;
+    Check(ReadDialogLine(WriteDialogLine(dialogLine), parsedLine) && parsedLine.Seconds == 4.0f, "a line without seconds goes out with 4 s");
+    dialogLine.LineId = 0;
+    Check(!ReadDialogLine(WriteDialogLine(dialogLine), parsedLine), "a line with id 0 is refused");
+    dialogLine.LineId = 1;
+    dialogLine.Text = std::string(1500, 'a');
+    Check(ReadDialogLine(WriteDialogLine(dialogLine), parsedLine) && parsedLine.Text.size() == 1024, "a long line is cut to 1024 bytes");
+
+    VoteModeWord modeWord;
+    const auto modeBytes = WriteVoteModeWord({1, kVoteModeEveryone, 1});
+    Check(modeBytes.size() == 8 && modeBytes[4] == 249 && ReadVoteModeWord(modeBytes, modeWord) && modeWord.Mode == kVoteModeEveryone && modeWord.Flag == 1 &&
+              !ReadVoteModeWord(WriteVoteModeWord({1, 2, 0}), modeWord),
+          "vote mode word is magic | 249 | sub | mode | flag");
+
+    SceneLineSkip lineSkip;
+    lineSkip.Peer = 1;
+    lineSkip.SceneId = 0x55;
+    lineSkip.Milliseconds = 1200;
+    lineSkip.SharedTime = 4444;
+    lineSkip.Flags = kSkipPress;
+    lineSkip.Places = {{1, 0x99, 2}};
+    SceneLineSkip parsedSkip;
+    Check(WriteSceneLineSkip(lineSkip).size() == 5 + 4 + 8 + 4 + 8 + 1 + 1 + 11 && ReadSceneLineSkip(WriteSceneLineSkip(lineSkip), parsedSkip) &&
+              parsedSkip.Milliseconds == 1200 && parsedSkip.Places.size() == 1 && parsedSkip.Places[0].Nth == 2,
+          "scene line skip is 31 + 11 per place and round trips");
+    lineSkip.Flags = kSkipPress | kSkipByLine;
+    Check(!ReadSceneLineSkip(WriteSceneLineSkip(lineSkip), parsedSkip), "a press skip by line is refused");
+    lineSkip.Flags = kSkipPress;
+    lineSkip.Places.clear();
+    Check(!ReadSceneLineSkip(WriteSceneLineSkip(lineSkip), parsedSkip), "a line skip without places is refused");
 
     std::printf("%s\n", FailedChecks ? "some checks failed" : "all game message checks passed");
     return FailedChecks ? 1 : 0;

@@ -20,6 +20,7 @@
 #include "plugin/AnimSetup.hpp"
 #include "plugin/AnimTap.hpp"
 #include "plugin/CrashNotes.hpp"
+#include "plugin/DialogScenes.hpp"
 #include "plugin/Downed.hpp"
 #include "plugin/GameCalls.hpp"
 #include "plugin/GameClock.hpp"
@@ -486,6 +487,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             nightcoop_mac::game_clock::OnMessage(message.FromPeer, message.Message, inSave, Session->GetStatus().MyPeerNumber == 0, Log);
         }
+        else if (nightcoop_mac::dialog_scenes::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
+        {
+            nightcoop_mac::dialog_scenes::OnMessage(message.FromPeer, message.Message, *Session, Log);
+        }
         Mirror->OnGameMessage(message.FromPeer, message.Message, nowMs);
     }
     nightcoop_mac::partner_roster::Tick(nowMs, inSave, Plan->Nickname, *Session, Log);
@@ -586,6 +591,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             Flow->AskForAutoContinue();
         }
         Bodies->Tick(nowMs, peerViews, LocalStateValid ? &LastLocalState : nullptr, bodiesAllowed || Plan->Bodies.InMenuForTesting);
+        nightcoop_mac::dialog_scenes::Tick(nowMs, bodiesAllowed, Plan->Dialogs, LocalStateValid ? &LastLocalState : nullptr, peerViews, *Bodies, *Session, Log);
         std::vector<nightcoop_mac::partner_pins::PartnerSpot> partnerSpots;
         for (const auto& view : peerViews)
         {

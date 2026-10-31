@@ -110,6 +110,18 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
         {
             words >> plan.Bodies.Gender;
         }
+        else if (keyword == "dialogs")
+        {
+            std::string setting;
+            words >> setting;
+            if (setting != "off" && setting != "everyone")
+            {
+                problem = "session.txt: dialogs takes off or everyone, not " + setting;
+                return std::nullopt;
+            }
+            plan.Dialogs.Votes = setting != "off";
+            plan.Dialogs.AnyPartnerCounts = setting == "everyone";
+        }
         else
         {
             problem = "unknown line in session.txt: " + line;
