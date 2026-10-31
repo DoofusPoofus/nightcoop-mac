@@ -1,9 +1,10 @@
 /*
  byte layout checks for the rebuilt game layer messages (Game envelope, PlayerAnim, PlayerAnimWant, PlayerAnimSetup,
- PlayerCustomization, NpcAnim, DoorSync, the dialog votes, QuestFacts and friends)
+ PlayerCustomization, NpcAnim, DoorSync, the dialog votes, QuestFacts, the device messages and friends)
 */
 #include "net/DoorMessages.hpp"
 #include "net/DialogMessages.hpp"
+#include "net/DeviceMessages.hpp"
 #include "net/GameMessages.hpp"
 #include "net/LookMessages.hpp"
 #include "net/LootMessages.hpp"
@@ -417,6 +418,104 @@ int main()
               ReadLootTakeResult(WriteLootTakeResult({kLootDrop, take.ContainerId, 9, true}), takeResult) && takeResult.Granted &&
               !ReadLootTakeResult(WriteLootTakeResult({4, take.ContainerId, 9, true}), takeResult),
           "loot take result is 19 bytes, kind 1..3");
+    {
+        DeviceSync deviceRequest;
+        deviceRequest.Kind = kDeviceRequest;
+        deviceRequest.Peer = 2;
+        deviceRequest.EntityHash = 0x1122334455667788ULL;
+        deviceRequest.ComponentName = 0x99;
+        deviceRequest.PsClass = 0xAABB;
+        deviceRequest.ActionKind = kDeviceSameAction;
+        deviceRequest.StateBefore = kDeviceOff;
+        deviceRequest.StateAfter = kDeviceOn;
+        deviceRequest.Flags = kDeviceQuickHack;
+        deviceRequest.RequestNumber = 77;
+        deviceRequest.ActionClass = 0xCCDD;
+        deviceRequest.Duration = 12.5f;
+        const auto plainDeviceBytes = WriteDeviceSync(deviceRequest);
+        Check(plainDeviceBytes.size() == 5 + 80 && plainDeviceBytes[4] == 139, "device sync without fields is 80 bytes after the type");
+        deviceRequest.HasProp = true;
+        deviceRequest.PropName = 0x1234;
+        deviceRequest.PropTypeName = 0x5678;
+        deviceRequest.PropFlags = 3;
+        deviceRequest.Fields.push_back({0x1111, 0x2222, {1}});
+        deviceRequest.Fields.push_back({0x3333, 0x4444, {1, 2, 3, 4, 5, 6, 7, 8}});
+        deviceRequest.PropValues.push_back({1, 0x5555, {9, 9, 9, 9}});
+        const auto deviceBytes = WriteDeviceSync(deviceRequest);
+        DeviceSync parsedDevice;
+        Check(deviceBytes.size() == 5 + 80 + (17 + 1) + (17 + 8) + (17 + 4) && ReadDeviceSync(deviceBytes, parsedDevice) &&
+                  parsedDevice.EntityHash == deviceRequest.EntityHash && parsedDevice.StateBefore == kDeviceOff && parsedDevice.StateAfter == kDeviceOn &&
+                  parsedDevice.RequestNumber == 77 && parsedDevice.Duration == 12.5f && parsedDevice.HasProp && parsedDevice.PropFlags == 3 &&
+                  parsedDevice.Fields.size() == 2 && parsedDevice.Fields[1].Bytes.size() == 8 && parsedDevice.Fields[1].Bytes[7] == 8 &&
+                  parsedDevice.PropValues.size() == 1 && parsedDevice.PropValues[0].Index == 1 && parsedDevice.PropValues[0].Bytes.size() == 4,
+              "device sync with fields and a prop round trips");
+        Check(deviceBytes[5 + 0x1F] == 0 && deviceBytes[5 + 0x20] == 1 && deviceBytes[5 + 0x2A] == 77 && deviceBytes[5 + 0x3C] == 1 && deviceBytes[5 + 0x4E] == 2,
+              "device sync offsets match the dll (states at 0x1f, request at 0x2a, has prop at 0x3c, field count at 0x4e)");
+        auto deviceWithExtra = deviceBytes;
+        deviceWithExtra.push_back(0);
+        Check(!ReadDeviceSync(deviceWithExtra, parsedDevice), "device sync with a byte left over is refused");
+        DeviceSync noRequest = deviceRequest;
+        noRequest.RequestNumber = 0;
+        Check(!ReadDeviceSync(WriteDeviceSync(noRequest), parsedDevice), "a device request without a request number is refused");
+        DeviceSync hostAnswer = deviceRequest;
+        hostAnswer.Kind = kDeviceAnswer;
+        hostAnswer.Version = 0;
+        Check(!ReadDeviceSync(WriteDeviceSync(hostAnswer), parsedDevice), "a host answer without a version is refused");
+        hostAnswer.Version = 5;
+        hostAnswer.StateAfter = kDeviceStateUnknown;
+        Check(ReadDeviceSync(WriteDeviceSync(hostAnswer), parsedDevice) && parsedDevice.StateAfter == kDeviceStateUnknown, "unknown state 0x7f passes");
+        DeviceSync hostOnlyReplay = hostAnswer;
+        hostOnlyReplay.Kind = kDeviceReplay;
+        hostOnlyReplay.ActionKind = kDeviceSameActionHostOnly;
+        Check(!ReadDeviceSync(WriteDeviceSync(hostOnlyReplay), parsedDevice), "a replay of a host only action is refused");
+        DeviceSync skillWithoutSkill = hostAnswer;
+        skillWithoutSkill.ActionKind = kDeviceSkillCheck;
+        Check(!ReadDeviceSync(WriteDeviceSync(skillWithoutSkill), parsedDevice), "a skill check needs its skill");
+        skillWithoutSkill.Skill = 2;
+        Check(ReadDeviceSync(WriteDeviceSync(skillWithoutSkill), parsedDevice) && parsedDevice.Skill == 2, "a skill check with its skill passes");
+        DeviceSync replayWithoutClass = hostAnswer;
+        replayWithoutClass.ActionClass = 0;
+        Check(!ReadDeviceSync(WriteDeviceSync(replayWithoutClass), parsedDevice), "the same action without an action class is refused");
+        DeviceSync longTimer = hostAnswer;
+        longTimer.Duration = 4000.0f;
+        Check(!ReadDeviceSync(WriteDeviceSync(longTimer), parsedDevice), "a duration past an hour is refused");
+        DeviceSync badState = hostAnswer;
+        badState.StateBefore = 5;
+        Check(!ReadDeviceSync(WriteDeviceSync(badState), parsedDevice), "a device state outside -2..2 is refused");
+        DeviceSync manyFields = hostAnswer;
+        manyFields.Fields.assign(60, {0x1, 0x2, {1}});
+        Check(ReadDeviceSync(WriteDeviceSync(manyFields), parsedDevice) && parsedDevice.Fields.size() == 48, "fields past 48 are not sent");
+
+        TurretWord turretAsk;
+        turretAsk.Kind = kTurretAsk;
+        turretAsk.TurretKey = 0xABCDEF0123ULL;
+        TurretWord parsedTurret;
+        const auto turretBytes = WriteTurretWord(turretAsk);
+        Check(turretBytes.size() == 15 && turretBytes[4] == 214 && ReadTurretWord(turretBytes, parsedTurret) && parsedTurret.TurretKey == turretAsk.TurretKey,
+              "turret word is 15 bytes and round trips");
+        turretAsk.State = kTurretCalm;
+        Check(!ReadTurretWord(WriteTurretWord(turretAsk), parsedTurret), "a turret ask with a state is refused");
+        Check(ReadTurretWord(WriteTurretWord({kTurretAnswer, 0x55, kTurretInCombat}), parsedTurret) && parsedTurret.State == kTurretInCombat,
+              "a turret answer in combat passes");
+
+        DeviceBlast blast;
+        blast.Kind = kBlastLive;
+        blast.Devices.push_back({0xF938D43FBBC7E743ULL, {-1080.0f, 1200.5f, 18.0f}, 1});
+        blast.Devices.push_back({0x0000000123000000ULL, {1, 2, 3}, 0});
+        const auto blastBytes = WriteDeviceBlast(blast);
+        DeviceBlast parsedBlast;
+        Check(blastBytes.size() == 5 + 2 + 2 * 21 && blastBytes[4] == 130 && ReadDeviceBlast(blastBytes, parsedBlast) && parsedBlast.Devices.size() == 2 &&
+                  parsedBlast.Devices[0].Position[1] == 1200.5f && parsedBlast.Devices[0].ByOurPlayer == 1,
+              "device blast is 2 + 21 per device and round trips");
+        blast.Devices.push_back({0x0000000000FFFFFFULL, {0, 0, 0}, 0});
+        Check(!ReadDeviceBlast(WriteDeviceBlast(blast), parsedBlast), "a blast of a spawned device (no bits above 24) is refused");
+        blast.Devices.pop_back();
+        blast.Kind = 2;
+        Check(!ReadDeviceBlast(WriteDeviceBlast(blast), parsedBlast), "a blast kind over 1 is refused");
+        blast.Kind = kBlastSnapshot;
+        blast.Devices.assign(40, {0x0100000000000001ULL, {0, 0, 0}, 0});
+        Check(ReadDeviceBlast(WriteDeviceBlast(blast), parsedBlast) && parsedBlast.Devices.size() == 32, "a blast carries at most 32 devices");
+    }
 
     const auto clock = WriteGameClock(123456);
     uint32_t gameSeconds = 0;

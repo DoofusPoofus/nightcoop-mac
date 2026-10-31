@@ -14,6 +14,7 @@
    test_moves            in a save the plugin presses c (crouch) 8 times, 3 s apart (testing only)
    share_npcs            share our npcs with evry partner even when they are not in our world (testing only, they see doubles)
    share_doors           share doors with evry partner even when the world handoff did not put us in one world (testing only)
+   share_devices         share devices, turrets and barrels with evry partner even outside the hosts world (testing only)
    handoff               as a guest, ask for the hosts world once it is up and load the save it sends (nightcoops world
                          handoff, for now the hosts save as it is, without our own character spliced in)
    quests off|any_world  quest sharing (nightcoops mirror mode, on by default): off turns it off, any_world makes a guest
@@ -67,6 +68,7 @@ struct SessionPlan
     bool TestLoot = false;
     std::string TestLootRecord = "Items.FirstAidWhiffV0";
     int32_t TestLootQuantity = 1;
+    bool ShareDevicesAlways = false;
     BodySettings Bodies;
     dialog_scenes::DialogSettings Dialogs;
 };

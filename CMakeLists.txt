@@ -49,6 +49,7 @@ add_library(nightcoop_mac_net STATIC
   src/net/LootMessages.cpp
   src/net/PlayerExtrasMessages.cpp
   src/net/DroppedMessages.cpp
+  src/net/DeviceMessages.cpp
   src/net/RelaySession.cpp
 )
 target_include_directories(nightcoop_mac_net PUBLIC src)
@@ -70,6 +71,7 @@ add_library(NightCoopMac SHARED
   src/plugin/CrashNotes.cpp
   src/plugin/DoorSync.cpp
   src/plugin/DialogScenes.cpp
+  src/plugin/DeviceSync.cpp
   src/plugin/Downed.cpp
   src/plugin/FactsDb.cpp
   src/plugin/GameVersion.cpp
