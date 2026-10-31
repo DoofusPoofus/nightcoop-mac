@@ -3,8 +3,8 @@
 // on a copy becomes a claim (how much of its max health our game took, the attack record and type, the hit place and the
 // flags) that the plugin takes evry tick and sends to the owner of that npc as HitClaim. before a copy dies with its owners
 // npc the plugin lets go of the immortality and turns the kill reward off unless we killed it
-// on the owner the plugin hands a partners claim to ApplyClaim: the health goes down as damage from that partners body and an
-// npc left at 0.15 % or hit by a lethal claim gets killed by the body
+// on the owner the plugin hands a partners claim to ApplyClaim: the health goes down as damage from that partners body, the npc
+// gets a threat on that body so it turns on the shooter, and an npc left at 0.15 % or hit by a lethal claim gets killed by the body
 // partner bodies are marked too: an npc hit landing on one is kept as a body hit the plugin sends to that partner as
 // PlayerHit (bodies get the attitude group player, and our npcs that fight near a body they hate get a threat on it so they
 // fight it too, and kills or damage by a partner body give us no bounty or combat xp). a PlayerHit from a partner gets rebuilt here like nightcoop does (the attack from its record with our copy of the
@@ -136,6 +136,9 @@ public class NightCoopCombat extends ScriptableService {
     let before = pools.GetStatPoolValue(id, gamedataStatPoolType.Health, true);
     pools.RequestChangingStatPoolValue(id, gamedataStatPoolType.Health, -percent, body, false, true, false);
     let after = MaxF(0.0, before - percent);
+    if IsDefined(body) && after > 0.15 && !lethal {
+      TargetTrackingExtension.InjectThreat(npc, body);
+    }
     if lethal || after <= 0.15 {
       npc.Kill(body, false, false);
       after = 0.0;
