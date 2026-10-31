@@ -9,7 +9,8 @@
  second (place, yaw, speed, health %), and NpcDespawn when it is past 180 m from them (reason 1), gone (2) or dead (3)
  each shared npcs anim controller and event queue go under the anim tap, which streams its graph writes as NpcAnim (23)
  snapshots also carry its 8 ai net states, its attitude to our player and to evry partner body, its hand weapons (checked
- evry 500 ms), time dilation and the incapacitated flag (npc states does the game calls)
+ evry 500 ms), time dilation and the incapacitated flag (npc states does the game calls). a shared npc in combat that is
+ hostile to a partner body within 35 m gets a threat on that body evry 2 s (npc combat) so it fights partners too
  not done yet: match keys, workspot flags, handoffs, claims and orphans
 */
 #pragma once
@@ -65,6 +66,7 @@ private:
         uint64_t RightHandRecord = 0;
         uint64_t LeftHandRecord = 0;
         uint64_t NextHandsMs = 0;
+        std::map<uint32_t, uint64_t> NextThreatMsByPeer;
     };
 
     bool Resolve();

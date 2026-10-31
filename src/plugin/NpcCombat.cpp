@@ -42,6 +42,7 @@ struct ScriptCalls
     RED4ext::CBaseFunction* ForgetBodies = nullptr;
     RED4ext::CBaseFunction* TakeBodyHits = nullptr;
     RED4ext::CBaseFunction* ApplyPlayerHit = nullptr;
+    RED4ext::CBaseFunction* ShareThreat = nullptr;
     RED4ext::CClass* ClaimClass = nullptr;
     RED4ext::CClass* BodyHitClass = nullptr;
 };
@@ -92,13 +93,14 @@ bool Ready()
     Script.ForgetBodies = game::FindFunction("NightCoopCombat", "ForgetBodies");
     Script.TakeBodyHits = game::FindFunction("NightCoopCombat", "TakeBodyHits");
     Script.ApplyPlayerHit = game::FindFunction("NightCoopCombat", "ApplyPlayerHit");
+    Script.ShareThreat = game::FindFunction("NightCoopCombat", "ShareThreat");
     Script.Usable = Script.ClaimClass && game::ParamsAre(Script.MarkCopy, {"handle:gameObject"}) &&
                     game::ParamsAre(Script.ReleaseCopy, {"handle:gameObject", "Bool"}) && game::ParamsAre(Script.ForgetCopy, {"entEntityID"}) &&
                     game::ParamsAre(Script.ForgetAllCopies, {}) && game::ParamsAre(Script.TakeClaims, {}) &&
                     game::ParamsAre(Script.ApplyClaim, {"handle:ScriptedPuppet", "handle:gameObject", "Float", "Bool"}) &&
                     game::ParamsAre(Script.FindEntity, {"ScriptGameInstance", "entEntityID"}) && Script.BodyHitClass &&
                     game::ParamsAre(Script.MarkBody, {"handle:gameObject", "Int32"}) && game::ParamsAre(Script.ForgetBodies, {}) &&
-                    game::ParamsAre(Script.TakeBodyHits, {}) &&
+                    game::ParamsAre(Script.TakeBodyHits, {}) && game::ParamsAre(Script.ShareThreat, {"handle:ScriptedPuppet", "handle:gameObject"}) &&
                     game::ParamsAre(Script.ApplyPlayerHit, {"handle:gameObject", "TweakDBID", "Int32", "Float", "Vector4", "Vector4", "array:Int32"});
     return Script.Usable;
 }
@@ -444,6 +446,19 @@ void MarkBody(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body)
     args.emplace_back(nullptr, &body);
     args.emplace_back(nullptr, &peer);
     game::CallMethod(service.instance, Script.MarkBody, nullptr, args);
+}
+
+void ShareThreat(RED4ext::Handle<RED4ext::IScriptable>& npc, RED4ext::Handle<RED4ext::IScriptable>& body)
+{
+    auto service = Ready() ? game::ScriptService("NightCoopCombat") : RED4ext::Handle<RED4ext::IScriptable>();
+    if (!service || !npc || !body)
+    {
+        return;
+    }
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &npc);
+    args.emplace_back(nullptr, &body);
+    game::CallMethod(service.instance, Script.ShareThreat, nullptr, args);
 }
 
 void Tick(uint64_t nowMs, bool inSave, bool testClaims, NpcCopies& copies, NpcShare& ourNpcs, net::RelaySession& session, const LogFunction& log)

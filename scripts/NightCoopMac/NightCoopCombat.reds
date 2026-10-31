@@ -6,7 +6,8 @@
 // on the owner the plugin hands a partners claim to ApplyClaim: the health goes down as damage from that partners body and an
 // npc left at 0.15 % or hit by a lethal claim gets killed by the body
 // partner bodies are marked too: an npc hit landing on one is kept as a body hit the plugin sends to that partner as
-// PlayerHit. a PlayerHit from a partner gets rebuilt here like nightcoop does (the attack from its record with our copy of the
+// PlayerHit (bodies get the attitude group player, and our npcs that fight near a body they hate get a threat on it so they
+// fight it too). a PlayerHit from a partner gets rebuilt here like nightcoop does (the attack from its record with our copy of the
 // attacker as instigator, our place plus the hit offset, the flags) and queued on our player so our own game deals the damage
 
 public class NightCoopCombatClaim {
@@ -38,6 +39,7 @@ public class NightCoopCombat extends ScriptableService {
   private let m_bodyPeers: array<Int32>;
   private let m_bodyHits: array<ref<NightCoopBodyHit>>;
   private let m_hitsApplied: Int32;
+  private let m_threatsShared: Int32;
   private let m_copies: array<EntityID>;
   private let m_claims: array<ref<NightCoopCombatClaim>>;
   private let m_hitsOnCopies: Int32;
@@ -153,6 +155,18 @@ public class NightCoopCombat extends ScriptableService {
     }
     ArrayPush(this.m_bodies, id);
     ArrayPush(this.m_bodyPeers, peer);
+    let agent = body.GetAttitudeAgent();
+    if IsDefined(agent) {
+      agent.SetAttitudeGroupUnsavable(n"player");
+    }
+  }
+
+  public func ShareThreat(npc: ref<ScriptedPuppet>, body: ref<GameObject>) {
+    if !IsDefined(npc) || !IsDefined(body) || npc.IsDead() {
+      return;
+    }
+    TargetTrackingExtension.InjectThreat(npc, body);
+    this.m_threatsShared += 1;
   }
 
   public func ForgetBodies() {
@@ -265,7 +279,8 @@ public class NightCoopCombat extends ScriptableService {
 
   public func Describe() -> String {
     return "copies " + IntToString(ArraySize(this.m_copies)) + ", hits on copies " + IntToString(this.m_hitsOnCopies) + ", claims made " +
-      IntToString(this.m_claimsMade) + ", bodies " + IntToString(ArraySize(this.m_bodies)) + ", partner hits on us " + IntToString(this.m_hitsApplied);
+      IntToString(this.m_claimsMade) + ", bodies " + IntToString(ArraySize(this.m_bodies)) + ", partner hits on us " + IntToString(this.m_hitsApplied) +
+      ", threats on bodies " + IntToString(this.m_threatsShared);
   }
 }
 

@@ -4,6 +4,7 @@
 #include "net/RelaySession.hpp"
 #include "plugin/AnimTap.hpp"
 #include "plugin/GameCalls.hpp"
+#include "plugin/NpcCombat.hpp"
 #include "plugin/NpcStates.hpp"
 
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
@@ -25,6 +26,10 @@ constexpr uint64_t SnapshotEveryMs = 100;
 constexpr uint64_t HandsEveryMs = 500;
 constexpr size_t MostPartnerAttitudes = 7;
 constexpr uint8_t FlagIncapacitated = 0x80;
+constexpr uint8_t HighLevelCombat = 2;
+constexpr uint8_t AttitudeHostile = 2;
+constexpr float ThreatWithinMeters = 35.0f;
+constexpr uint64_t ThreatEveryMs = 2000;
 constexpr uint64_t ReportEveryMs = 10000;
 constexpr float ShareWithinMeters = 150.0f;
 constexpr float StopPastMeters = 180.0f;
@@ -182,10 +187,22 @@ void NpcShare::FillStates(uint64_t nowMs, Source& source, RED4ext::Handle<RED4ex
     snapshot.Attitude = npc_states::AttitudeTowards(npcAgent, m_playerAgent);
     for (size_t index = 0; index < partners.size() && index < m_partnerAgents.size() && snapshot.PartnerAttitudes.size() < MostPartnerAttitudes; ++index)
     {
-        if (m_partnerAgents[index])
+        if (!m_partnerAgents[index])
         {
-            snapshot.PartnerAttitudes.push_back(
-                {static_cast<uint8_t>(partners[index].PeerNumber), npc_states::AttitudeTowards(npcAgent, m_partnerAgents[index])});
+            continue;
+        }
+        const uint8_t attitude = npc_states::AttitudeTowards(npcAgent, m_partnerAgents[index]);
+        snapshot.PartnerAttitudes.push_back({static_cast<uint8_t>(partners[index].PeerNumber), attitude});
+        const float deltaX = snapshot.Position[0] - partners[index].Position[0];
+        const float deltaY = snapshot.Position[1] - partners[index].Position[1];
+        const float deltaZ = snapshot.Position[2] - partners[index].Position[2];
+        auto& nextThreatMs = source.NextThreatMsByPeer[partners[index].PeerNumber];
+        if (snapshot.States[npc_states::HighLevelStateSlot] == HighLevelCombat && attitude == AttitudeHostile && nowMs >= nextThreatMs &&
+            deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ <= ThreatWithinMeters * ThreatWithinMeters)
+        {
+            nextThreatMs = nowMs + ThreatEveryMs;
+            auto body = partners[index].Body;
+            npc_combat::ShareThreat(npc, body);
         }
     }
     if (nowMs >= source.NextHandsMs)

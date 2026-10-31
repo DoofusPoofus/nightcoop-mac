@@ -43,6 +43,7 @@ void ReleaseCopy(RED4ext::Handle<RED4ext::IScriptable>& copy, bool rewardUs);
 void ForgetCopy(uint64_t entityHash);
 void ForgetAll();
 void MarkBody(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body);
+void ShareThreat(RED4ext::Handle<RED4ext::IScriptable>& npc, RED4ext::Handle<RED4ext::IScriptable>& body);
 void Tick(uint64_t nowMs, bool inSave, bool testClaims, NpcCopies& copies, NpcShare& ourNpcs, net::RelaySession& session, const LogFunction& log);
 void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs, NpcCopies& copies, NpcShare& ourNpcs, RemoteBodies& bodies,
                net::RelaySession& session, const LogFunction& log);
