@@ -47,6 +47,8 @@ add_library(nightcoop_mac_net STATIC
   src/net/DialogMessages.cpp
   src/net/QuestMessages.cpp
   src/net/LootMessages.cpp
+  src/net/PlayerExtrasMessages.cpp
+  src/net/DroppedMessages.cpp
   src/net/RelaySession.cpp
 )
 target_include_directories(nightcoop_mac_net PUBLIC src)
@@ -63,6 +65,7 @@ add_library(NightCoopMac SHARED
   src/plugin/AnimPlayer.cpp
   src/plugin/AnimSetup.cpp
   src/plugin/AnimTap.cpp
+  src/plugin/BodyCarry.cpp
   src/plugin/BodyRecords.cpp
   src/plugin/CrashNotes.cpp
   src/plugin/DoorSync.cpp
@@ -75,6 +78,7 @@ add_library(NightCoopMac SHARED
   src/plugin/LiftSync.cpp
   src/plugin/ItemGive.cpp
   src/plugin/Loot.cpp
+  src/plugin/MessageDrops.cpp
   src/plugin/NpcCopies.cpp
   src/plugin/NpcCombat.cpp
   src/plugin/NpcShare.cpp
@@ -88,6 +92,7 @@ add_library(NightCoopMac SHARED
   src/plugin/PartnerPins.cpp
   src/plugin/PartnerPlates.cpp
   src/plugin/PartnerRoster.cpp
+  src/plugin/PlayerExtras.cpp
   src/plugin/PlayerSampler.cpp
   src/plugin/QuestSync.cpp
   src/plugin/RemoteBodies.cpp
@@ -95,6 +100,7 @@ add_library(NightCoopMac SHARED
   src/plugin/SessionFile.cpp
   src/plugin/SessionFlow.cpp
   src/plugin/StateMachineBoard.cpp
+  src/plugin/TeamBuild.cpp
   src/plugin/TestKeys.cpp
   src/plugin/Vehicles.cpp
   src/plugin/Wardrobe.cpp

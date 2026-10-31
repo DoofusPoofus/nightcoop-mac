@@ -46,6 +46,10 @@
  game 5 of the record after ~4 s, shares a bag drop with 3 of it 1 m next to the game player from ~5 s on (LootState evry 5 s,
  a LootTake gets granted and the bag shrinks, PROBE_LOOT_DENY=1 denies them) and takes 1 of the first item of the first open
  drop the game shares, printing the LootTakeResult. the host stays up 10 min with it
+ PROBE_CARRY=1 (with PROBE_NPC) makes the joiner pick its npc up at step 30 (PlayerCarry pickup, then carry evry second) and drop
+ it 1 m ahead at step 100 (drop, sent 3 times). PROBE_CARRY=0x<entity id> carries that entity of the hosts world instead.
+ the joiner prints evry PlayerCarry the host sends
+ PROBE_BUILD=<value> makes the joiner send BuildStats with all 11 stats at that value evry ~5 s, and it prints the hosts build
  HUB looks like 127.0.0.1:47900#FINGERPRINT
 */
 #include "net/DoorMessages.hpp"
@@ -60,6 +64,7 @@
 #include "net/NpcMessages.hpp"
 #include "net/CombatMessages.hpp"
 #include "net/QuestMessages.hpp"
+#include "net/PlayerExtrasMessages.hpp"
 
 #include <Log.hpp>
 #include <NetCrypto.hpp>
@@ -980,6 +985,7 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     const bool probeQuests = std::getenv("PROBE_QUESTS") != nullptr;
     uint32_t questFactBatches = 0;
     uint32_t questJournalBatches = 0;
+    uint32_t hostBuildRevision = 0xFFFFFFFF;
     uint32_t hostShots = 0;
     uint16_t hostWeaponFlags = 0;
     uint8_t hostWeaponState = 0;
@@ -1181,6 +1187,51 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             session.SendGameMessage(nightcoop_mac::net::WriteQuestWant(world), 0);
             std::printf("probe: QuestWant for our world #%u%s\n", world, step == 20 ? " again (the host should ignore it)" : "");
             std::fflush(stdout);
+        }
+        if (const char* carried = std::getenv("PROBE_CARRY"); carried && step >= 30 && step <= 109)
+        {
+            const uint64_t carriedEntity = std::strtoull(carried, nullptr, 0);
+            nightcoop_mac::net::PlayerCarry carry;
+            carry.CarryNumber = 1;
+            carry.SenderClockMs = session.SessionClockMs();
+            carry.NetId = carriedEntity > 1 ? 0 : (session.GetStatus().MyPeerNumber << 24) | 7;
+            carry.EntityHash = carriedEntity > 1 ? carriedEntity : 0;
+            carry.Position[0] = state.PositionX;
+            carry.Position[1] = state.PositionY;
+            carry.Position[2] = state.PositionZ + 1.5f;
+            const bool picking = step == 30;
+            const bool holding = step > 30 && step < 100 && step % 12 == 0;
+            const bool dropping = step == 100 || step == 103 || step == 109;
+            if (picking || holding)
+            {
+                carry.Kind = picking ? nightcoop_mac::net::kCarryPickup : nightcoop_mac::net::kCarryHolding;
+                carry.Flags = nightcoop_mac::net::kCarryActive;
+            }
+            else if (dropping)
+            {
+                carry.Kind = nightcoop_mac::net::kCarryDrop;
+                carry.Position[1] = state.PositionY + 1.0f;
+                carry.Position[2] = state.PositionZ;
+            }
+            if (picking || holding || dropping)
+            {
+                session.SendGameMessage(nightcoop_mac::net::WritePlayerCarry(carry));
+                if (picking || step == 100)
+                {
+                    std::printf("probe: %s %s %#llx\n", picking ? "picked up" : "dropped", carry.NetId ? "our npc" : "entity",
+                                static_cast<unsigned long long>(carry.NetId ? carry.NetId : carry.EntityHash));
+                }
+            }
+        }
+        if (const char* buildValue = std::getenv("PROBE_BUILD"); buildValue && step % 60 == 0)
+        {
+            nightcoop_mac::net::BuildStats build;
+            build.Revision = 1;
+            for (uint8_t index = 0; index < nightcoop_mac::net::kBuildStatCount; ++index)
+            {
+                build.Stats.push_back({index, static_cast<float>(std::atof(buildValue))});
+            }
+            session.SendGameMessage(nightcoop_mac::net::WriteBuildStats(build));
         }
         if (std::getenv("PROBE_LIFT") && step == 30)
         {
@@ -1489,6 +1540,30 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             }
             if (PrintSceneSkip(message.FromPeer, message.Message))
             {
+                continue;
+            }
+            nightcoop_mac::net::PlayerCarry hostCarry;
+            if (nightcoop_mac::net::ReadPlayerCarry(message.Message, hostCarry))
+            {
+                std::printf("probe: peer %u carry %u kind %u anim %u flags %#x net id %#010x entity %#llx record %#llx look %#llx at %.1f %.1f %.1f\n",
+                            message.FromPeer, hostCarry.CarryNumber, hostCarry.Kind, hostCarry.PickupAnimation, hostCarry.Flags, hostCarry.NetId,
+                            static_cast<unsigned long long>(hostCarry.EntityHash), static_cast<unsigned long long>(hostCarry.Record & 0xFFFFFFFFFFULL),
+                            static_cast<unsigned long long>(hostCarry.Look), hostCarry.Position[0], hostCarry.Position[1], hostCarry.Position[2]);
+                continue;
+            }
+            nightcoop_mac::net::BuildStats hostBuild;
+            if (nightcoop_mac::net::ReadBuildStats(message.Message, hostBuild))
+            {
+                if (hostBuild.Revision != hostBuildRevision)
+                {
+                    hostBuildRevision = hostBuild.Revision;
+                    std::printf("probe: peer %u build rev %u flags %#x:", message.FromPeer, hostBuild.Revision, hostBuild.Flags);
+                    for (const auto& stat : hostBuild.Stats)
+                    {
+                        std::printf(" %s %.0f", nightcoop_mac::net::BuildStatName(stat.Index), stat.Value);
+                    }
+                    std::printf("\n");
+                }
                 continue;
             }
             nightcoop_mac::net::LiftSync lift;

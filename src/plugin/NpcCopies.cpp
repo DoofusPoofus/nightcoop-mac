@@ -690,7 +690,10 @@ void NpcCopies::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session)
                     copy.InWorld = true;
                     TakeControl(netId, copy, npc);
                 }
-                Place(copy, npc, nowMs);
+                if (!copy.Held)
+                {
+                    Place(copy, npc, nowMs);
+                }
                 PlayAnim(netId, copy, npc, nowMs, session);
                 ApplyStates(netId, copy, npc, nowMs, ourPeer);
             }
@@ -698,5 +701,32 @@ void NpcCopies::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session)
         ++copyEntry;
     }
     Report(nowMs);
+}
+
+uint64_t NpcCopies::CopyEntity(uint32_t netId, uint32_t& ownerPeer) const
+{
+    const auto copy = m_copies.find(netId);
+    ownerPeer = copy != m_copies.end() ? copy->second.OwnerPeer : 0;
+    return copy != m_copies.end() && copy->second.InWorld ? copy->second.EntityHash : 0;
+}
+
+uint32_t NpcCopies::NetIdOfCopy(uint64_t entityHash) const
+{
+    for (const auto& [netId, copy] : m_copies)
+    {
+        if (entityHash && copy.EntityHash == entityHash)
+        {
+            return netId;
+        }
+    }
+    return 0;
+}
+
+void NpcCopies::SetHeld(uint32_t netId, bool held)
+{
+    if (const auto copy = m_copies.find(netId); copy != m_copies.end())
+    {
+        copy->second.Held = held;
+    }
 }
 }

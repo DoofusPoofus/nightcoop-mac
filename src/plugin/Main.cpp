@@ -38,6 +38,7 @@
 #include "plugin/PartnerPins.hpp"
 #include "plugin/PartnerPlates.hpp"
 #include "plugin/PartnerRoster.hpp"
+#include "plugin/PlayerExtras.hpp"
 #include "plugin/PlayerSampler.hpp"
 #include "plugin/QuestSync.hpp"
 #include "plugin/RemoteBodies.hpp"
@@ -517,6 +518,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             nightcoop_mac::dialog_scenes::OnMessage(message.FromPeer, message.Message, *Session, Log);
         }
+        else
+        {
+            nightcoop_mac::player_extras::OnMessage(message.FromPeer, message.Message, nowMs, Log);
+        }
         Mirror->OnGameMessage(message.FromPeer, message.Message, nowMs);
     }
     nightcoop_mac::partner_roster::Tick(nowMs, inSave, Plan->Nickname, *Session, Log);
@@ -555,6 +560,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     nightcoop_mac::door_sync::Tick(nowMs, inSave, Plan->ShareDoors, LocalStateValid ? &LastLocalState : nullptr, RemotePeerViews(), *Session, Log);
     nightcoop_mac::loot::Tick(nowMs, inSave, LocalStateValid ? &LastLocalState : nullptr, Plan->TestLoot, Plan->TestLootRecord, Plan->TestLootQuantity,
                               *Session, *Bodies, Log);
+    nightcoop_mac::player_extras::Tick(nowMs, inSave, *Session, *Bodies, *Npcs, *OurNpcs, Log);
     if (inSave)
     {
         std::vector<nightcoop_mac::partner_plates::PartnerSpot> plateSpots;

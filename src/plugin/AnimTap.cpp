@@ -680,6 +680,18 @@ void SendFullState(uint32_t peerNumber, net::RelaySession& session)
     Log("anim tap: sent partner " + std::to_string(peerNumber) + " our full anim state (" + std::to_string(batch.Entries.size()) + " input(s))");
 }
 
+bool LatestOwnFeature(uint64_t name, net::AnimEntry& entry)
+{
+    std::lock_guard guard(StreamLock);
+    const auto found = PlayerStream.LatestByInput.find({static_cast<uint8_t>(net::AnimKind::Feature), name});
+    if (found == PlayerStream.LatestByInput.end())
+    {
+        return false;
+    }
+    entry = found->second;
+    return true;
+}
+
 bool WatchNpc(uint32_t netId, void* controller, void* entity)
 {
     if (!Installed || netId == 0 || !controller)

@@ -55,6 +55,9 @@ public:
     uint32_t CopyCount() const { return static_cast<uint32_t>(m_copies.size()); }
     bool FindByEntity(uint64_t entityHash, uint32_t& netId, uint32_t& ownerPeer, float& ownerHealth) const;
     uint64_t EntityOfNetId(uint32_t netId) const;
+    uint64_t CopyEntity(uint32_t netId, uint32_t& ownerPeer) const;
+    uint32_t NetIdOfCopy(uint64_t entityHash) const;
+    void SetHeld(uint32_t netId, bool held);
 
 private:
     struct Sample
@@ -93,6 +96,7 @@ private:
         uint64_t NextHandCheckMs = 0;
         uint64_t NextStatesMs = 0;
         bool Marked = false;
+        bool Held = false;
     };
 
     bool Resolve();
