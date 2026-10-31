@@ -20,6 +20,7 @@
  gets a NpcAnimWant. the probe npc turns hostile to the host halfway with 60 % health and combat states and holds
  PROBE_NPC_WEAPON=0x<record> then. HitClaims on it get answered like an owner (HitResult NpcDespawn 3 with the killer at 0 %)
  PROBE_CLAIM claims 35 % of the first npc the host shares evry 2 s
+ PROBE_HACK=1 quickhacks the first npc the host shares with QuickHack.BlindLvl1Hack evry 4 s (HackSync completion)
  PROBE_FAR=<meters> moves the joiners walk that far along x from where it was asked to stand
  PROBE_TAKE=1 takes the first npc the host hands over (NpcHandoffAck + NpcClaim 3), owns it for 100 steps and lets it go,
  without it evry offer gets refused
@@ -1183,6 +1184,17 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                 std::printf("probe: let go of our mirror of the hosts npc\n");
             }
         }
+        if (std::getenv("PROBE_HACK") && firstHostNpc && step % 50 == 0)
+        {
+            nightcoop_mac::net::HackSync hack;
+            hack.Stage = nightcoop_mac::net::kHackStageCompletion;
+            hack.Serial = static_cast<uint32_t>(step);
+            hack.HackerPeer = session.GetStatus().MyPeerNumber;
+            hack.NetId = firstHostNpc;
+            hack.ActionRecord = RecordId("QuickHack.BlindLvl1Hack");
+            session.SendGameMessage(nightcoop_mac::net::WriteHackSync(hack), 0);
+            std::printf("probe: quickhacked the hosts npc %#010x (blind)\n", firstHostNpc);
+        }
         if (std::getenv("PROBE_CLAIM") && firstHostNpc && step % 25 == 0)
         {
             nightcoop_mac::net::HitClaim claim;
@@ -1545,6 +1557,13 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                     takenAtStep = step;
                     session.SendGameMessage(nightcoop_mac::net::WriteNpcClaim({offered.Spawn.NetId, nightcoop_mac::net::kClaimAfterHandoff, message.FromPeer}));
                 }
+                continue;
+            }
+            nightcoop_mac::net::HackSync hackOnUs;
+            if (nightcoop_mac::net::ReadHackSync(message.Message, hackOnUs))
+            {
+                std::printf("probe: peer %u quickhacks our npc %#010x with %#llx (stage %u, serial %u)\n", message.FromPeer, hackOnUs.NetId,
+                            static_cast<unsigned long long>(hackOnUs.ActionRecord), hackOnUs.Stage, hackOnUs.Serial);
                 continue;
             }
             nightcoop_mac::net::HitClaim claimOnUs;

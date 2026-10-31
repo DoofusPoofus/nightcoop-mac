@@ -8,6 +8,9 @@
  HitResult (19) owner -> claimer reliable 13 bytes: u32 claim number | u8 outcome (1 applied 2 duplicate 3 too old 4 no
    target 5 target dead 6 blocked) | f32 applied percent | f32 npc health percent after
  NpcAction (197) attacker -> owner right before a HitClaim reliable 6 bytes: u8 kind (1) | u32 claim number | u8 hit zone 0..10
+ HackSync (140) reliable 23 bytes: u8 kind (1 hack on an npc 2 pvp 3 npc netrunner on a partner body) | u8 stage (1 start 2
+   completion) | u8 flags (bit0 the players own hack bit1 visual mirror only with kind 1) | u32 serial (not 0) | u32 hacker peer |
+   u32 npc net id (kind 2 has 0) | u64 ObjectAction record (not 0)
  PlayerHit (32) the world an npc hit a partners body in -> that partner reliable: u32 hit number | u32 attacker npc net id (0
    unknown) | u64 senders session clock ms | HitDetails (evry flag but 0 9 10 11 12 13 23 31 34 45 49)
 */
@@ -71,6 +74,23 @@ struct PlayerHit
     HitDetails Details;
 };
 
+inline constexpr uint8_t kHackOnNpc = 1;
+inline constexpr uint8_t kHackStageStart = 1;
+inline constexpr uint8_t kHackStageCompletion = 2;
+inline constexpr uint8_t kHackFlagOwnHack = 0x01;
+inline constexpr uint8_t kHackFlagVisual = 0x02;
+
+struct HackSync
+{
+    uint8_t Kind = kHackOnNpc;
+    uint8_t Stage = kHackStageStart;
+    uint8_t Flags = kHackFlagOwnHack;
+    uint32_t Serial = 0;
+    uint32_t HackerPeer = 0;
+    uint32_t NetId = 0;
+    uint64_t ActionRecord = 0;
+};
+
 bool KeepClaimFlag(uint32_t flag);
 bool KeepPlayerHitFlag(uint32_t flag);
 
@@ -80,6 +100,8 @@ std::vector<uint8_t> WriteHitResult(const HitResult& result);
 bool ReadHitResult(const std::vector<uint8_t>& message, HitResult& result);
 std::vector<uint8_t> WriteNpcAction(const NpcAction& action);
 bool ReadNpcAction(const std::vector<uint8_t>& message, NpcAction& action);
+std::vector<uint8_t> WriteHackSync(const HackSync& hack);
+bool ReadHackSync(const std::vector<uint8_t>& message, HackSync& hack);
 std::vector<uint8_t> WritePlayerHit(const PlayerHit& hit);
 bool ReadPlayerHit(const std::vector<uint8_t>& message, PlayerHit& hit);
 }

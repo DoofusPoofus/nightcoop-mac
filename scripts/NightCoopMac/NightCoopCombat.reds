@@ -10,6 +10,8 @@
 // fight it too and kills or damage by a partner body give us no bounty or combat xp). a PlayerHit from a partner gets rebuilt here like nightcoop does (the attack from its record with our copy of the
 // attacker as instigator our place plus the hit offset the flags and the attackers weapon damage per hit) and queued on our
 // player so our own game deals the damage. when it never reaches our OnHit within 1.5 s that damage gets written straight
+// our quickhacks on a copy (StartAction / CompleteAction) go to the owner as HackSync and the owner hangs the actions start or
+// completion statuses on its npc with the hackers body as instigator (ApplyHackStage)
 
 public class NightCoopCombatClaim {
   public let target: EntityID;
@@ -33,6 +35,12 @@ public class NightCoopBodyHit {
   public let targetPosition: Vector4;
   public let hitDirection: Vector4;
   public let flags: array<Int32>;
+}
+
+public class NightCoopHackStage {
+  public let target: EntityID;
+  public let stage: Int32;
+  public let action: TweakDBID;
 }
 
 public class NightCoopHitFallback extends DelayCallback {
@@ -59,6 +67,8 @@ public class NightCoopCombat extends ScriptableService {
   private let m_copyOnHitsOnUs: Int32;
   private let m_copyDamageOnUs: Float;
   private let m_lastAppliedWeapon: Bool;
+  private let m_hackStages: array<ref<NightCoopHackStage>>;
+  private let m_hackStatusesApplied: Int32;
   private let m_fallbackHits: Int32;
   private let m_fallbackDamage: Float;
   private let m_copies: array<EntityID>;
@@ -339,6 +349,73 @@ public class NightCoopCombat extends ScriptableService {
     this.m_fallbackDamage += damage;
   }
 
+  public func NoteHackStage(action: ref<BaseScriptableAction>, stage: Int32) {
+    if !IsDefined(action) {
+      return;
+    }
+    let record = action.GetObjectActionRecord();
+    if !IsDefined(record) || !IsDefined(record.ObjectActionType()) || NotEquals(record.ObjectActionType().Type(), gamedataObjectActionType.PuppetQuickHack) {
+      return;
+    }
+    let executor = action.GetExecutor();
+    if !IsDefined(executor) || !executor.IsPlayer() || this.BodyPeer(executor.GetEntityID()) >= 0 {
+      return;
+    }
+    let target = action.GetRequesterID();
+    if !this.IsCopy(target) {
+      return;
+    }
+    let note = new NightCoopHackStage();
+    note.target = target;
+    note.stage = stage;
+    note.action = action.GetObjectActionID();
+    ArrayPush(this.m_hackStages, note);
+  }
+
+  public func TakeHackStages() -> array<ref<NightCoopHackStage>> {
+    let taken = this.m_hackStages;
+    ArrayClear(this.m_hackStages);
+    return taken;
+  }
+
+  public func ApplyHackStage(npc: ref<ScriptedPuppet>, actionId: TweakDBID, stage: Int32, body: ref<GameObject>) -> Int32 {
+    let record = TweakDBInterface.GetObjectActionRecord(actionId);
+    if !IsDefined(npc) || !IsDefined(record) {
+      return 0;
+    }
+    let effects: array<wref<ObjectActionEffect_Record>>;
+    if stage == 1 {
+      record.StartEffects(effects);
+    } else {
+      record.CompletionEffects(effects);
+    }
+    let applied = 0;
+    for effect in effects {
+      let status = effect.StatusEffect();
+      if IsDefined(status) {
+        if IsDefined(body) {
+          StatusEffectHelper.ApplyStatusEffect(npc, status.GetID(), body.GetEntityID());
+        } else {
+          StatusEffectHelper.ApplyStatusEffect(npc, status.GetID());
+        }
+        applied += 1;
+      }
+    }
+    this.m_hackStatusesApplied += applied;
+    return applied;
+  }
+
+  public func TestHackOnFirstCopy() {
+    if ArraySize(this.m_copies) == 0 {
+      return;
+    }
+    let note = new NightCoopHackStage();
+    note.target = this.m_copies[0];
+    note.stage = 2;
+    note.action = t"QuickHack.BlindLvl1Hack";
+    ArrayPush(this.m_hackStages, note);
+  }
+
   public func TestClaimOnFirstCopy(percent: Float) {
     if ArraySize(this.m_copies) == 0 {
       return;
@@ -411,4 +488,22 @@ public final static func AwardExperienceFromDamage(hitEvent: ref<gameHitEvent>, 
     }
   }
   wrappedMethod(hitEvent, damage);
+}
+
+@wrapMethod(BaseScriptableAction)
+public func StartAction(gameInstance: GameInstance) {
+  wrappedMethod(gameInstance);
+  let combat = NightCoopCombat.Get();
+  if IsDefined(combat) {
+    combat.NoteHackStage(this, 1);
+  }
+}
+
+@wrapMethod(BaseScriptableAction)
+public func CompleteAction(gameInstance: GameInstance) {
+  wrappedMethod(gameInstance);
+  let combat = NightCoopCombat.Get();
+  if IsDefined(combat) {
+    combat.NoteHackStage(this, 2);
+  }
 }

@@ -12,7 +12,10 @@
  PlayerHit: partner bodies are marked in the script service an npc hit on one goes to that partner (the attacker as the net id
  of our shared npc or copy 0 when it is neither). a PlayerHit for us is rebuilt by the script with our copy (or our own npc)
  of the attacker as instigator and queued on our player an unknown attacker is dropped like nightcoop does
- not done yet: NpcAction hit zones hit reactions and threat on the owner the expected hit path xp / bounty wraps
+ quickhacks: our quickhack stages on a copy go to its owner as HackSync kind 1 and a partners stage on one of our npcs hangs
+ the actions start or completion statuses on it (script ApplyHackStage). test_claim also sends a QuickHack.BlindLvl1Hack
+ completion evry 5 s
+ not done yet: NpcAction hit zones hit reactions the expected hit path and the visual hack mirror
 */
 #pragma once
 

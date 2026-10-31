@@ -181,6 +181,38 @@ bool ReadNpcAction(const std::vector<uint8_t>& message, NpcAction& action)
     return reader.Ok() && reader.Remaining() == 0 && action.Kind == 1 && action.Zone <= 10;
 }
 
+std::vector<uint8_t> WriteHackSync(const HackSync& hack)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::HackSync);
+    writer.PutU8(hack.Kind);
+    writer.PutU8(hack.Stage);
+    writer.PutU8(hack.Flags);
+    writer.PutU32(hack.Serial);
+    writer.PutU32(hack.HackerPeer);
+    writer.PutU32(hack.NetId);
+    writer.PutU64(hack.ActionRecord);
+    return writer.Data();
+}
+
+bool ReadHackSync(const std::vector<uint8_t>& message, HackSync& hack)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (!OpenMessage(reader, nc::proto::MsgType::HackSync))
+    {
+        return false;
+    }
+    hack.Kind = reader.GetU8();
+    hack.Stage = reader.GetU8();
+    hack.Flags = reader.GetU8();
+    hack.Serial = reader.GetU32();
+    hack.HackerPeer = reader.GetU32();
+    hack.NetId = reader.GetU32();
+    hack.ActionRecord = reader.GetU64();
+    const bool kindNetIdOk = hack.Kind == 2 ? hack.NetId == 0 : true;
+    return reader.Ok() && reader.Remaining() == 0 && hack.Kind >= 1 && hack.Kind <= 3 && hack.Stage >= 1 && hack.Stage <= 2 && (hack.Flags & ~0x03) == 0 &&
+           (hack.Kind == kHackOnNpc || (hack.Flags & kHackFlagVisual) == 0) && hack.Serial != 0 && hack.ActionRecord != 0 && kindNetIdOk;
+}
+
 std::vector<uint8_t> WritePlayerHit(const PlayerHit& hit)
 {
     nc::proto::Writer writer(nc::proto::MsgType::PlayerHit);

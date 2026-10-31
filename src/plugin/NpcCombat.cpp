@@ -13,6 +13,7 @@
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
 #include <RED4ext/Scripting/Natives/entEntityID.hpp>
 
+#include <algorithm>
 #include <bitset>
 #include <cmath>
 #include <cstdio>
@@ -43,6 +44,8 @@ struct ScriptCalls
     RED4ext::CBaseFunction* TakeBodyHits = nullptr;
     RED4ext::CBaseFunction* ApplyPlayerHit = nullptr;
     RED4ext::CBaseFunction* ShareThreat = nullptr;
+    RED4ext::CBaseFunction* TakeHackStages = nullptr;
+    RED4ext::CBaseFunction* ApplyHackStage = nullptr;
     RED4ext::CClass* ClaimClass = nullptr;
     RED4ext::CClass* BodyHitClass = nullptr;
 };
@@ -68,6 +71,9 @@ uint32_t NextPlayerHitNumber = 1;
 uint32_t BodyHitsSent = 0;
 uint32_t PlayerHitsApplied = 0;
 uint32_t PlayerHitsDropped = 0;
+uint32_t NextHackSerial = 1;
+uint32_t HacksSent = 0;
+uint32_t HacksApplied = 0;
 bool TroubleLogged = false;
 uint64_t NextTestClaimMs = 0;
 constexpr uint64_t TestClaimEveryMs = 5000;
@@ -94,6 +100,12 @@ bool Ready()
     Script.TakeBodyHits = game::FindFunction("NightCoopCombat", "TakeBodyHits");
     Script.ApplyPlayerHit = game::FindFunction("NightCoopCombat", "ApplyPlayerHit");
     Script.ShareThreat = game::FindFunction("NightCoopCombat", "ShareThreat");
+    Script.TakeHackStages = game::FindFunction("NightCoopCombat", "TakeHackStages");
+    Script.ApplyHackStage = game::FindFunction("NightCoopCombat", "ApplyHackStage");
+    if (!game::ParamsAre(Script.TakeHackStages, {}) || !game::ParamsAre(Script.ApplyHackStage, {"handle:ScriptedPuppet", "TweakDBID", "Int32", "handle:gameObject"}))
+    {
+        Script.TakeHackStages = nullptr;
+    }
     Script.Usable = Script.ClaimClass && game::ParamsAre(Script.MarkCopy, {"handle:gameObject"}) &&
                     game::ParamsAre(Script.ReleaseCopy, {"handle:gameObject", "Bool"}) && game::ParamsAre(Script.ForgetCopy, {"entEntityID"}) &&
                     game::ParamsAre(Script.ForgetAllCopies, {}) && game::ParamsAre(Script.TakeClaims, {}) &&
@@ -311,6 +323,84 @@ void SendBodyHits(NpcCopies& copies, NpcShare& ourNpcs, net::RelaySession& sessi
     }
 }
 
+void SendHackStages(NpcCopies& copies, net::RelaySession& session, const LogFunction& log)
+{
+    auto service = game::ScriptService("NightCoopCombat");
+    if (!service || !Script.TakeHackStages)
+    {
+        return;
+    }
+    RED4ext::DynArray<RED4ext::Handle<RED4ext::IScriptable>> stages;
+    RED4ext::StackArgs_t noArgs;
+    if (!game::CallMethod(service.instance, Script.TakeHackStages, &stages, noArgs))
+    {
+        return;
+    }
+    for (auto& stageObject : stages)
+    {
+        if (!stageObject)
+        {
+            continue;
+        }
+        const auto target = Field<RED4ext::ent::EntityID>(stageObject.instance, "target");
+        uint32_t netId = 0;
+        uint32_t ownerPeer = 0;
+        float ownerHealth = 0;
+        if (!copies.FindByEntity(target.hash, netId, ownerPeer, ownerHealth))
+        {
+            continue;
+        }
+        net::HackSync hack;
+        hack.Stage = Field<int32_t>(stageObject.instance, "stage") == 2 ? net::kHackStageCompletion : net::kHackStageStart;
+        hack.Serial = NextHackSerial++;
+        hack.HackerPeer = session.GetStatus().MyPeerNumber;
+        hack.NetId = netId;
+        hack.ActionRecord = Field<uint64_t>(stageObject.instance, "action");
+        if (!hack.ActionRecord)
+        {
+            continue;
+        }
+        session.SendGameMessage(net::WriteHackSync(hack), static_cast<int32_t>(ownerPeer));
+        ++HacksSent;
+        char line[160];
+        std::snprintf(line, sizeof(line), "combat: our quickhack %#llx %s on npc %#010x of peer %u", static_cast<unsigned long long>(hack.ActionRecord),
+                      hack.Stage == net::kHackStageStart ? "started" : "finished", netId, ownerPeer);
+        log(line);
+    }
+}
+
+void ApplyHackSync(uint32_t fromPeer, const net::HackSync& hack, NpcShare& ourNpcs, RemoteBodies& bodies, const LogFunction& log)
+{
+    if (hack.Kind != net::kHackOnNpc || (hack.Flags & net::kHackFlagVisual) || !Script.TakeHackStages)
+    {
+        return;
+    }
+    const uint64_t entityHash = ourNpcs.EntityOfNetId(hack.NetId);
+    auto npc = entityHash ? EntityById(entityHash) : RED4ext::Handle<RED4ext::IScriptable>();
+    auto service = game::ScriptService("NightCoopCombat");
+    if (!npc || !service)
+    {
+        return;
+    }
+    RED4ext::Handle<RED4ext::IScriptable> body;
+    bodies.GetBody(fromPeer, body);
+    RED4ext::TweakDBID actionRecord(hack.ActionRecord);
+    int32_t stage = hack.Stage;
+    int32_t applied = 0;
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &npc);
+    args.emplace_back(nullptr, &actionRecord);
+    args.emplace_back(nullptr, &stage);
+    args.emplace_back(nullptr, &body);
+    game::CallMethod(service.instance, Script.ApplyHackStage, &applied, args);
+    HacksApplied += static_cast<uint32_t>(std::max(applied, 0));
+    char line[200];
+    std::snprintf(line, sizeof(line), "combat: peer %u quickhacked our npc %#010x with %#llx (%s), %d status(es) hung on it%s", fromPeer, hack.NetId,
+                  static_cast<unsigned long long>(hack.ActionRecord), hack.Stage == net::kHackStageStart ? "start" : "completion", applied,
+                  body ? "" : " (their body is not here, no instigator)");
+    log(line);
+}
+
 void ApplyPlayerHit(uint32_t fromPeer, const net::PlayerHit& hit, NpcCopies& copies, NpcShare& ourNpcs, const LogFunction& log)
 {
     uint64_t attackerHash = hit.AttackerNetId ? copies.EntityOfNetId(hit.AttackerNetId) : 0;
@@ -479,6 +569,7 @@ void Tick(uint64_t nowMs, bool inSave, bool testClaims, NpcCopies& copies, NpcSh
     if (testClaims && nowMs >= NextTestClaimMs)
     {
         NextTestClaimMs = nowMs + TestClaimEveryMs;
+        static auto* testHack = game::FindFunction("NightCoopCombat", "TestHackOnFirstCopy");
         static auto* testClaim = game::FindFunction("NightCoopCombat", "TestClaimOnFirstCopy");
         auto service = game::ScriptService("NightCoopCombat");
         float percent = 40.0f;
@@ -488,9 +579,15 @@ void Tick(uint64_t nowMs, bool inSave, bool testClaims, NpcCopies& copies, NpcSh
         {
             game::CallMethod(service.instance, testClaim, nullptr, args);
         }
+        RED4ext::StackArgs_t noArgs;
+        if (service && testHack)
+        {
+            game::CallMethod(service.instance, testHack, nullptr, noArgs);
+        }
     }
     SendClaims(nowMs, copies, session, log);
     SendBodyHits(copies, ourNpcs, session);
+    SendHackStages(copies, session, log);
     Report(nowMs, log);
 }
 
@@ -498,6 +595,15 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t 
                net::RelaySession& session, const LogFunction& log)
 {
     const uint8_t type = net::MessageTypeOf(message);
+    if (type == static_cast<uint8_t>(nc::proto::MsgType::HackSync))
+    {
+        net::HackSync hack;
+        if (Ready() && net::ReadHackSync(message, hack))
+        {
+            ApplyHackSync(fromPeer, hack, ourNpcs, bodies, log);
+        }
+        return;
+    }
     if (type == static_cast<uint8_t>(nc::proto::MsgType::PlayerHit))
     {
         net::PlayerHit hit;

@@ -626,6 +626,14 @@ int main()
     Check(WritePlayerHit(playerHit).size() == 5 + 16 + 39 + 4 && ReadPlayerHit(WritePlayerHit(playerHit), playerHitBack) &&
               playerHitBack.AttackerNetId == 0x11 && playerHitBack.Details.Flags[0] == 15,
           "player hit is 60 + 4 per flag bytes with the header");
+    HackSync hack {kHackOnNpc, kHackStageCompletion, kHackFlagOwnHack, 5, 2, 0x00112233, 0x1A2B3C4D5EULL};
+    HackSync hackBack;
+    const auto hackBytes = WriteHackSync(hack);
+    Check(hackBytes.size() == 5 + 23 && hackBytes[4] == 140 && ReadHackSync(hackBytes, hackBack) && hackBack.NetId == 0x00112233 &&
+              hackBack.Stage == kHackStageCompletion && hackBack.ActionRecord == 0x1A2B3C4D5EULL,
+          "hack sync is 23 bytes");
+    hack.Serial = 0;
+    Check(!ReadHackSync(WriteHackSync(hack), hackBack), "a hack sync without serial is refused");
     Check(KeepClaimFlag(19) && !KeepClaimFlag(15) && KeepPlayerHitFlag(15) && !KeepPlayerHitFlag(9), "claim and player hit flag filters");
     DialogBallot ballot;
     ballot.VoteId = 3;
