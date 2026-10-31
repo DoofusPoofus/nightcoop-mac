@@ -5,8 +5,10 @@
  session clock + 150 ms), on a guest each swallowed button press goes to the host as a request (kind 3). the host starts its
  own cab for a request with StartLift and answers with kind 4 (1 it goes, 2 already there, 3 on its way, 6 not a lift here),
  a guest starts its copy of the cab for evry departure from the host, and starts its own cab when the host said 6
- not done yet: the in step start at the departure time and the hosts speed (nightcoop holds OnLiftStartDelayEvent and
- redirects the speed getters), presence (kind 1), quest lift holds, arrival holds and the body in cab rides (LiftRide 97)
+ in step start like nightcoop: a departure carries the session time evry copy leaves at (now + 150 ms + the lifts start delay)
+ and the hosts speed. the host holds its own LiftStartDelayEvent until then, a guest holds its copy and runs it at the hosts
+ speed, the plugin releases them when the session clock gets there
+ not done yet: presence (kind 1), quest lift holds, arrival holds, travel time overrides and the body in cab rides (LiftRide 97)
 */
 #pragma once
 

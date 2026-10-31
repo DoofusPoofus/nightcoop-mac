@@ -9,6 +9,7 @@
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Natives/entEntityID.hpp>
 
+#include <algorithm>
 #include <cstdio>
 #include <map>
 
@@ -34,6 +35,11 @@ struct Calls
     RED4ext::CProperty* RequestFloors = nullptr;
     RED4ext::CProperty* DepartureLifts = nullptr;
     RED4ext::CProperty* DepartureFloors = nullptr;
+    RED4ext::CProperty* DepartureDelays = nullptr;
+    RED4ext::CProperty* DepartureSpeeds = nullptr;
+    RED4ext::CBaseFunction* Hold = nullptr;
+    RED4ext::CBaseFunction* Release = nullptr;
+    RED4ext::CBaseFunction* UseSpeed = nullptr;
 };
 
 Calls Game;
@@ -41,6 +47,7 @@ uint64_t NextTickMs = 0;
 uint32_t DepartureCounter = 0;
 uint16_t RequestCounter = 0;
 std::map<uint16_t, std::pair<uint64_t, int32_t>> OpenRequests;
+std::map<uint64_t, uint64_t> ReleaseAtMs;
 
 RED4ext::CProperty* ArrayProperty(RED4ext::CClass* owner, const char* name, const char* typeName)
 {
@@ -63,9 +70,16 @@ bool Resolve(const LogFunction& log)
     Game.RequestFloors = ArrayProperty(syncClass, "requestFloors", "array:Int32");
     Game.DepartureLifts = ArrayProperty(syncClass, "departureLifts", "array:entEntityID");
     Game.DepartureFloors = ArrayProperty(syncClass, "departureFloors", "array:Int32");
+    Game.DepartureDelays = ArrayProperty(syncClass, "departureDelays", "array:Float");
+    Game.DepartureSpeeds = ArrayProperty(syncClass, "departureSpeeds", "array:Float");
+    Game.Hold = game::FindFunction("NightCoopLiftSync", "Hold");
+    Game.Release = game::FindFunction("NightCoopLiftSync", "Release");
+    Game.UseSpeed = game::FindFunction("NightCoopLiftSync", "UseSpeed");
     Game.Usable = game::ParamsAre(Game.Configure, {"Bool", "Bool"}) && game::ParamsAre(Game.ClearOutgoing, {}) &&
                   game::ParamsAre(Game.StartLift, {"entEntityID", "Int32"}) && game::ReturnIs(Game.StartLift, "Int32") && Game.RequestLifts &&
-                  Game.RequestFloors && Game.DepartureLifts && Game.DepartureFloors;
+                  Game.RequestFloors && Game.DepartureLifts && Game.DepartureFloors && Game.DepartureDelays && Game.DepartureSpeeds &&
+                  game::ParamsAre(Game.Hold, {"entEntityID"}) && game::ParamsAre(Game.Release, {"entEntityID"}) &&
+                  game::ParamsAre(Game.UseSpeed, {"entEntityID", "Float"});
     log(Game.Usable ? "lifts: one cab mode, the host owns evry lift and guests ask it" : "lifts: no NightCoopLiftSync script service, evry player keeps their own lifts");
     return Game.Usable;
 }
@@ -75,6 +89,24 @@ std::string KeyText(uint64_t key)
     char text[24];
     std::snprintf(text, sizeof(text), "%#llx", static_cast<unsigned long long>(key));
     return text;
+}
+
+void CallWithLift(RED4ext::CBaseFunction* function, uint64_t key, float* speed = nullptr)
+{
+    auto service = game::ScriptService("NightCoopLiftSync");
+    if (!service)
+    {
+        return;
+    }
+    RED4ext::ent::EntityID lift(key);
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &lift);
+    if (speed)
+    {
+        args.emplace_back(nullptr, speed);
+    }
+    bool released = false;
+    game::CallMethod(service.instance, function, function == Game.Release ? &released : nullptr, args);
 }
 
 int32_t StartLift(uint64_t key, int32_t floor)
@@ -117,11 +149,26 @@ void Tick(uint64_t nowMs, bool inSave, bool partnersHere, net::RelaySession& ses
     configureArgs.emplace_back(nullptr, &oneCab);
     configureArgs.emplace_back(nullptr, &isHost);
     game::CallMethod(service.instance, Game.Configure, nullptr, configureArgs);
+    const uint64_t sessionMs = session.SessionClockMs();
+    for (auto release = ReleaseAtMs.begin(); release != ReleaseAtMs.end();)
+    {
+        if (sessionMs >= release->second)
+        {
+            CallWithLift(Game.Release, release->first);
+            release = ReleaseAtMs.erase(release);
+        }
+        else
+        {
+            ++release;
+        }
+    }
 
     const auto* requestLifts = Game.RequestLifts->GetValuePtr<RED4ext::DynArray<uint64_t>>(service.instance);
     const auto* requestFloors = Game.RequestFloors->GetValuePtr<RED4ext::DynArray<int32_t>>(service.instance);
     const auto* departureLifts = Game.DepartureLifts->GetValuePtr<RED4ext::DynArray<uint64_t>>(service.instance);
     const auto* departureFloors = Game.DepartureFloors->GetValuePtr<RED4ext::DynArray<int32_t>>(service.instance);
+    const auto* departureDelays = Game.DepartureDelays->GetValuePtr<RED4ext::DynArray<float>>(service.instance);
+    const auto* departureSpeeds = Game.DepartureSpeeds->GetValuePtr<RED4ext::DynArray<float>>(service.instance);
     if (requestLifts->Size() == 0 && departureLifts->Size() == 0)
     {
         return;
@@ -133,9 +180,17 @@ void Tick(uint64_t nowMs, bool inSave, bool partnersHere, net::RelaySession& ses
         departure.Peer = status.MyPeerNumber;
         departure.LiftKey = (*departureLifts)[index];
         departure.FloorTo = static_cast<int8_t>((*departureFloors)[index]);
-        departure.DepartureMs = session.SessionClockMs() + DepartureLeadMs;
+        const float startDelay = index < departureDelays->Size() ? (*departureDelays)[index] : 0.0f;
+        departure.DepartureMs = sessionMs + DepartureLeadMs + static_cast<uint64_t>(std::max(startDelay, 0.0f) * 1000.0f);
         departure.DepartureNumber = ++DepartureCounter;
         departure.Flags = InStepDeparture;
+        if (index < departureSpeeds->Size() && (*departureSpeeds)[index] > 0.0f && (*departureSpeeds)[index] <= 10000.0f)
+        {
+            departure.MoveMode = 1;
+            departure.MoveValue = (*departureSpeeds)[index];
+        }
+        CallWithLift(Game.Hold, departure.LiftKey);
+        ReleaseAtMs[departure.LiftKey] = departure.DepartureMs;
         session.SendGameMessage(net::WriteLiftSync(departure));
         log("lifts: our lift " + KeyText(departure.LiftKey) + " leaves for floor " + std::to_string(departure.FloorTo) + " (departure " +
             std::to_string(departure.DepartureNumber) + ")");
@@ -184,6 +239,12 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::Rela
     }
     else if (!weAreHost && fromPeer == 0 && lift.Kind == net::kLiftDeparture)
     {
+        if (lift.MoveMode == 1 && lift.MoveValue > 0.0f)
+        {
+            CallWithLift(Game.UseSpeed, lift.LiftKey, &lift.MoveValue);
+        }
+        CallWithLift(Game.Hold, lift.LiftKey);
+        ReleaseAtMs[lift.LiftKey] = lift.DepartureMs;
         const int32_t started = StartLift(lift.LiftKey, lift.FloorTo);
         log("lifts: the host lift " + KeyText(lift.LiftKey) + " leaves for floor " + std::to_string(lift.FloorTo) +
             (started == StartedHere ? ", ours goes along" : started == NoSuchLift ? ", we dont have that lift here" : ", ours did not start"));
