@@ -7,7 +7,7 @@
 // npc left at 0.15 % or hit by a lethal claim gets killed by the body
 // partner bodies are marked too: an npc hit landing on one is kept as a body hit the plugin sends to that partner as
 // PlayerHit (bodies get the attitude group player, and our npcs that fight near a body they hate get a threat on it so they
-// fight it too). a PlayerHit from a partner gets rebuilt here like nightcoop does (the attack from its record with our copy of the
+// fight it too, and kills or damage by a partner body give us no bounty or combat xp). a PlayerHit from a partner gets rebuilt here like nightcoop does (the attack from its record with our copy of the
 // attacker as instigator, our place plus the hit offset, the flags) and queued on our player so our own game deals the damage
 
 public class NightCoopCombatClaim {
@@ -303,4 +303,29 @@ protected cb func OnHit(evt: ref<gameHitEvent>) -> Bool {
     }
   }
   return wrappedMethod(evt);
+}
+
+@wrapMethod(BountyManager)
+public final static func CompleteBounty(target: wref<NPCPuppet>) {
+  let combat = NightCoopCombat.Get();
+  if IsDefined(combat) && IsDefined(target) {
+    let killer = target.GetKiller();
+    if IsDefined(killer) && combat.BodyPeer(killer.GetEntityID()) >= 0 {
+      target.SetBountyAwarded(true);
+      return;
+    }
+  }
+  wrappedMethod(target);
+}
+
+@wrapMethod(RPGManager)
+public final static func AwardExperienceFromDamage(hitEvent: ref<gameHitEvent>, damage: Float) {
+  let combat = NightCoopCombat.Get();
+  if IsDefined(combat) && IsDefined(hitEvent) && IsDefined(hitEvent.attackData) {
+    let instigator = hitEvent.attackData.GetInstigator();
+    if IsDefined(instigator) && combat.BodyPeer(instigator.GetEntityID()) >= 0 {
+      return;
+    }
+  }
+  wrappedMethod(hitEvent, damage);
 }
