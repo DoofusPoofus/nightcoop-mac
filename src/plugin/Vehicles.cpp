@@ -116,6 +116,16 @@ bool Vehicles::Resolve()
     m_boneFromSlot = game::FindFunction("vehicleBaseObject", "GetBoneNameFromSlot");
     m_animsetForPassenger = game::FindFunction("vehicleBaseObject", "GetAnimsetOverrideForPassenger");
     m_specClass = RED4ext::CRTTISystem::Get()->GetClass("DynamicEntitySpec");
+    m_getMountingFacility = game::FindFunction("ScriptGameInstance", "GetMountingFacility");
+    m_getMountingInfo = game::FindFunction("gamemountingIMountingFacility", "GetMountingInfoSingleWithIds");
+    m_mount = game::FindFunction("gamemountingIMountingFacility", "Mount");
+    if (!game::ParamsAre(m_getMountingFacility, {"ScriptGameInstance"}) ||
+        !game::ParamsAre(m_getMountingInfo, {"entEntityID", "entEntityID", "gamemountingMountingSlotId"}) ||
+        !game::ParamsAre(m_mount, {"handle:gamemountingMountingRequest"}))
+    {
+        m_getMountingInfo = nullptr;
+        m_mount = nullptr;
+    }
     m_usable = m_getPlayer && game::ParamsAre(m_getMountedVehicle, {}) && game::ParamsAre(m_getRecordId, {}) &&
                game::ParamsAre(m_getAppearance, {}) && game::ParamsAre(m_getEntityId, {}) && game::ParamsAre(m_getWorldPosition, {}) &&
                game::ParamsAre(m_getWorldOrientation, {}) && game::ParamsAre(m_getLinearVelocity, {}) && game::ParamsAre(m_isEngineOn, {}) &&
@@ -321,7 +331,32 @@ void Vehicles::ShareOurCar(uint64_t nowMs, net::RelaySession& session)
     game::CallMethod(vehicle.instance, m_getWorldOrientation, &orientation, noArgs);
     game::CallMethod(vehicle.instance, m_getLinearVelocity, &velocity, noArgs);
     game::CallMethod(vehicle.instance, m_isEngineOn, &engineOn, noArgs);
-    const uint64_t slot = RED4ext::CName(DriverSeat).hash;
+    uint64_t slot = RED4ext::CName(DriverSeat).hash;
+    if (m_getMountingInfo)
+    {
+        RED4ext::Handle<RED4ext::IScriptable> mounting;
+        RED4ext::StackArgs_t mountingArgs;
+        mountingArgs.emplace_back(nullptr, &gameInstance);
+        uint64_t playerHash = 0;
+        game::CallMethod(player.instance, m_getEntityId, &playerHash, noArgs);
+        if (game::CallStatic(m_getMountingFacility, &mounting, mountingArgs) && mounting)
+        {
+            RED4ext::ent::EntityID child(playerHash);
+            RED4ext::ent::EntityID anyParent;
+            RED4ext::CName anySlot;
+            uint8_t info[24] = {};
+            RED4ext::StackArgs_t infoArgs;
+            infoArgs.emplace_back(nullptr, &child);
+            infoArgs.emplace_back(nullptr, &anyParent);
+            infoArgs.emplace_back(nullptr, &anySlot);
+            uint64_t mountedSlot = 0;
+            if (game::CallMethod(mounting.instance, m_getMountingInfo, info, infoArgs))
+            {
+                std::memcpy(&mountedSlot, info + 16, sizeof(mountedSlot));
+            }
+            slot = mountedSlot ? mountedSlot : slot;
+        }
+    }
     if (nowMs >= m_share.NextSpawnMs)
     {
         RED4ext::TweakDBID record;
@@ -640,6 +675,109 @@ void Vehicles::RemoveMirror(uint32_t netId, Mirror& mirror, RemoteBodies* bodies
         game::CallMethod(m_dynamicEntitySystem.instance, m_deleteEntity, nullptr, args);
     }
     m_log("vehicles: mirror of " + NetIdText(netId) + " removed, " + why + " (" + std::to_string(mirror.Teleports) + " placement(s))");
+}
+
+void Vehicles::RunTestCar(uint64_t nowMs)
+{
+    if (!m_usable || !m_mount || m_testMounted || !FetchSystems())
+    {
+        return;
+    }
+    if (!m_testStartMs)
+    {
+        m_testStartMs = nowMs + 8000;
+    }
+    if (nowMs < m_testStartMs)
+    {
+        return;
+    }
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::Handle<RED4ext::IScriptable> player;
+    RED4ext::StackArgs_t playerArgs;
+    playerArgs.emplace_back(nullptr, &gameInstance);
+    RED4ext::StackArgs_t noArgs;
+    if (!game::CallStatic(m_getPlayer, &player, playerArgs) || !player)
+    {
+        return;
+    }
+    if (!m_testCarHash)
+    {
+        RED4ext::Vector4 position {};
+        game::CallMethod(player.instance, m_getWorldPosition, &position, noArgs);
+        auto* spec = static_cast<RED4ext::IScriptable*>(m_specClass->CreateInstance(true));
+        if (!spec)
+        {
+            return;
+        }
+        RED4ext::Handle<RED4ext::IScriptable> specHandle(spec);
+        const RED4ext::Vector4 carPosition {position.X + 4.0f, position.Y, position.Z, 1.0f};
+        const QuaternionLayout carOrientation {0, 0, 0, 1};
+        WriteSpecProperty(m_specClass, spec, "recordID", "TweakDBID", RED4ext::TweakDBID("Vehicle.v_standard2_archer_hella_player"));
+        WriteSpecProperty(m_specClass, spec, "position", "Vector4", carPosition);
+        WriteSpecProperty(m_specClass, spec, "orientation", "Quaternion", carOrientation);
+        WriteSpecProperty(m_specClass, spec, "alwaysSpawned", "Bool", true);
+        WriteSpecProperty(m_specClass, spec, "spawnInView", "Bool", true);
+        WriteSpecProperty(m_specClass, spec, "active", "Bool", true);
+        if (auto* tags = m_specClass->GetProperty("tags"))
+        {
+            tags->GetValuePtr<RED4ext::DynArray<RED4ext::CName>>(spec)->PushBack(RED4ext::CName("NightCoopTestCar"));
+        }
+        RED4ext::ent::EntityID entityId;
+        RED4ext::StackArgs_t args;
+        args.emplace_back(nullptr, &specHandle);
+        if (game::CallMethod(m_dynamicEntitySystem.instance, m_createEntity, &entityId, args) && entityId.hash)
+        {
+            m_testCarHash = entityId.hash;
+            m_testCarSpawnedMs = nowMs;
+            m_log("test car: a Hella spawned next to our player");
+        }
+        return;
+    }
+    auto car = EntityOf(m_testCarHash);
+    if (!car || nowMs - m_testCarSpawnedMs < 3000)
+    {
+        return;
+    }
+    auto* rtti = RED4ext::CRTTISystem::Get();
+    auto* requestClass = rtti->GetClass("gamemountingMountingRequest");
+    auto* dataClass = rtti->GetClass("gameMountEventData");
+    auto* optionsClass = rtti->GetClass("gameMountEventOptions");
+    if (!requestClass || !dataClass || !optionsClass)
+    {
+        m_testMounted = true;
+        return;
+    }
+    uint64_t playerHash = 0;
+    game::CallMethod(player.instance, m_getEntityId, &playerHash, noArgs);
+    const RED4ext::CName seat(DriverSeat);
+    auto* options = static_cast<RED4ext::IScriptable*>(optionsClass->CreateInstance(true));
+    RED4ext::Handle<RED4ext::IScriptable> optionsHandle(options);
+    auto* data = static_cast<RED4ext::IScriptable*>(dataClass->CreateInstance(true));
+    RED4ext::Handle<RED4ext::IScriptable> dataHandle(data);
+    WriteSpecProperty(dataClass, data, "slotName", "CName", seat);
+    WriteSpecProperty(dataClass, data, "mountParentEntityId", "entEntityID", RED4ext::ent::EntityID(m_testCarHash));
+    WriteSpecProperty(dataClass, data, "isInstant", "Bool", true);
+    WriteSpecProperty(dataClass, data, "allowFailsafeTeleport", "Bool", true);
+    *dataClass->GetProperty("mountEventOptions")->GetValuePtr<RED4ext::Handle<RED4ext::IScriptable>>(data) = optionsHandle;
+    auto* request = static_cast<RED4ext::IScriptable*>(requestClass->CreateInstance(true));
+    RED4ext::Handle<RED4ext::IScriptable> requestHandle(request);
+    uint8_t* info = requestClass->GetProperty("lowLevelMountingInfo")->GetValuePtr<uint8_t>(request);
+    std::memcpy(info, &playerHash, sizeof(playerHash));
+    std::memcpy(info + 8, &m_testCarHash, sizeof(m_testCarHash));
+    std::memcpy(info + 16, &seat.hash, sizeof(seat.hash));
+    WriteSpecProperty(requestClass, request, "preservePositionAfterMounting", "Bool", false);
+    *requestClass->GetProperty("mountData")->GetValuePtr<RED4ext::Handle<RED4ext::IScriptable>>(request) = dataHandle;
+    RED4ext::Handle<RED4ext::IScriptable> mounting;
+    RED4ext::StackArgs_t mountingArgs;
+    mountingArgs.emplace_back(nullptr, &gameInstance);
+    if (game::CallStatic(m_getMountingFacility, &mounting, mountingArgs) && mounting)
+    {
+        RED4ext::StackArgs_t mountArgs;
+        mountArgs.emplace_back(nullptr, &requestHandle);
+        game::CallMethod(mounting.instance, m_mount, nullptr, mountArgs);
+        m_log("test car: asked the mounting facility to put our player at its wheel");
+    }
+    m_testMounted = true;
 }
 
 void Vehicles::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session, RemoteBodies& bodies)

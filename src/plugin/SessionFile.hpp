@@ -12,6 +12,7 @@
    bodies_in_menu        let bodies spawn in the main menu too (testing only, the session flow normally keeps them out)
    auto_continue         the main menu loads the newest save by itself (testing only)
    test_moves            in a save the plugin presses c (crouch) 8 times, 3 s apart (testing only)
+   test_vehicle          in a save a car spawns next to our player and we get mounted at its wheel (testing only)
    test_weapon           in a save our player gets a Lexington drawn and once its in hand its magazine drops by one evry 2 s, 10 times,
                          so the weapon fields and shot counts can be checked with nobody at the keyboard (testing only)
    body_gender male|female  force the V body gender instead of taking it from the partners look
@@ -38,6 +39,7 @@ struct SessionPlan
     bool AutoContinue = false;
     bool TestMoves = false;
     bool TestWeapon = false;
+    bool TestVehicle = false;
     BodySettings Bodies;
 };
 

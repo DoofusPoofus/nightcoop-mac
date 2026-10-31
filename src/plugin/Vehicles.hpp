@@ -3,7 +3,8 @@
  ours: the car our player sits in (PlayerPuppet.GetMountedVehicle) gets a netId (our peer << 24 | counter) and goes out as
  VehicleSpawn evry 5 s, VehicleState evry 50 ms while it moves (0.3 m/s or more) and once a second standing, with our
  player as its occupant, plus our VehicleSeat evry 200 ms (reliable when it changes). getting out sends an empty seat at
- once and VehicleDespawn 2 s later like nightcoops grace. the seat slot is taken as seat_front_left for now
+ once and VehicleDespawn 2 s later like nightcoops grace. our seat slot comes from the mounting facility
+ (GetMountingInfoSingleWithIds), seat_front_left when it says nothing
  a partners: a mirror car from codewares DynamicEntitySystem with their record and appearance (tag NightCoopVehicleMirror),
  placed on their track: snapshots of their states shown 100 ms late, lerped between two or pushed on by the velocity past the
  last one (500 ms at most), put there by the games teleport at most evry 32 ms like nightcoops teleport mode. nightcoop makes
@@ -12,6 +13,8 @@
  passenger animset as anim variables, instant entry, 4 tries 250 ms apart) and is left alone by RemoteBodies while seated,
  UnmountFromVehicle when they get out. a mirror nobody heard of for 10 s or a despawn takes the car away
  not done yet: handover, crowd / npc / quest cars, doors, lights, damage, steering, our player riding a partners car
+ testing only: RunTestCar spawns a car next to our player (tag NightCoopTestCar) and mounts us at its wheel with the
+ mounting facility (MountingRequest, instant), so the sending side runs with nobody at the keyboard
 */
 #pragma once
 
@@ -44,6 +47,7 @@ public:
 
     void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs);
     void Tick(uint64_t nowMs, bool inSave, net::RelaySession& session, RemoteBodies& bodies);
+    void RunTestCar(uint64_t nowMs);
 
 private:
     struct Snapshot
@@ -131,6 +135,13 @@ private:
     std::map<uint32_t, PartnerSeat> m_seats;
     OwnShare m_share;
     uint32_t m_netIdCounter = 0;
+    RED4ext::CBaseFunction* m_getMountingFacility = nullptr;
+    RED4ext::CBaseFunction* m_getMountingInfo = nullptr;
+    RED4ext::CBaseFunction* m_mount = nullptr;
+    uint64_t m_testCarHash = 0;
+    uint64_t m_testCarSpawnedMs = 0;
+    uint64_t m_testStartMs = 0;
+    bool m_testMounted = false;
     uint32_t m_sharesStarted = 0;
 };
 }

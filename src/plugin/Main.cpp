@@ -450,6 +450,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     }
     nightcoop_mac::partner_roster::Tick(nowMs, inSave, Plan->Nickname, *Session, Log);
     Cars->Tick(nowMs, inSave, *Session, *Bodies);
+    if (Plan->TestVehicle && inSave)
+    {
+        Cars->RunTestCar(nowMs);
+    }
     if (Plan->SamplePlayer && nowMs >= NextSampleMs)
     {
         NextSampleMs = nowMs + SampleEveryMs;
