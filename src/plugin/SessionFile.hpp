@@ -15,6 +15,9 @@
    share_npcs            share our npcs with evry partner even when they are not in our world (testing only, they see doubles)
    handoff               as a guest, ask for the hosts world once it is up and load the save it sends (nightcoops world
                          handoff, for now the hosts save as it is, without our own character spliced in)
+   quests off|any_world  quest sharing (nightcoops mirror mode, on by default): off turns it off, any_world makes a guest
+                         take the hosts facts and journal even when it did not come in thru the handoff (testing only, they
+                         land in our own save)
    test_help             in a save f gets held down for 2 s evry 8 s, to help a downed probe up (testing only)
    test_downed           in a save our health drops to 1 % once a partner is there, so the fall and a revive can be checked (testing only)
    test_vehicle          in a save a car spawns next to our player and we get mounted at its wheel (testing only)
@@ -49,6 +52,8 @@ struct SessionPlan
     bool TestHelp = false;
     bool WorldHandoff = false;
     bool ShareNpcsAlways = false;
+    bool QuestSync = true;
+    bool QuestsInAnyWorld = false;
     BodySettings Bodies;
 };
 

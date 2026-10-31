@@ -35,6 +35,7 @@
 #include "plugin/PartnerPlates.hpp"
 #include "plugin/PartnerRoster.hpp"
 #include "plugin/PlayerSampler.hpp"
+#include "plugin/QuestSync.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/RttiDump.hpp"
 #include "plugin/SessionFlow.hpp"
@@ -482,6 +483,12 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             Npcs->OnMessage(message.FromPeer, message.Message, nowMs);
         }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::QuestFacts) ||
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::QuestJournal) ||
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::QuestWant))
+        {
+            nightcoop_mac::quest_sync::OnMessage(message.FromPeer, message.Message, *Session, Log);
+        }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::GameClock))
         {
             nightcoop_mac::game_clock::OnMessage(message.FromPeer, message.Message, inSave, Session->GetStatus().MyPeerNumber == 0, Log);
@@ -504,6 +511,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         OurNpcs->Tick(nowMs, inSave, npcPartners, *Session);
     }
     nightcoop_mac::world_handoff::Tick(nowMs, inSave, Plan->WorldHandoff, *Session, PluginFolder, Log);
+    nightcoop_mac::quest_sync::Tick(nowMs, inSave, Plan->QuestSync, Plan->QuestsInAnyWorld, *Session, Log);
     nightcoop_mac::lift_sync::Tick(nowMs, inSave, !LatestRemoteStates.empty(), *Session, Log);
     if (inSave)
     {

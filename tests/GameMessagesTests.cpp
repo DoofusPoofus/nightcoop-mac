@@ -1,6 +1,6 @@
 /*
  byte layout checks for the rebuilt game layer messages (Game envelope, PlayerAnim, PlayerAnimWant, PlayerAnimSetup,
- PlayerCustomization, NpcAnim and friends)
+ PlayerCustomization, NpcAnim, QuestFacts and friends)
 */
 #include "net/GameMessages.hpp"
 #include "net/LookMessages.hpp"
@@ -8,6 +8,7 @@
 #include "net/VehicleMessages.hpp"
 #include "net/WorldMessages.hpp"
 #include "net/NpcMessages.hpp"
+#include "net/QuestMessages.hpp"
 #include "net/SessionMessages.hpp"
 
 #include <cstdio>
@@ -342,6 +343,112 @@ int main()
     Check(ReadPlayerClothes(noTail, clothesBack) && clothesBack.Slots.empty() && clothesBack.Items.size() == 2, "clothes without the slot tail");
     clothes.Slots.pop_back();
     Check(ReadPlayerClothes(WritePlayerClothes(clothes), clothesBack) && clothesBack.Slots.empty(), "mismatched slots are not sent");
+
+    Check(FactIdOf("nightcoop_host_world") == 0xe0a056e8u && FactIdOf("nightcoop_sync_save") == 0xc921e81eu, "fact ids are fnv1a32 of the name");
+    QuestFacts factBatch;
+    factBatch.Batch = kQuestSnapshotPart;
+    factBatch.Number = 4;
+    factBatch.Total = 2;
+    QuestFact plainFact;
+    plainFact.FactId = FactIdOf("q000_done");
+    plainFact.Value = -3;
+    QuestFact factWithWriter;
+    factWithWriter.Table = 2;
+    factWithWriter.FactId = 0x12345678;
+    factWithWriter.Value = 7;
+    factWithWriter.Writer = {true, 0xAABBCCDD, 0x0102};
+    factBatch.Facts = {plainFact, factWithWriter};
+    const auto factBytes = WriteQuestFacts(factBatch);
+    QuestFacts parsedFacts;
+    Check(factBytes.size() == 5 + 1 + 4 + 4 + 2 + 9 + (9 + 6) && factBytes[4] == 70 && factBytes[16] == 1 && factBytes[25] == (2 | 0x80),
+          "quest facts are 16 bytes + 9 per fact + 6 per writer, the table byte carries the writer bit");
+    Check(ReadQuestFacts(factBytes, parsedFacts) && parsedFacts.Batch == kQuestSnapshotPart && parsedFacts.Number == 4 && parsedFacts.Total == 2 &&
+              parsedFacts.Facts.size() == 2 && parsedFacts.Facts[0].Value == -3 && !parsedFacts.Facts[0].Writer.Known &&
+              parsedFacts.Facts[1].Table == 2 && parsedFacts.Facts[1].Writer.Graph == 0xAABBCCDD && parsedFacts.Facts[1].Writer.Node == 0x0102,
+          "quest facts round trip");
+    auto factsWithExtra = factBytes;
+    factsWithExtra.push_back(0);
+    Check(!ReadQuestFacts(factsWithExtra, parsedFacts), "quest facts with a byte left over are refused");
+    QuestFacts badBatch = factBatch;
+    badBatch.Batch = 5;
+    Check(!ReadQuestFacts(WriteQuestFacts(badBatch), parsedFacts), "quest facts batch 5 is refused");
+    QuestFacts badTable = factBatch;
+    badTable.Facts[0].Table = 11;
+    Check(!ReadQuestFacts(WriteQuestFacts(badTable), parsedFacts), "a facts table past 10 is refused");
+    badTable.Facts[0].Table = 0;
+    Check(!ReadQuestFacts(WriteQuestFacts(badTable), parsedFacts), "facts table 0 is refused");
+    const std::vector<uint8_t> tooManyFacts = {0x50, 0x4F, 0x43, 0x4E, 70, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 0x04};
+    Check(!ReadQuestFacts(tooManyFacts, parsedFacts), "more than 1024 facts are refused");
+    QuestFacts emptyDelta;
+    Check(WriteQuestFacts(emptyDelta).size() == 16 && ReadQuestFacts(WriteQuestFacts(emptyDelta), parsedFacts) && parsedFacts.Facts.empty(),
+          "an empty delta is 16 bytes and legal");
+
+    std::vector<QuestFact> manyFacts(2500);
+    for (size_t index = 0; index < manyFacts.size(); ++index)
+    {
+        manyFacts[index].FactId = static_cast<uint32_t>(index + 1);
+        manyFacts[index].Value = static_cast<int32_t>(index);
+    }
+    const auto snapshotMessages = SplitQuestFacts(true, 9, manyFacts);
+    Check(snapshotMessages.size() == 5, "a 2500 fact snapshot is begin + 3 parts + end");
+    bool snapshotShapeOk = true;
+    size_t snapshotFactsSeen = 0;
+    for (size_t index = 0; index < snapshotMessages.size(); ++index)
+    {
+        QuestFacts part;
+        const uint8_t wantedBatch = index == 0 ? kQuestSnapshotBegin : index + 1 == snapshotMessages.size() ? kQuestSnapshotEnd : kQuestSnapshotPart;
+        snapshotShapeOk = snapshotShapeOk && ReadQuestFacts(snapshotMessages[index], part) && part.Batch == wantedBatch && part.Number == 9 &&
+                          part.Total == 2500 && part.Facts.size() <= kQuestMostEntries;
+        snapshotFactsSeen += part.Facts.size();
+    }
+    Check(snapshotShapeOk && snapshotFactsSeen == 2500, "snapshot parts carry number 9, total 2500 and every fact once");
+    const auto deltaMessages = SplitQuestFacts(false, 9, manyFacts);
+    QuestFacts firstDelta;
+    Check(deltaMessages.size() == 3 && ReadQuestFacts(deltaMessages[0], firstDelta) && firstDelta.Batch == kQuestDelta && firstDelta.Number == 0 &&
+              firstDelta.Facts.size() == 1024,
+          "a big delta goes as batch 1 messages of 1024 with number 0");
+    Check(SplitQuestFacts(false, 0, {}).size() == 1 && SplitQuestFacts(true, 3, {}).size() == 2, "an empty delta is one message, an empty snapshot begin + end");
+
+    QuestJournal journalBatch;
+    journalBatch.Batch = kQuestDelta;
+    journalBatch.TrackedKnown = true;
+    journalBatch.Tracked = 0xCAFEBABE;
+    QuestJournalEntry loudEntry;
+    loudEntry.EntryHash = 0x11111111;
+    loudEntry.State = 2;
+    loudEntry.Notify = kJournalNotify;
+    QuestJournalEntry quietEntry;
+    quietEntry.EntryHash = 0x22222222;
+    quietEntry.State = 3;
+    quietEntry.Notify = kJournalQuiet;
+    quietEntry.Writer = {true, 5, 6};
+    journalBatch.Entries = {loudEntry, quietEntry};
+    const auto journalBytes = WriteQuestJournal(journalBatch);
+    QuestJournal parsedJournal;
+    Check(journalBytes.size() == 21 + 6 + (6 + 6) && journalBytes[4] == 71 && journalBytes[26] == 2 && journalBytes[32] == (1 | 0x80),
+          "quest journal is 21 bytes + 6 per entry + 6 per writer");
+    Check(ReadQuestJournal(journalBytes, parsedJournal) && parsedJournal.TrackedKnown && parsedJournal.Tracked == 0xCAFEBABE &&
+              parsedJournal.Entries.size() == 2 && parsedJournal.Entries[0].Notify == kJournalNotify && parsedJournal.Entries[1].State == 3 &&
+              parsedJournal.Entries[1].Writer.Known && parsedJournal.Entries[1].Writer.Node == 6,
+          "quest journal round trip");
+    QuestJournal badState = journalBatch;
+    badState.Entries[0].State = 5;
+    Check(!ReadQuestJournal(WriteQuestJournal(badState), parsedJournal), "a journal state past 4 is refused");
+    QuestJournal badNotify = journalBatch;
+    badNotify.Entries[0].Notify = 3;
+    Check(!ReadQuestJournal(WriteQuestJournal(badNotify), parsedJournal), "a journal notify kind past 2 is refused");
+    auto badTracked = WriteQuestJournal(journalBatch);
+    badTracked[14] = 2;
+    Check(!ReadQuestJournal(badTracked, parsedJournal), "a tracked byte past 1 is refused");
+    const auto journalSnapshot = SplitQuestJournal(true, 2, true, 0xCAFEBABE, journalBatch.Entries);
+    QuestJournal journalEnd;
+    Check(journalSnapshot.size() == 3 && ReadQuestJournal(journalSnapshot.back(), journalEnd) && journalEnd.Batch == kQuestSnapshotEnd &&
+              journalEnd.Total == 2 && journalEnd.TrackedKnown && journalEnd.Entries.empty(),
+          "a journal snapshot is begin + part + end with the tracked entry");
+
+    uint32_t wantedWorld = 0;
+    const auto wantBytes = WriteQuestWant(12);
+    Check(wantBytes.size() == 9 && wantBytes[4] == 73 && ReadQuestWant(wantBytes, wantedWorld) && wantedWorld == 12, "quest want is 9 bytes");
 
     std::printf("%s\n", FailedChecks ? "some checks failed" : "all game message checks passed");
     return FailedChecks ? 1 : 0;

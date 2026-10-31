@@ -24,6 +24,11 @@
  PROBE_REVIVE=1 makes the joiner stand still and help the host up (PlayerRevive) 3 s after the host is down (flag 0x100)
  PROBE_WEAPON=0x<tweakdbid> in the environment makes the joiner hold that weapon and fire a shot evry 2 s (aim + shoot flags),
  and the joiner prints the hosts weapon fields whenever they change (health, camera and velocity evry 100 states)
+ PROBE_QUESTS=1 on the host makes it say it is in its world, answer a QuestWant with a snapshot (the fact
+ nightcoop_mac_probe_fact = 1, gmpl_player_dodged = 1 which a guest has to keep as its own, and a journal entry 0x4e434f50
+ nobody has) and send nightcoop_mac_probe_fact + 1 as a delta evry 5 s for 10 min. on the joiner it sends QuestWant for
+ world 1 at step 10, the same world again at step 20 (the host has to ignore that) and world 2 at step 110, and prints the
+ hosts QuestFacts / QuestJournal batches with a few well known facts out of the snapshots
  HUB looks like 127.0.0.1:47900#FINGERPRINT
 */
 #include "net/GameMessages.hpp"
@@ -33,9 +38,11 @@
 #include "net/VehicleMessages.hpp"
 #include "net/WorldMessages.hpp"
 #include "net/NpcMessages.hpp"
+#include "net/QuestMessages.hpp"
 
 #include <Log.hpp>
 #include <NetCrypto.hpp>
+#include <ProtocolCore.hpp>
 
 #include <enet/enet.h>
 
@@ -62,6 +69,80 @@ float WalkStartX = -1300.0f;
 float WalkStartY = 1200.0f;
 float WalkStartZ = 18.0f;
 constexpr auto ProbeTimeout = 30s;
+const char* const WellKnownFacts[] = {"q000_done", "q001_mission0_complete", "q101_johnny_char_entry", "q101_done", "glossary_scavengers",
+                                      "nightcoop_host_world", "nightcoop_mac_probe_fact"};
+
+void SendProbeSnapshot(nightcoop_mac::net::RelaySession& session, uint32_t peer, uint32_t number, int32_t probeFactValue)
+{
+    using namespace nightcoop_mac::net;
+    QuestFact probeFact;
+    probeFact.FactId = FactIdOf("nightcoop_mac_probe_fact");
+    probeFact.Value = probeFactValue;
+    QuestFact ownFact;
+    ownFact.FactId = FactIdOf("gmpl_player_dodged");
+    ownFact.Value = 1;
+    for (const auto& message : SplitQuestFacts(true, number, {probeFact, ownFact}))
+    {
+        session.SendGameMessage(message, static_cast<int32_t>(peer));
+    }
+    QuestJournalEntry strangeEntry;
+    strangeEntry.EntryHash = 0x4e434f50;
+    strangeEntry.State = 2;
+    strangeEntry.Notify = kJournalQuiet;
+    for (const auto& message : SplitQuestJournal(true, number, true, 0, {strangeEntry}))
+    {
+        session.SendGameMessage(message, static_cast<int32_t>(peer));
+    }
+}
+
+void PrintQuestMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint32_t& factBatches, uint32_t& journalBatches)
+{
+    using namespace nightcoop_mac::net;
+    QuestFacts facts;
+    QuestJournal journal;
+    if (ReadQuestFacts(message, facts))
+    {
+        if (facts.Batch != kQuestSnapshotPart || factBatches < 3)
+        {
+            std::printf("probe: peer %u QuestFacts batch %u #%u total %u with %zu fact(s)\n", fromPeer, facts.Batch, facts.Number, facts.Total,
+                        facts.Facts.size());
+        }
+        ++factBatches;
+        for (const auto& fact : facts.Facts)
+        {
+            for (const char* factName : WellKnownFacts)
+            {
+                if (fact.Table == kQuestFactsTable && fact.FactId == FactIdOf(factName))
+                {
+                    std::printf("probe:   %s = %d\n", factName, fact.Value);
+                }
+            }
+        }
+        if (facts.Batch == kQuestDelta && !facts.Facts.empty() && factBatches < 40)
+        {
+            std::printf("probe:   first change %#010x = %d\n", facts.Facts[0].FactId, facts.Facts[0].Value);
+        }
+    }
+    else if (ReadQuestJournal(message, journal))
+    {
+        if (journal.Batch != kQuestSnapshotPart || journalBatches < 3)
+        {
+            std::printf("probe: peer %u QuestJournal batch %u #%u total %u with %zu entr(ies), tracked %s %#010x\n", fromPeer, journal.Batch,
+                        journal.Number, journal.Total, journal.Entries.size(), journal.TrackedKnown ? "yes" : "no", journal.Tracked);
+        }
+        ++journalBatches;
+        if (journal.Batch == kQuestDelta && !journal.Entries.empty() && journalBatches < 40)
+        {
+            std::printf("probe:   first entry %#010x state %u notify %u\n", journal.Entries[0].EntryHash, journal.Entries[0].State,
+                        journal.Entries[0].Notify);
+        }
+    }
+    else
+    {
+        std::printf("probe: peer %u sent a quest message that does not read (%zu bytes)\n", fromPeer, message.size());
+    }
+    std::fflush(stdout);
+}
 
 int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
 {
@@ -71,7 +152,12 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     const uint32_t clockSeconds = clock ? static_cast<uint32_t>(std::strtoul(clock, nullptr, 0)) : 0;
     auto nextClock = std::chrono::steady_clock::now();
     const char* hostSave = std::getenv("PROBE_HOST_SAVE");
-    auto deadline = std::chrono::steady_clock::now() + (clock || hostSave ? 600s : ProbeTimeout);
+    const bool probeQuests = std::getenv("PROBE_QUESTS") != nullptr;
+    auto deadline = std::chrono::steady_clock::now() + (clock || hostSave || probeQuests ? 600s : ProbeTimeout);
+    auto nextQuestDelta = std::chrono::steady_clock::now();
+    std::set<uint32_t> questPeers;
+    uint32_t questSnapshots = 0;
+    int32_t probeFactValue = 1;
     auto nextRoster = std::chrono::steady_clock::now();
     std::vector<uint8_t> saveBytes;
     std::vector<uint8_t> metadataBytes;
@@ -80,7 +166,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     uint32_t servingPeer = 0;
     while (std::chrono::steady_clock::now() < deadline)
     {
-        if (hostSave && session.GetStatus().ConnectedPeers > 0 && std::chrono::steady_clock::now() >= nextRoster)
+        if ((hostSave || probeQuests) && session.GetStatus().ConnectedPeers > 0 && std::chrono::steady_clock::now() >= nextRoster)
         {
             nextRoster = std::chrono::steady_clock::now() + 2s;
             nightcoop_mac::net::SessionRoster roster;
@@ -93,7 +179,16 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
         {
             nightcoop_mac::net::WorldWant want;
             nightcoop_mac::net::WorldStatus worldStatus;
-            if (hostSave && nightcoop_mac::net::ReadWorldWant(message.Message, want))
+            uint32_t questWorld = 0;
+            if (probeQuests && nightcoop_mac::net::ReadQuestWant(message.Message, questWorld))
+            {
+                std::printf("probe: peer %u loaded its world #%u and wants our facts and journal, snapshot #%u goes\n", message.FromPeer, questWorld,
+                            questSnapshots + 1);
+                SendProbeSnapshot(session, message.FromPeer, ++questSnapshots, probeFactValue);
+                questPeers.insert(message.FromPeer);
+                std::fflush(stdout);
+            }
+            else if (hostSave && nightcoop_mac::net::ReadWorldWant(message.Message, want))
             {
                 std::printf("probe: peer %u wants our world (reason %u), sending %s\n", message.FromPeer, want.Reason, hostSave);
                 std::ifstream save(std::string(hostSave) + "/sav.dat", std::ios::binary);
@@ -136,6 +231,22 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
                 std::printf("probe: sent the whole save (%zu bytes)\n", bytes.size());
             }
         }
+        if (probeQuests && !questPeers.empty() && std::chrono::steady_clock::now() >= nextQuestDelta)
+        {
+            nextQuestDelta = std::chrono::steady_clock::now() + 5s;
+            nightcoop_mac::net::QuestFact probeFact;
+            probeFact.FactId = nightcoop_mac::net::FactIdOf("nightcoop_mac_probe_fact");
+            probeFact.Value = ++probeFactValue;
+            for (const uint32_t peer : questPeers)
+            {
+                for (const auto& message : nightcoop_mac::net::SplitQuestFacts(false, 0, {probeFact}))
+                {
+                    session.SendGameMessage(message, static_cast<int32_t>(peer));
+                }
+            }
+            std::printf("probe: delta nightcoop_mac_probe_fact = %d to %zu peer(s)\n", probeFactValue, questPeers.size());
+            std::fflush(stdout);
+        }
         if (clock && session.GetStatus().ConnectedPeers > 0 && std::chrono::steady_clock::now() >= nextClock)
         {
             nextClock = std::chrono::steady_clock::now() + 5s;
@@ -155,7 +266,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
         }
         for (const auto& state : session.TakeRemotePlayerStates())
         {
-            if ((clock || hostSave) && statesSeen++ % 100 != 0)
+            if ((clock || hostSave || probeQuests) && statesSeen++ % 100 != 0)
             {
                 continue;
             }
@@ -163,7 +274,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
                         state.PositionX, state.PositionY, state.PositionZ, state.Yaw, state.Speed,
                         static_cast<unsigned long long>(state.SessionTimeMs));
             std::fflush(stdout);
-            if (!clock && !hostSave && ++statesSeen >= statesToWaitFor)
+            if (!clock && !hostSave && !probeQuests && ++statesSeen >= statesToWaitFor)
             {
                 return 0;
             }
@@ -298,6 +409,9 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     bool probeNpcWanted = false;
     uint32_t probeNpcSequence = 0;
     uint32_t rosterRevision = 0xFFFFFFFF;
+    const bool probeQuests = std::getenv("PROBE_QUESTS") != nullptr;
+    uint32_t questFactBatches = 0;
+    uint32_t questJournalBatches = 0;
     uint32_t hostShots = 0;
     uint16_t hostWeaponFlags = 0;
     uint8_t hostWeaponState = 0;
@@ -431,6 +545,13 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                 session.SendGameMessage(nightcoop_mac::net::WriteNpcDespawn({npcNetId, 1, 0xFFFFFFFF}));
             }
         }
+        if (probeQuests && (step == 10 || step == 20 || step == 110))
+        {
+            const uint32_t world = step == 110 ? 2 : 1;
+            session.SendGameMessage(nightcoop_mac::net::WriteQuestWant(world), 0);
+            std::printf("probe: QuestWant for our world #%u%s\n", world, step == 20 ? " again (the host should ignore it)" : "");
+            std::fflush(stdout);
+        }
         if (std::getenv("PROBE_LIFT") && step == 30)
         {
             nightcoop_mac::net::LiftSync request;
@@ -514,6 +635,12 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
         }
         for (const auto& message : session.TakeGameMessages())
         {
+            const uint8_t messageType = nightcoop_mac::net::MessageTypeOf(message.Message);
+            if (messageType == static_cast<uint8_t>(nc::proto::MsgType::QuestFacts) || messageType == static_cast<uint8_t>(nc::proto::MsgType::QuestJournal))
+            {
+                PrintQuestMessage(message.FromPeer, message.Message, questFactBatches, questJournalBatches);
+                continue;
+            }
             nightcoop_mac::net::AnimWant want;
             nightcoop_mac::net::AnimBatch batch;
             uint32_t gameSeconds = 0;
@@ -639,6 +766,10 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     }
     std::printf("probe: walked %d steps, got %u anim batch(es) with %u input(s) from the host, %u full state(s)\n", WalkSteps, animBatches,
                 animInputs, fullStates);
+    if (probeQuests)
+    {
+        std::printf("probe: got %u QuestFacts and %u QuestJournal batch(es) from the host\n", questFactBatches, questJournalBatches);
+    }
     if (!hostNpcs.empty() || hostNpcsGone)
     {
         std::printf("probe: the host shared %zu npc(s) with us, %u despawn(s)\n", hostNpcs.size(), hostNpcsGone);

@@ -69,6 +69,18 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
         {
             plan.WorldHandoff = true;
         }
+        else if (keyword == "quests")
+        {
+            std::string setting;
+            words >> setting;
+            if (setting != "off" && setting != "on" && setting != "any_world")
+            {
+                problem = "session.txt: quests takes off, on or any_world, not " + setting;
+                return std::nullopt;
+            }
+            plan.QuestSync = setting != "off";
+            plan.QuestsInAnyWorld = setting == "any_world";
+        }
         else if (keyword == "test_help")
         {
             plan.TestHelp = true;
