@@ -20,6 +20,7 @@
 #include "plugin/AnimSetup.hpp"
 #include "plugin/AnimTap.hpp"
 #include "plugin/CrashNotes.hpp"
+#include "plugin/DoorSync.hpp"
 #include "plugin/Downed.hpp"
 #include "plugin/GameCalls.hpp"
 #include "plugin/GameClock.hpp"
@@ -472,6 +473,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             nightcoop_mac::lift_sync::OnMessage(message.FromPeer, message.Message, *Session, Log);
         }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::DoorSync))
+        {
+            nightcoop_mac::door_sync::OnMessage(message.FromPeer, message.Message, nowMs, *Session, Log);
+        }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::WorldWant) ||
                  nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::WorldFile) ||
                  nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::WorldStatus))
@@ -514,6 +519,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     }
     nightcoop_mac::world_handoff::Tick(nowMs, inSave, Plan->WorldHandoff, *Session, PluginFolder, Log);
     nightcoop_mac::lift_sync::Tick(nowMs, inSave, !LatestRemoteStates.empty(), *Session, Log);
+    nightcoop_mac::door_sync::Tick(nowMs, inSave, Plan->ShareDoors, LocalStateValid ? &LastLocalState : nullptr, RemotePeerViews(), *Session, Log);
     if (inSave)
     {
         std::vector<nightcoop_mac::partner_plates::PartnerSpot> plateSpots;

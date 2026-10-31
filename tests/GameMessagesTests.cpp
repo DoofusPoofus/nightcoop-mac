@@ -1,7 +1,8 @@
 /*
  byte layout checks for the rebuilt game layer messages (Game envelope, PlayerAnim, PlayerAnimWant, PlayerAnimSetup,
- PlayerCustomization, NpcAnim and friends)
+ PlayerCustomization, NpcAnim, DoorSync and friends)
 */
+#include "net/DoorMessages.hpp"
 #include "net/GameMessages.hpp"
 #include "net/LookMessages.hpp"
 #include "net/RosterMessages.hpp"
@@ -225,6 +226,70 @@ int main()
     request.Kind = kLiftRequest;
     request.FloorTo = 2;
     Check(!ReadLiftSync(WriteLiftSync(request), parsedLift), "a lift request without a request number is refused");
+
+    DoorSync doorTell;
+    doorTell.Kind = kDoorTell;
+    doorTell.Peer = 2;
+    doorTell.DoorKey = 0x8D2C1E0F5A3B7701ULL;
+    doorTell.State = kDoorOpen;
+    doorTell.Changed = kDoorOpen | kDoorLocked;
+    doorTell.Cause = kDoorCauseQuest;
+    doorTell.QuestOps = (1 << kDoorOpForceOpen) | (1 << kDoorOpForceUnlock);
+    doorTell.Side = 2;
+    doorTell.Version = 0;
+    doorTell.RequestNumber = 0x4321;
+    doorTell.Position[0] = -1300.5f;
+    doorTell.Position[1] = 1200.25f;
+    doorTell.Position[2] = 18.0f;
+    const auto doorTellBytes = WriteDoorSync(doorTell);
+    DoorSync parsedDoor;
+    Check(doorTellBytes.size() == 46 && doorTellBytes[4] == 88 && ReadDoorSync(doorTellBytes, parsedDoor) && parsedDoor.Kind == kDoorTell &&
+              parsedDoor.Peer == 2 && parsedDoor.DoorKey == doorTell.DoorKey && parsedDoor.State == kDoorOpen && parsedDoor.Changed == 3 &&
+              parsedDoor.Cause == kDoorCauseQuest && parsedDoor.QuestOps == 0x82 && parsedDoor.Side == 2 && parsedDoor.RequestNumber == 0x4321 &&
+              parsedDoor.Position[1] == 1200.25f,
+          "door sync is 46 bytes and round trips");
+    Check(doorTellBytes[5] == kDoorTell && doorTellBytes[6] == 2 && doorTellBytes[10] == 0x01 && doorTellBytes[17] == 0x8D && doorTellBytes[18] == kDoorOpen &&
+              doorTellBytes[19] == 3 && doorTellBytes[20] == kDoorCauseQuest && doorTellBytes[21] == 0x82 && doorTellBytes[22] == 0 &&
+              doorTellBytes[23] == 2 && doorTellBytes[32] == 0x21 && doorTellBytes[33] == 0x43,
+          "door sync fields sit at the dll offsets");
+    DoorSync doorShared = doorTell;
+    doorShared.Kind = kDoorShared;
+    doorShared.Version = 1730000000123ULL;
+    doorShared.RequestNumber = 0;
+    Check(ReadDoorSync(WriteDoorSync(doorShared), parsedDoor) && parsedDoor.Version == 1730000000123ULL && parsedDoor.RequestNumber == 0,
+          "a shared door state may carry no request number");
+    doorShared.Version = 0;
+    Check(!ReadDoorSync(WriteDoorSync(doorShared), parsedDoor), "a shared door state without a version is refused");
+    DoorSync badDoor = doorTell;
+    badDoor.RequestNumber = 0;
+    Check(!ReadDoorSync(WriteDoorSync(badDoor), parsedDoor), "a door tell without a request number is refused");
+    badDoor = doorTell;
+    badDoor.DoorKey = 0;
+    Check(!ReadDoorSync(WriteDoorSync(badDoor), parsedDoor), "a door without a key is refused");
+    badDoor = doorTell;
+    badDoor.State = 0x08;
+    Check(!ReadDoorSync(WriteDoorSync(badDoor), parsedDoor), "door state bits past sealed are refused");
+    badDoor = doorTell;
+    badDoor.Cause = kDoorCausePlayerOrNpc;
+    Check(!ReadDoorSync(WriteDoorSync(badDoor), parsedDoor), "quest ops without the quest cause are refused");
+    badDoor = doorTell;
+    badDoor.QuestOps = 1;
+    Check(!ReadDoorSync(WriteDoorSync(badDoor), parsedDoor), "quest op bit 0 is refused");
+    badDoor = doorTell;
+    badDoor.QuestOps = 0;
+    Check(!ReadDoorSync(WriteDoorSync(badDoor), parsedDoor), "the quest cause without ops is refused");
+    badDoor = doorTell;
+    badDoor.Side = 3;
+    Check(!ReadDoorSync(WriteDoorSync(badDoor), parsedDoor), "door side 3 is refused");
+    badDoor = doorTell;
+    badDoor.Kind = 3;
+    Check(!ReadDoorSync(WriteDoorSync(badDoor), parsedDoor), "door kind 3 is refused");
+    badDoor = doorTell;
+    badDoor.Position[2] = 100001.0f;
+    Check(!ReadDoorSync(WriteDoorSync(badDoor), parsedDoor), "a door position past 100 km is refused");
+    auto longDoor = doorTellBytes;
+    longDoor.push_back(0);
+    Check(!ReadDoorSync(longDoor, parsedDoor), "a door message of 47 bytes is refused");
 
     WorldWant worldWant;
     Check(WriteWorldWant({1, 7}).size() == 10 && ReadWorldWant(WriteWorldWant({1, 7}), worldWant) && worldWant.WorldNumber == 7 &&
