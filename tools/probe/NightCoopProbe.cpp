@@ -20,6 +20,7 @@
  gets a NpcAnimWant. the probe npc turns hostile to the host halfway with 60 % health and combat states, and holds
  PROBE_NPC_WEAPON=0x<record> then. HitClaims on it get answered like an owner (HitResult, NpcDespawn 3 with the killer at 0 %)
  PROBE_CLAIM claims 35 % of the first npc the host shares evry 2 s
+ PROBE_HIT=<attack record name> (with PROBE_NPC) says our npc hit the hosts body with that attack evry 3 s (PlayerHit)
  PROBE_LIFT=1 makes the joiner ask the host for a lift that does not exist (LiftSync kind 3) and print the answer
  PROBE_DOOR=0x<door key> (the game logs keys as doors: our door 0x...) makes the joiner stand still at X Y Z (so its body can
  hold that door open) and tell the host about that door evry 200 steps (DoorSync kind 1: opened at step 30 / closed by itself
@@ -220,6 +221,21 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
         std::this_thread::sleep_for(20ms);
     }
     return 2;
+}
+
+uint64_t RecordId(const char* name)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    size_t length = 0;
+    for (const char* letter = name; *letter; ++letter, ++length)
+    {
+        crc ^= static_cast<uint8_t>(*letter);
+        for (int bit = 0; bit < 8; ++bit)
+        {
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        }
+    }
+    return static_cast<uint64_t>(~crc) | (static_cast<uint64_t>(length) << 32);
 }
 
 uint64_t NameHash(const char* name)
@@ -454,6 +470,20 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             seat.NetId = probeCarNetId;
             seat.Slot = NameHash("seat_front_left");
             session.SendGameMessage(nightcoop_mac::net::WriteVehicleSeat(seat), nightcoop_mac::net::kEveryPeer, step == 0);
+        }
+        if (const char* hitRecord = std::getenv("PROBE_HIT"); hitRecord && std::getenv("PROBE_NPC") && !probeNpcDead && step > 60 && step % 40 == 0)
+        {
+            nightcoop_mac::net::PlayerHit hit;
+            hit.HitNumber = static_cast<uint32_t>(step);
+            hit.AttackerNetId = (session.GetStatus().MyPeerNumber << 24) | 7;
+            hit.SessionTimeMs = session.SessionClockMs();
+            hit.Details.AttackRecord = RecordId(hitRecord);
+            hit.Details.AttackType = 10;
+            hit.Details.Offset[2] = 1.2f;
+            hit.Details.Direction[1] = 1.0f;
+            hit.Details.Flags = {26, 29};
+            session.SendGameMessage(nightcoop_mac::net::WritePlayerHit(hit), 0);
+            std::printf("probe: told the host our npc hit their body (%s = %#llx)\n", hitRecord, static_cast<unsigned long long>(hit.Details.AttackRecord));
         }
         if (std::getenv("PROBE_CLAIM") && firstHostNpc && step % 25 == 0)
         {

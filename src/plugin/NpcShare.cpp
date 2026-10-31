@@ -132,6 +132,12 @@ uint64_t NpcShare::EntityOfNetId(uint32_t netId) const
     return 0;
 }
 
+uint32_t NpcShare::NetIdOfEntity(uint64_t entityHash) const
+{
+    const auto source = m_sources.find(entityHash);
+    return source != m_sources.end() ? source->second.NetId : 0;
+}
+
 bool NpcShare::RecentlyDied(uint32_t netId, uint64_t nowMs) const
 {
     const auto died = m_diedAtMs.find(netId);

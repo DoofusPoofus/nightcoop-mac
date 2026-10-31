@@ -46,6 +46,7 @@ public:
 
     void Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& partners, net::RelaySession& session);
     uint64_t EntityOfNetId(uint32_t netId) const;
+    uint32_t NetIdOfEntity(uint64_t entityHash) const;
     bool RecentlyDied(uint32_t netId, uint64_t nowMs) const;
 
 private:

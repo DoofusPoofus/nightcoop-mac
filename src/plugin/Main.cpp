@@ -97,6 +97,7 @@ std::map<uint32_t, RemotePeerSighting> LatestRemoteStates;
 uint64_t NextSampleMs = 0;
 uint64_t NextRemoteReportMs = 0;
 uint64_t NextCrashNotesCheckMs = 0;
+uint64_t NextCombatBodiesMs = 0;
 uint64_t LateDumpAtMs = 0;
 constexpr uint64_t OwnLookEveryMs = 2000;
 constexpr uint64_t OwnLookResendMs = 20000;
@@ -489,9 +490,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             Npcs->OnMessage(message.FromPeer, message.Message, nowMs, Session->GetStatus().MyPeerNumber);
         }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::HitClaim) ||
-                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::HitResult))
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::HitResult) ||
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PlayerHit))
         {
-            nightcoop_mac::npc_combat::OnMessage(message.FromPeer, message.Message, nowMs, *OurNpcs, *Bodies, *Session, Log);
+            nightcoop_mac::npc_combat::OnMessage(message.FromPeer, message.Message, nowMs, *Npcs, *OurNpcs, *Bodies, *Session, Log);
         }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::GameClock))
         {
@@ -502,7 +504,19 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     nightcoop_mac::partner_roster::Tick(nowMs, inSave, Plan->Nickname, *Session, Log);
     Cars->Tick(nowMs, inSave, *Session, *Bodies);
     Npcs->Tick(nowMs, inSave, *Session);
-    nightcoop_mac::npc_combat::Tick(nowMs, inSave, Plan->TestClaim, *Npcs, *Session, Log);
+    nightcoop_mac::npc_combat::Tick(nowMs, inSave, Plan->TestClaim, *Npcs, *OurNpcs, *Session, Log);
+    if (inSave && nowMs >= NextCombatBodiesMs)
+    {
+        NextCombatBodiesMs = nowMs + 1000;
+        for (const auto& view : RemotePeerViews())
+        {
+            RED4ext::Handle<RED4ext::IScriptable> body;
+            if (Bodies->GetBody(view.PeerNumber, body))
+            {
+                nightcoop_mac::npc_combat::MarkBody(view.PeerNumber, body);
+            }
+        }
+    }
     {
         const bool weAreHost = Session->GetStatus().MyPeerNumber == 0;
         std::vector<nightcoop_mac::NpcShare::Partner> npcPartners;

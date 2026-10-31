@@ -38,7 +38,12 @@ struct ScriptCalls
     RED4ext::CBaseFunction* ApplyClaim = nullptr;
     RED4ext::CBaseFunction* Describe = nullptr;
     RED4ext::CBaseFunction* FindEntity = nullptr;
+    RED4ext::CBaseFunction* MarkBody = nullptr;
+    RED4ext::CBaseFunction* ForgetBodies = nullptr;
+    RED4ext::CBaseFunction* TakeBodyHits = nullptr;
+    RED4ext::CBaseFunction* ApplyPlayerHit = nullptr;
     RED4ext::CClass* ClaimClass = nullptr;
+    RED4ext::CClass* BodyHitClass = nullptr;
 };
 
 struct PeerClaims
@@ -58,6 +63,10 @@ uint32_t ResultsApplied = 0;
 uint32_t ResultsOther = 0;
 uint32_t ClaimsTaken = 0;
 uint32_t ClaimsRefused = 0;
+uint32_t NextPlayerHitNumber = 1;
+uint32_t BodyHitsSent = 0;
+uint32_t PlayerHitsApplied = 0;
+uint32_t PlayerHitsDropped = 0;
 bool TroubleLogged = false;
 uint64_t NextTestClaimMs = 0;
 constexpr uint64_t TestClaimEveryMs = 5000;
@@ -78,11 +87,19 @@ bool Ready()
     Script.Describe = game::FindFunction("NightCoopCombat", "Describe");
     Script.FindEntity = game::FindFunction("ScriptGameInstance", "FindEntityByID");
     Script.ClaimClass = RED4ext::CRTTISystem::Get()->GetClass("NightCoopCombatClaim");
+    Script.BodyHitClass = RED4ext::CRTTISystem::Get()->GetClass("NightCoopBodyHit");
+    Script.MarkBody = game::FindFunction("NightCoopCombat", "MarkBody");
+    Script.ForgetBodies = game::FindFunction("NightCoopCombat", "ForgetBodies");
+    Script.TakeBodyHits = game::FindFunction("NightCoopCombat", "TakeBodyHits");
+    Script.ApplyPlayerHit = game::FindFunction("NightCoopCombat", "ApplyPlayerHit");
     Script.Usable = Script.ClaimClass && game::ParamsAre(Script.MarkCopy, {"handle:gameObject"}) &&
                     game::ParamsAre(Script.ReleaseCopy, {"handle:gameObject", "Bool"}) && game::ParamsAre(Script.ForgetCopy, {"entEntityID"}) &&
                     game::ParamsAre(Script.ForgetAllCopies, {}) && game::ParamsAre(Script.TakeClaims, {}) &&
                     game::ParamsAre(Script.ApplyClaim, {"handle:ScriptedPuppet", "handle:gameObject", "Float", "Bool"}) &&
-                    game::ParamsAre(Script.FindEntity, {"ScriptGameInstance", "entEntityID"});
+                    game::ParamsAre(Script.FindEntity, {"ScriptGameInstance", "entEntityID"}) && Script.BodyHitClass &&
+                    game::ParamsAre(Script.MarkBody, {"handle:gameObject", "Int32"}) && game::ParamsAre(Script.ForgetBodies, {}) &&
+                    game::ParamsAre(Script.TakeBodyHits, {}) &&
+                    game::ParamsAre(Script.ApplyPlayerHit, {"handle:gameObject", "TweakDBID", "Int32", "Float", "Vector4", "Vector4", "array:Int32"});
     return Script.Usable;
 }
 
@@ -90,7 +107,7 @@ template<typename Value>
 Value Field(RED4ext::IScriptable* object, const char* name)
 {
     Value value {};
-    auto* property = Script.ClaimClass->GetProperty(name);
+    auto* property = object->GetType()->GetProperty(name);
     if (property && property->type && property->type->GetSize() == sizeof(Value))
     {
         value = *property->GetValuePtr<Value>(object);
@@ -98,17 +115,17 @@ Value Field(RED4ext::IScriptable* object, const char* name)
     return value;
 }
 
-std::vector<uint32_t> ClaimFlags(RED4ext::IScriptable* object)
+std::vector<uint32_t> HitFlags(RED4ext::IScriptable* object, bool (*keep)(uint32_t))
 {
     std::vector<uint32_t> flags;
-    auto* property = Script.ClaimClass->GetProperty("flags");
+    auto* property = object->GetType()->GetProperty("flags");
     if (!property || !property->type || property->type->GetType() != RED4ext::rtti::ERTTIType::Array)
     {
         return flags;
     }
     for (int32_t flag : *property->GetValuePtr<RED4ext::DynArray<int32_t>>(object))
     {
-        if (flag >= 0 && net::KeepClaimFlag(static_cast<uint32_t>(flag)))
+        if (flag >= 0 && keep(static_cast<uint32_t>(flag)))
         {
             flags.push_back(static_cast<uint32_t>(flag));
         }
@@ -224,7 +241,7 @@ void SendClaims(uint64_t nowMs, NpcCopies& copies, net::RelaySession& session, c
         claim.Details.Direction[0] = hitDirection.X;
         claim.Details.Direction[1] = hitDirection.Y;
         claim.Details.Direction[2] = hitDirection.Z;
-        claim.Details.Flags = ClaimFlags(claimObject.instance);
+        claim.Details.Flags = HitFlags(claimObject.instance, net::KeepClaimFlag);
         if (!std::isfinite(claim.HealthPercent) || claim.HealthPercent <= 0.0f)
         {
             continue;
@@ -238,6 +255,104 @@ void SendClaims(uint64_t nowMs, NpcCopies& copies, net::RelaySession& session, c
     }
 }
 
+void SendBodyHits(NpcCopies& copies, NpcShare& ourNpcs, net::RelaySession& session)
+{
+    auto service = game::ScriptService("NightCoopCombat");
+    if (!service)
+    {
+        return;
+    }
+    RED4ext::DynArray<RED4ext::Handle<RED4ext::IScriptable>> bodyHits;
+    RED4ext::StackArgs_t noArgs;
+    if (!game::CallMethod(service.instance, Script.TakeBodyHits, &bodyHits, noArgs))
+    {
+        return;
+    }
+    for (auto& bodyHitObject : bodyHits)
+    {
+        if (!bodyHitObject)
+        {
+            continue;
+        }
+        const int32_t peer = Field<int32_t>(bodyHitObject.instance, "peer");
+        const auto attacker = Field<RED4ext::ent::EntityID>(bodyHitObject.instance, "attacker");
+        uint32_t attackerNetId = ourNpcs.NetIdOfEntity(attacker.hash);
+        if (!attackerNetId)
+        {
+            uint32_t ownerPeer = 0;
+            float ownerHealth = 0;
+            copies.FindByEntity(attacker.hash, attackerNetId, ownerPeer, ownerHealth);
+        }
+        net::PlayerHit hit;
+        hit.HitNumber = NextPlayerHitNumber++;
+        hit.AttackerNetId = attackerNetId;
+        hit.SessionTimeMs = session.SessionClockMs();
+        hit.Details.AttackRecord = Field<uint64_t>(bodyHitObject.instance, "attackRecord");
+        const int32_t attackType = Field<int32_t>(bodyHitObject.instance, "attackType");
+        hit.Details.AttackType = attackType >= 0 && attackType <= 14 ? static_cast<uint8_t>(attackType) : 0xFF;
+        hit.Details.WeaponCharge = Field<float>(bodyHitObject.instance, "charge");
+        const auto hitPosition = Field<RED4ext::Vector4>(bodyHitObject.instance, "hitPosition");
+        const auto targetPosition = Field<RED4ext::Vector4>(bodyHitObject.instance, "targetPosition");
+        const auto hitDirection = Field<RED4ext::Vector4>(bodyHitObject.instance, "hitDirection");
+        hit.Details.Offset[0] = hitPosition.X - targetPosition.X;
+        hit.Details.Offset[1] = hitPosition.Y - targetPosition.Y;
+        hit.Details.Offset[2] = hitPosition.Z - targetPosition.Z;
+        hit.Details.Direction[0] = hitDirection.X;
+        hit.Details.Direction[1] = hitDirection.Y;
+        hit.Details.Direction[2] = hitDirection.Z;
+        hit.Details.Flags = HitFlags(bodyHitObject.instance, net::KeepPlayerHitFlag);
+        if (peer >= 0)
+        {
+            session.SendGameMessage(net::WritePlayerHit(hit), peer);
+            ++BodyHitsSent;
+        }
+    }
+}
+
+void ApplyPlayerHit(uint32_t fromPeer, const net::PlayerHit& hit, NpcCopies& copies, NpcShare& ourNpcs, const LogFunction& log)
+{
+    uint64_t attackerHash = hit.AttackerNetId ? copies.EntityOfNetId(hit.AttackerNetId) : 0;
+    if (!attackerHash && hit.AttackerNetId)
+    {
+        attackerHash = ourNpcs.EntityOfNetId(hit.AttackerNetId);
+    }
+    auto attacker = attackerHash ? EntityById(attackerHash) : RED4ext::Handle<RED4ext::IScriptable>();
+    auto service = game::ScriptService("NightCoopCombat");
+    if (!attacker || !service)
+    {
+        ++PlayerHitsDropped;
+        return;
+    }
+    RED4ext::TweakDBID attackRecord(hit.Details.AttackRecord);
+    int32_t attackType = hit.Details.AttackType == 0xFF ? -1 : hit.Details.AttackType;
+    float charge = hit.Details.WeaponCharge;
+    RED4ext::Vector4 offset {hit.Details.Offset[0], hit.Details.Offset[1], hit.Details.Offset[2], 0.0f};
+    RED4ext::Vector4 direction {hit.Details.Direction[0], hit.Details.Direction[1], hit.Details.Direction[2], 0.0f};
+    RED4ext::DynArray<int32_t> flags;
+    for (uint32_t flag : hit.Details.Flags)
+    {
+        flags.PushBack(static_cast<int32_t>(flag));
+    }
+    bool applied = false;
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &attacker);
+    args.emplace_back(nullptr, &attackRecord);
+    args.emplace_back(nullptr, &attackType);
+    args.emplace_back(nullptr, &charge);
+    args.emplace_back(nullptr, &offset);
+    args.emplace_back(nullptr, &direction);
+    args.emplace_back(nullptr, &flags);
+    game::CallMethod(service.instance, Script.ApplyPlayerHit, &applied, args);
+    ++(applied ? PlayerHitsApplied : PlayerHitsDropped);
+    if (applied && PlayerHitsApplied <= 3)
+    {
+        char line[200];
+        std::snprintf(line, sizeof(line), "combat: peer %u says npc %#010x hit our body there, attack %#llx queued on our player", fromPeer, hit.AttackerNetId,
+                      static_cast<unsigned long long>(hit.Details.AttackRecord));
+        log(line);
+    }
+}
+
 void Report(uint64_t nowMs, const LogFunction& log)
 {
     if (nowMs < NextReportMs)
@@ -245,7 +360,8 @@ void Report(uint64_t nowMs, const LogFunction& log)
         return;
     }
     NextReportMs = nowMs + ReportEveryMs;
-    if (!ClaimsSent && !ClaimsWithoutOwner && !ResultsApplied && !ResultsOther && !ClaimsTaken && !ClaimsRefused)
+    if (!ClaimsSent && !ClaimsWithoutOwner && !ResultsApplied && !ResultsOther && !ClaimsTaken && !ClaimsRefused && !BodyHitsSent && !PlayerHitsApplied &&
+        !PlayerHitsDropped)
     {
         return;
     }
@@ -259,8 +375,10 @@ void Report(uint64_t nowMs, const LogFunction& log)
     }
     log("combat: in 10 s " + std::to_string(ClaimsSent) + " claim(s) sent, " + std::to_string(ClaimsWithoutOwner) + " without a copy, " +
         std::to_string(ResultsApplied) + " applied, " + std::to_string(ResultsOther) + " other answer(s); " + std::to_string(ClaimsTaken) +
-        " partner claim(s) applied here, " + std::to_string(ClaimsRefused) + " refused" + scriptState);
+        " partner claim(s) applied here, " + std::to_string(ClaimsRefused) + " refused; " + std::to_string(BodyHitsSent) + " body hit(s) sent, " +
+        std::to_string(PlayerHitsApplied) + " partner hit(s) on us applied, " + std::to_string(PlayerHitsDropped) + " dropped" + scriptState);
     ClaimsSent = ClaimsWithoutOwner = ResultsApplied = ResultsOther = ClaimsTaken = ClaimsRefused = 0;
+    BodyHitsSent = PlayerHitsApplied = PlayerHitsDropped = 0;
 }
 }
 
@@ -310,10 +428,25 @@ void ForgetAll()
     {
         RED4ext::StackArgs_t noArgs;
         game::CallMethod(service.instance, Script.ForgetAllCopies, nullptr, noArgs);
+        game::CallMethod(service.instance, Script.ForgetBodies, nullptr, noArgs);
     }
 }
 
-void Tick(uint64_t nowMs, bool inSave, bool testClaims, NpcCopies& copies, net::RelaySession& session, const LogFunction& log)
+void MarkBody(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body)
+{
+    auto service = Ready() ? game::ScriptService("NightCoopCombat") : RED4ext::Handle<RED4ext::IScriptable>();
+    if (!service || !body)
+    {
+        return;
+    }
+    int32_t peer = static_cast<int32_t>(peerNumber);
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &body);
+    args.emplace_back(nullptr, &peer);
+    game::CallMethod(service.instance, Script.MarkBody, nullptr, args);
+}
+
+void Tick(uint64_t nowMs, bool inSave, bool testClaims, NpcCopies& copies, NpcShare& ourNpcs, net::RelaySession& session, const LogFunction& log)
 {
     if (!inSave)
     {
@@ -342,13 +475,23 @@ void Tick(uint64_t nowMs, bool inSave, bool testClaims, NpcCopies& copies, net::
         }
     }
     SendClaims(nowMs, copies, session, log);
+    SendBodyHits(copies, ourNpcs, session);
     Report(nowMs, log);
 }
 
-void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs, NpcShare& ourNpcs, RemoteBodies& bodies,
+void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs, NpcCopies& copies, NpcShare& ourNpcs, RemoteBodies& bodies,
                net::RelaySession& session, const LogFunction& log)
 {
     const uint8_t type = net::MessageTypeOf(message);
+    if (type == static_cast<uint8_t>(nc::proto::MsgType::PlayerHit))
+    {
+        net::PlayerHit hit;
+        if (Ready() && net::ReadPlayerHit(message, hit))
+        {
+            ApplyPlayerHit(fromPeer, hit, copies, ourNpcs, log);
+        }
+        return;
+    }
     if (type == static_cast<uint8_t>(nc::proto::MsgType::HitResult))
     {
         net::HitResult result;

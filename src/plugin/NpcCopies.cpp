@@ -145,6 +145,12 @@ bool NpcCopies::FindByEntity(uint64_t entityHash, uint32_t& netId, uint32_t& own
     return false;
 }
 
+uint64_t NpcCopies::EntityOfNetId(uint32_t netId) const
+{
+    const auto copy = m_copies.find(netId);
+    return copy != m_copies.end() && copy->second.InWorld ? copy->second.EntityHash : 0;
+}
+
 RED4ext::Handle<RED4ext::IScriptable> NpcCopies::EntityOf(uint64_t entityHash)
 {
     RED4ext::Handle<RED4ext::IScriptable> entity;

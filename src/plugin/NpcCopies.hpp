@@ -54,6 +54,7 @@ public:
     void Tick(uint64_t nowMs, bool inSave, net::RelaySession& session);
     uint32_t CopyCount() const { return static_cast<uint32_t>(m_copies.size()); }
     bool FindByEntity(uint64_t entityHash, uint32_t& netId, uint32_t& ownerPeer, float& ownerHealth) const;
+    uint64_t EntityOfNetId(uint32_t netId) const;
 
 private:
     struct Sample
