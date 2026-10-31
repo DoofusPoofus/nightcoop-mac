@@ -7,6 +7,7 @@
 #include "net/RosterMessages.hpp"
 #include "net/VehicleMessages.hpp"
 #include "net/WorldMessages.hpp"
+#include "net/NpcMessages.hpp"
 #include "net/SessionMessages.hpp"
 
 #include <cstdio>
@@ -229,6 +230,32 @@ int main()
               !ReadWorldReload(WriteWorldReload({6, 0, ""}), worldStatus),
           "world status 1..9 and world reload 1..5");
     Check(WorldFileHash({}) == 0xcbf29ce484222325ULL, "world file hash is fnv1a64");
+
+    NpcSpawn npcSpawn;
+    npcSpawn.NetId = (2u << 24) | 9;
+    npcSpawn.Record = 0x1234;
+    npcSpawn.Position[0] = -1080.0f;
+    npcSpawn.Yaw = 45.0f;
+    NpcSpawn parsedNpcSpawn;
+    Check(WriteNpcSpawn(npcSpawn).size() == 5 + 62 && ReadNpcSpawn(WriteNpcSpawn(npcSpawn), parsedNpcSpawn) && parsedNpcSpawn.Record == 0x1234 &&
+              parsedNpcSpawn.Yaw == 45.0f && parsedNpcSpawn.HighLevelState == 0xFF,
+          "npc spawn is 62 bytes and round trips");
+    NpcSnapshot npcSnapshot;
+    npcSnapshot.NetId = npcSpawn.NetId;
+    npcSnapshot.Health = 55.0f;
+    npcSnapshot.PartnerAttitudes = {{1, 2}, {3, 0}};
+    npcSnapshot.OwnerClockMs = 777;
+    NpcSnapshot parsedNpcSnapshot;
+    Check(WriteNpcSnapshot(npcSnapshot).size() == 5 + 68 + 4 && ReadNpcSnapshot(WriteNpcSnapshot(npcSnapshot), parsedNpcSnapshot) &&
+              parsedNpcSnapshot.Health == 55.0f && parsedNpcSnapshot.PartnerAttitudes.size() == 2 && parsedNpcSnapshot.PartnerAttitudes[1].Peer == 3 &&
+              parsedNpcSnapshot.OwnerClockMs == 777,
+          "npc snapshot is 68 + 2 per partner and round trips");
+    npcSnapshot.Position[1] = 200000.0f;
+    Check(!ReadNpcSnapshot(WriteNpcSnapshot(npcSnapshot), parsedNpcSnapshot), "an npc snapshot past 100 km is refused");
+    NpcDespawn npcDespawn;
+    Check(WriteNpcDespawn({npcSpawn.NetId, 3, 1}).size() == 5 + 9 && ReadNpcDespawn(WriteNpcDespawn({npcSpawn.NetId, 3, 1}), npcDespawn) &&
+              npcDespawn.Killer == 1,
+          "npc despawn is 9 bytes");
 
     const auto clock = WriteGameClock(123456);
     uint32_t gameSeconds = 0;
