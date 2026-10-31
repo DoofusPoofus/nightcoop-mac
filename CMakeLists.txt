@@ -34,7 +34,7 @@ target_include_directories(nightcoop_shared PUBLIC ${HUB_SOURCE}/src)
 target_link_libraries(nightcoop_shared PUBLIC enet monocypher)
 set_target_properties(nightcoop_shared PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-add_library(nightcoop_mac_net STATIC src/net/SessionMessages.cpp src/net/GameMessages.cpp src/net/LookMessages.cpp src/net/RosterMessages.cpp src/net/VehicleMessages.cpp src/net/RelaySession.cpp)
+add_library(nightcoop_mac_net STATIC src/net/SessionMessages.cpp src/net/GameMessages.cpp src/net/LookMessages.cpp src/net/RosterMessages.cpp src/net/VehicleMessages.cpp src/net/WorldMessages.cpp src/net/RelaySession.cpp)
 target_include_directories(nightcoop_mac_net PUBLIC src)
 target_link_libraries(nightcoop_mac_net PUBLIC nightcoop_shared)
 target_compile_options(nightcoop_mac_net PRIVATE -Wall -Wextra -Wno-unused-parameter)

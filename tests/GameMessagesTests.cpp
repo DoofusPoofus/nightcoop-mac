@@ -6,6 +6,7 @@
 #include "net/LookMessages.hpp"
 #include "net/RosterMessages.hpp"
 #include "net/VehicleMessages.hpp"
+#include "net/WorldMessages.hpp"
 #include "net/SessionMessages.hpp"
 
 #include <cstdio>
@@ -184,6 +185,26 @@ int main()
     Check(WriteDownedNotice(2).size() == 6 && ReadDownedNotice(WriteDownedNotice(2), downedKind) && downedKind == 2 &&
               !ReadDownedNotice(WriteDownedNotice(3), downedKind),
           "downed notice is 6 bytes, kind 1 or 2");
+
+    LiftSync departure;
+    departure.Kind = kLiftDeparture;
+    departure.Peer = 0;
+    departure.LiftKey = 0xF938D43FBBC7E743ULL;
+    departure.FloorFrom = 0;
+    departure.FloorTo = 3;
+    departure.DepartureMs = 123456;
+    departure.DepartureNumber = 9;
+    departure.Flags = 0x40;
+    LiftSync parsedLift;
+    Check(WriteLiftSync(departure).size() == 58 && ReadLiftSync(WriteLiftSync(departure), parsedLift) && parsedLift.LiftKey == departure.LiftKey &&
+              parsedLift.FloorTo == 3 && parsedLift.DepartureNumber == 9,
+          "lift sync is 58 bytes and round trips");
+    departure.FloorTo = -1;
+    Check(!ReadLiftSync(WriteLiftSync(departure), parsedLift), "a lift departure without a target floor is refused");
+    LiftSync request;
+    request.Kind = kLiftRequest;
+    request.FloorTo = 2;
+    Check(!ReadLiftSync(WriteLiftSync(request), parsedLift), "a lift request without a request number is refused");
 
     const auto clock = WriteGameClock(123456);
     uint32_t gameSeconds = 0;
