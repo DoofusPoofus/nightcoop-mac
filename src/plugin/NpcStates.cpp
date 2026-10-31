@@ -33,10 +33,12 @@ struct Calls
     RED4ext::CBaseFunction* IsIgnoringGlobalTimeDilation = nullptr;
     RED4ext::CClass* ScriptedPuppetClass = nullptr;
     RED4ext::CClass* NpcClass = nullptr;
+    RED4ext::CClass* PuppetClass = nullptr;
     uint32_t HealthPool = 0;
 };
 
 Calls Game;
+std::string Missing;
 
 bool IsA(RED4ext::Handle<RED4ext::IScriptable>& object, RED4ext::CClass* wantedClass)
 {
@@ -89,7 +91,7 @@ bool Ready()
         statesFound = statesFound && game::ParamsAre(Game.Getters[slot], {}) && game::ReturnIs(Game.Getters[slot], "Int32") &&
                       game::ParamsAre(Game.Setters[slot], {"Int32"});
     }
-    Game.GetAttitudeAgent = game::FindFunction("gameObject", "GetAttitudeAgent");
+    Game.GetAttitudeAgent = game::FindFunction("gamePuppet", "GetAttitude");
     Game.GetAttitudeTowards = game::FindFunction("gameAttitudeAgent", "GetAttitudeTowards");
     Game.SetAttitudeTowards = game::FindFunction("gameAttitudeAgent", "SetAttitudeTowards");
     Game.GetStatPoolsSystem = game::FindFunction("ScriptGameInstance", "GetStatPoolsSystem");
@@ -100,6 +102,7 @@ bool Ready()
     Game.IsIgnoringGlobalTimeDilation = game::FindFunction("gameTimeDilatable", "IsIgnoringGlobalTimeDilation");
     Game.ScriptedPuppetClass = rtti->GetClass("ScriptedPuppet");
     Game.NpcClass = rtti->GetClass("NPCPuppet");
+    Game.PuppetClass = rtti->GetClass("gamePuppet");
     if (auto* pools = rtti->GetEnum("gamedataStatPoolType"))
     {
         for (uint32_t index = 0; index < pools->hashList.Size() && index < pools->valueList.Size(); ++index)
@@ -113,27 +116,48 @@ bool Ready()
     if (!statesFound)
     {
         Game.GetStatesComponent = nullptr;
+        Missing += " states";
     }
-    if (!game::ParamsAre(Game.GetAttitudeAgent, {}) || !game::ParamsAre(Game.GetAttitudeTowards, {"handle:gameAttitudeAgent"}) ||
-        !game::ParamsAre(Game.SetAttitudeTowards, {"handle:gameAttitudeAgent", "EAIAttitude"}))
+    if (!game::ParamsAre(Game.GetAttitudeAgent, {}) || !game::ReturnIs(Game.GetAttitudeAgent, "handle:gameAttitudeAgent"))
+    {
+        Missing += " GetAttitude";
+    }
+    if (!game::ParamsAre(Game.GetAttitudeTowards, {"handle:gameAttitudeAgent"}))
+    {
+        Missing += " GetAttitudeTowards";
+    }
+    if (!game::ParamsAre(Game.SetAttitudeTowards, {"handle:gameAttitudeAgent", "EAIAttitude"}))
+    {
+        Missing += " SetAttitudeTowards";
+    }
+    if (Missing.find("Attitude") != std::string::npos)
     {
         Game.GetAttitudeAgent = nullptr;
     }
     if (!game::ParamsAre(Game.SetStatPoolValue, {"gameStatsObjectID", "gamedataStatPoolType", "Float", "whandle:gameObject", "Bool", "Bool"}))
     {
         Game.SetStatPoolValue = nullptr;
+        Missing += " RequestSettingStatPoolValue";
     }
     if (!game::ParamsAre(Game.IsIncapacitated, {}))
     {
         Game.IsIncapacitated = nullptr;
+        Missing += " IsIncapacitated";
     }
     if (!game::ParamsAre(Game.GetTimeDilationValue, {}) || !game::ParamsAre(Game.IsIgnoringGlobalTimeDilation, {}))
     {
         Game.GetTimeDilationValue = nullptr;
+        Missing += " time dilation";
     }
     Game.Usable = Game.ScriptedPuppetClass && Game.NpcClass && game::ParamsAre(Game.GetStatPoolsSystem, {"ScriptGameInstance"}) &&
                   game::ParamsAre(Game.GetStatPoolValue, {"gameStatsObjectID", "gamedataStatPoolType", "Bool"});
     return Game.Usable;
+}
+
+std::string MissingCalls()
+{
+    Ready();
+    return Missing.empty() ? "none" : Missing.substr(1);
 }
 
 bool ReadStates(RED4ext::Handle<RED4ext::IScriptable>& npc, uint8_t (&states)[StateCount])
@@ -178,7 +202,7 @@ bool WriteState(RED4ext::Handle<RED4ext::IScriptable>& npc, int slot, uint8_t va
 RED4ext::Handle<RED4ext::IScriptable> AttitudeAgentOf(RED4ext::Handle<RED4ext::IScriptable>& puppet)
 {
     RED4ext::Handle<RED4ext::IScriptable> agent;
-    if (!Ready() || !Game.GetAttitudeAgent || !puppet)
+    if (!Ready() || !Game.GetAttitudeAgent || !IsA(puppet, Game.PuppetClass))
     {
         return agent;
     }

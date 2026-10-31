@@ -72,7 +72,7 @@ bool NpcShare::Resolve()
     m_getWorldYaw = game::FindFunction("gameObject", "GetWorldYaw");
     m_getRecordId = game::FindFunction("gamePuppetBase", "GetRecordID");
     m_getAppearance = game::FindFunction("entEntity", "GetCurrentAppearanceName");
-    m_isDead = game::FindFunction("gameObject", "IsDead");
+    m_isDead = game::FindFunction("NPCPuppet", "IsDead");
     m_getDynamicEntitySystem = game::FindFunction("ScriptGameInstance", "GetDynamicEntitySystem");
     m_isManaged = game::FindFunction("DynamicEntitySystem", "IsManaged");
     m_getAnimationController = game::FindFunction("ScriptedPuppet", "GetAnimationControllerComponent");
@@ -87,7 +87,7 @@ bool NpcShare::Resolve()
                game::ParamsAre(m_getWorldPosition, {}) && game::ParamsAre(m_getWorldYaw, {}) && game::ParamsAre(m_getRecordId, {}) &&
                game::ParamsAre(m_getAppearance, {}) && game::ParamsAre(m_isDead, {}) && game::ParamsAre(m_getDynamicEntitySystem, {}) &&
                game::ParamsAre(m_isManaged, {"entEntityID"}) && npc_states::Ready() && m_npcClass;
-    m_log(m_usable ? "npcs: our npcs near partners in our world go to them" : "npcs: the entity list or npc calls look different than expected, our npcs stay ours");
+    m_log(m_usable ? "npcs: our npcs near partners in our world go to them (npc state calls that look different: " + npc_states::MissingCalls() + ")" : "npcs: the entity list or npc calls look different than expected, our npcs stay ours");
     return m_usable;
 }
 

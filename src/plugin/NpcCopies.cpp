@@ -493,7 +493,7 @@ void NpcCopies::ApplyStates(uint32_t netId, Copy& copy, RED4ext::Handle<RED4ext:
             {
                 m_attitudeTroubleLogged = true;
                 m_log(std::string("npcs: cant set a copys attitude, ") + (copyAgent ? "" : "the copy has no attitude agent ") +
-                      (m_playerAgent ? "" : "our player has no attitude agent"));
+                      (m_playerAgent ? "" : "our player has no attitude agent ") + "(npc state calls that look different: " + npc_states::MissingCalls() + ")");
             }
         }
         else if (npc_states::SetAttitudeTowards(copyAgent, m_playerAgent, static_cast<uint8_t>(wantedAttitude)))
