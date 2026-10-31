@@ -708,6 +708,11 @@ void RemoteBodies::Advance(uint32_t peerNumber, Puppet& puppet, const net::Playe
         }
     }
 
+    if (puppet.Seated)
+    {
+        puppet.Placed = false;
+        return;
+    }
     if (!puppet.IsPlayerBody)
     {
         ApplyStance(peerNumber, puppet, body, state, nowMs);
@@ -978,6 +983,21 @@ void RemoteBodies::ArmIfNeeded(uint32_t peerNumber, Puppet& puppet, const net::P
     if (GetBody(peerNumber, body))
     {
         weapons::Hold(peerNumber, body, state, puppet.Weapons, nowMs, m_log);
+    }
+}
+
+void RemoteBodies::SetSeated(uint32_t peerNumber, bool seated)
+{
+    const auto puppet = m_puppets.find(peerNumber);
+    if (puppet == m_puppets.end() || puppet->second.Seated == seated)
+    {
+        return;
+    }
+    puppet->second.Seated = seated;
+    if (seated)
+    {
+        DropPolicy(puppet->second);
+        puppet->second.PolicyTried = false;
     }
 }
 

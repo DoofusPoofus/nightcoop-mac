@@ -10,6 +10,8 @@
  CLOTHESFILE is a PlayerLook (31) as it is (the plugin writes own-clothes.bin), sent right after the look
  its look (PlayerCustomization 33) is LOOKFILE as it is (the plugin writes own-look.bin) or a male look with no parts
  PROBE_CLOCK=<game seconds> makes the host send that GameClock evry 5 s to its guests and stay up for 10 min
+ PROBE_VEHICLE=0x<tweakdbid> makes the joiner share a car of that record it drives along its walk (VehicleSpawn evry ~5 s,
+ VehicleState and VehicleSeat evry step), and the joiner prints the hosts vehicle messages
  PROBE_WEAPON=0x<tweakdbid> in the environment makes the joiner hold that weapon and fire a shot evry 2 s (aim + shoot flags),
  and the joiner prints the hosts weapon fields whenever they change (health, camera and velocity evry 100 states)
  HUB looks like 127.0.0.1:47900#FINGERPRINT
@@ -18,13 +20,16 @@
 #include "net/LookMessages.hpp"
 #include "net/RelaySession.hpp"
 #include "net/RosterMessages.hpp"
+#include "net/VehicleMessages.hpp"
 
 #include <Log.hpp>
 #include <NetCrypto.hpp>
 
 #include <enet/enet.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -211,6 +216,13 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint32_t hostShots = 0;
     uint16_t hostWeaponFlags = 0;
     uint8_t hostWeaponState = 0;
+    uint64_t probeVehicle = 0;
+    if (const char* vehicle = std::getenv("PROBE_VEHICLE"))
+    {
+        probeVehicle = std::strtoull(vehicle, nullptr, 0);
+        std::printf("probe: driving a car of record %#llx\n", static_cast<unsigned long long>(probeVehicle));
+    }
+    const uint32_t probeCarNetId = (session.GetStatus().MyPeerNumber << 24) | 1;
     if (const char* weapon = std::getenv("PROBE_WEAPON"))
     {
         ProbeWeapon = std::strtoull(weapon, nullptr, 0);
@@ -236,6 +248,38 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             state.Flags |= 0x04 | (shooting ? 0x40 : 0);
         }
         session.SetLocalPlayerState(state);
+        if (probeVehicle)
+        {
+            const float halfYaw = state.Yaw * 3.14159265f / 360.0f;
+            const float orientation[4] = {0, 0, std::sin(halfYaw), std::cos(halfYaw)};
+            if (step % 60 == 0)
+            {
+                nightcoop_mac::net::VehicleSpawn spawn;
+                spawn.NetId = probeCarNetId;
+                spawn.HomePeer = session.GetStatus().MyPeerNumber;
+                spawn.Record = probeVehicle;
+                spawn.Position[0] = state.PositionX;
+                spawn.Position[1] = state.PositionY;
+                spawn.Position[2] = state.PositionZ;
+                std::copy(orientation, orientation + 4, spawn.Orientation);
+                session.SendGameMessage(nightcoop_mac::net::WriteVehicleSpawn(spawn));
+            }
+            nightcoop_mac::net::VehicleState carState;
+            carState.NetId = probeCarNetId;
+            carState.StampMs = session.SessionClockMs();
+            carState.Position[0] = state.PositionX;
+            carState.Position[1] = state.PositionY;
+            carState.Position[2] = state.PositionZ;
+            std::copy(orientation, orientation + 4, carState.Orientation);
+            carState.Velocity[0] = (stepInLeg < 150 ? 1.0f : -1.0f) * 0.05f / 0.08f;
+            carState.Flags = nightcoop_mac::net::kVehicleEngineOn | nightcoop_mac::net::kVehicleSomeoneDrives;
+            carState.Occupants.push_back({NameHash("seat_front_left"), nightcoop_mac::net::kOccupantPlayer, session.GetStatus().MyPeerNumber});
+            session.SendGameMessage(nightcoop_mac::net::WriteVehicleState(carState), nightcoop_mac::net::kEveryPeer, false);
+            nightcoop_mac::net::VehicleSeat seat;
+            seat.NetId = probeCarNetId;
+            seat.Slot = NameHash("seat_front_left");
+            session.SendGameMessage(nightcoop_mac::net::WriteVehicleSeat(seat), nightcoop_mac::net::kEveryPeer, step == 0);
+        }
         if (step % 5 == 0)
         {
             session.SendGameMessage(MakeTestAnimBatch(step));
@@ -277,6 +321,13 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             uint32_t gameSeconds = 0;
             nightcoop_mac::net::AnimSetup setup;
             nightcoop_mac::net::SessionRoster roster;
+            nightcoop_mac::net::VehicleSpawn hostCar;
+            if (nightcoop_mac::net::ReadVehicleSpawn(message.Message, hostCar))
+            {
+                std::printf("probe: peer %u shares car %#010x record %#llx at %.1f %.1f %.1f\n", message.FromPeer, hostCar.NetId,
+                            static_cast<unsigned long long>(hostCar.Record), hostCar.Position[0], hostCar.Position[1], hostCar.Position[2]);
+                continue;
+            }
             if (nightcoop_mac::net::ReadSessionRoster(message.Message, roster))
             {
                 if (roster.Revision != rosterRevision)

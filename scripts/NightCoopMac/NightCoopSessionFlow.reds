@@ -36,6 +36,7 @@ public class NightCoopSessionFlow extends ScriptableService {
     let dynamicEntities = GameInstance.GetDynamicEntitySystem();
     if IsDefined(dynamicEntities) {
       dynamicEntities.DeleteTagged(n"NightCoopPartnerBody");
+      dynamicEntities.DeleteTagged(n"NightCoopVehicleMirror");
     }
   }
 

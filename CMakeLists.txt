@@ -65,6 +65,7 @@ add_library(NightCoopMac SHARED
   src/plugin/SessionFile.cpp
   src/plugin/SessionFlow.cpp
   src/plugin/TestKeys.cpp
+  src/plugin/Vehicles.cpp
   src/plugin/Wardrobe.cpp
   src/plugin/Weapons.cpp)
 target_include_directories(NightCoopMac PRIVATE src)

@@ -33,6 +33,7 @@
 #include "plugin/RttiDump.hpp"
 #include "plugin/SessionFlow.hpp"
 #include "plugin/TestKeys.hpp"
+#include "plugin/Vehicles.hpp"
 #include "plugin/Wardrobe.hpp"
 #include "plugin/Weapons.hpp"
 #include "plugin/SessionFile.hpp"
@@ -71,6 +72,7 @@ bool EnetReady = false;
 std::unique_ptr<nightcoop_mac::net::RelaySession> Session;
 std::unique_ptr<nightcoop_mac::PlayerSampler> Sampler;
 std::unique_ptr<nightcoop_mac::RemoteBodies> Bodies;
+std::unique_ptr<nightcoop_mac::Vehicles> Cars;
 std::unique_ptr<nightcoop_mac::AnimMirror> Mirror;
 std::unique_ptr<nightcoop_mac::SessionFlow> Flow;
 nightcoop_mac::net::PlayerState LastLocalState;
@@ -191,6 +193,7 @@ bool OnRunningEnter(RED4ext::CGameApplication*)
     Session = std::make_unique<nightcoop_mac::net::RelaySession>(Log);
     Sampler = std::make_unique<nightcoop_mac::PlayerSampler>(Log);
     Bodies = std::make_unique<nightcoop_mac::RemoteBodies>(Log, Plan->Bodies);
+    Cars = std::make_unique<nightcoop_mac::Vehicles>(Log);
     Mirror = std::make_unique<nightcoop_mac::AnimMirror>(Log);
     Flow = std::make_unique<nightcoop_mac::SessionFlow>(Log);
     Session->Start(config);
@@ -434,6 +437,11 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             nightcoop_mac::partner_roster::OnMessage(message.FromPeer, message.Message, *Session, Log);
         }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) >= static_cast<uint8_t>(nc::proto::MsgType::VehicleSpawn) &&
+                 nightcoop_mac::net::MessageTypeOf(message.Message) <= static_cast<uint8_t>(nc::proto::MsgType::VehicleSeat))
+        {
+            Cars->OnMessage(message.FromPeer, message.Message, nowMs);
+        }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::GameClock))
         {
             nightcoop_mac::game_clock::OnMessage(message.FromPeer, message.Message, inSave, Session->GetStatus().MyPeerNumber == 0, Log);
@@ -441,6 +449,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         Mirror->OnGameMessage(message.FromPeer, message.Message, nowMs);
     }
     nightcoop_mac::partner_roster::Tick(nowMs, inSave, Plan->Nickname, *Session, Log);
+    Cars->Tick(nowMs, inSave, *Session, *Bodies);
     if (Plan->SamplePlayer && nowMs >= NextSampleMs)
     {
         NextSampleMs = nowMs + SampleEveryMs;
