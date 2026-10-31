@@ -206,6 +206,30 @@ int main()
     request.FloorTo = 2;
     Check(!ReadLiftSync(WriteLiftSync(request), parsedLift), "a lift request without a request number is refused");
 
+    WorldWant worldWant;
+    Check(WriteWorldWant({1, 7}).size() == 10 && ReadWorldWant(WriteWorldWant({1, 7}), worldWant) && worldWant.WorldNumber == 7 &&
+              !ReadWorldWant(WriteWorldWant({6, 7}), worldWant),
+          "world want is 10 bytes, reason 1..5");
+    WorldFile chunk;
+    chunk.TransferId = 3;
+    chunk.Kind = kWorldFileMetadata;
+    chunk.TotalSize = 10;
+    chunk.Offset = 4;
+    chunk.Bytes = {1, 2, 3, 4, 5, 6};
+    chunk.Hash = WorldFileHash(chunk.Bytes);
+    WorldFile parsedChunk;
+    Check(WriteWorldFile(chunk).size() == 31 + 6 && ReadWorldFile(WriteWorldFile(chunk), parsedChunk) && parsedChunk.Offset == 4 &&
+              parsedChunk.Bytes.size() == 6 && parsedChunk.Hash == chunk.Hash,
+          "world file chunk is 31 bytes + its bytes and round trips");
+    chunk.Offset = 5;
+    Check(!ReadWorldFile(WriteWorldFile(chunk), parsedChunk), "a world file chunk past the file end is refused");
+    WorldStatus worldStatus;
+    Check(ReadWorldStatus(WriteWorldStatus({3, 3, "ManualSave-12"}), worldStatus) && worldStatus.Text == "ManualSave-12" &&
+              !ReadWorldStatus(WriteWorldStatus({10, 0, ""}), worldStatus) && ReadWorldReload(WriteWorldReload({5, 0, ""}), worldStatus) &&
+              !ReadWorldReload(WriteWorldReload({6, 0, ""}), worldStatus),
+          "world status 1..9 and world reload 1..5");
+    Check(WorldFileHash({}) == 0xcbf29ce484222325ULL, "world file hash is fnv1a64");
+
     const auto clock = WriteGameClock(123456);
     uint32_t gameSeconds = 0;
     Check(clock.size() == 9 && clock[4] == 46 && ReadGameClock(clock, gameSeconds) && gameSeconds == 123456, "game clock is magic | 46 | u32 seconds");

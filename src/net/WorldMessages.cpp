@@ -86,4 +86,118 @@ bool ReadLiftSync(const std::vector<uint8_t>& message, LiftSync& lift)
     }
     return lift.Kind != kLiftRequest || (lift.RequestNumber != 0 && lift.RequestKind >= 1 && lift.RequestKind <= 3);
 }
+
+uint64_t WorldFileHash(const std::vector<uint8_t>& bytes)
+{
+    uint64_t hash = 0xcbf29ce484222325ULL;
+    for (uint8_t byte : bytes)
+    {
+        hash = (hash ^ byte) * 0x100000001b3ULL;
+    }
+    return hash;
+}
+
+std::vector<uint8_t> WriteWorldWant(const WorldWant& want)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::WorldWant);
+    writer.PutU8(want.Reason);
+    writer.PutU32(want.WorldNumber);
+    return writer.Data();
+}
+
+bool ReadWorldWant(const std::vector<uint8_t>& message, WorldWant& want)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::WorldWant)
+    {
+        return false;
+    }
+    want.Reason = reader.GetU8();
+    want.WorldNumber = reader.GetU32();
+    return reader.Ok() && reader.Remaining() == 0 && want.Reason >= 1 && want.Reason <= 5;
+}
+
+std::vector<uint8_t> WriteWorldFile(const WorldFile& file)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::WorldFile);
+    writer.PutU32(file.TransferId);
+    writer.PutU8(file.Kind);
+    writer.PutU8(file.Purpose);
+    writer.PutU32(file.TotalSize);
+    writer.PutU64(file.Hash);
+    writer.PutU32(file.Offset);
+    writer.PutU32(static_cast<uint32_t>(file.Bytes.size()));
+    writer.PutBytes(file.Bytes);
+    return writer.Data();
+}
+
+bool ReadWorldFile(const std::vector<uint8_t>& message, WorldFile& file)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::WorldFile)
+    {
+        return false;
+    }
+    file.TransferId = reader.GetU32();
+    file.Kind = reader.GetU8();
+    file.Purpose = reader.GetU8();
+    file.TotalSize = reader.GetU32();
+    file.Hash = reader.GetU64();
+    file.Offset = reader.GetU32();
+    const uint32_t length = reader.GetU32();
+    const uint32_t largest = file.Kind == kWorldFileSave ? 0x8000000u : 0x400000u;
+    if (!reader.Ok() || file.TransferId == 0 || (file.Kind != kWorldFileSave && file.Kind != kWorldFileMetadata) || file.Purpose < 1 ||
+        file.Purpose > 5 || file.TotalSize == 0 || file.TotalSize > largest || length > kWorldChunkBytes ||
+        static_cast<uint64_t>(file.Offset) + length > file.TotalSize || reader.Remaining() != length)
+    {
+        return false;
+    }
+    file.Bytes = reader.GetRest();
+    return reader.Ok();
+}
+
+namespace
+{
+std::vector<uint8_t> WriteCodeValueText(nc::proto::MsgType type, const WorldStatus& status, size_t longestText)
+{
+    nc::proto::Writer writer(type);
+    writer.PutU8(status.Code);
+    writer.PutU32(status.Value);
+    writer.PutString(status.Text.size() > longestText ? status.Text.substr(0, longestText) : status.Text);
+    return writer.Data();
+}
+
+bool ReadCodeValueText(const std::vector<uint8_t>& message, nc::proto::MsgType type, uint8_t highestCode, size_t longestText, WorldStatus& status)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != type)
+    {
+        return false;
+    }
+    status.Code = reader.GetU8();
+    status.Value = reader.GetU32();
+    status.Text = reader.GetString();
+    return reader.Ok() && reader.Remaining() == 0 && status.Code >= 1 && status.Code <= highestCode && status.Text.size() <= longestText;
+}
+}
+
+std::vector<uint8_t> WriteWorldStatus(const WorldStatus& status)
+{
+    return WriteCodeValueText(nc::proto::MsgType::WorldStatus, status, 512);
+}
+
+bool ReadWorldStatus(const std::vector<uint8_t>& message, WorldStatus& status)
+{
+    return ReadCodeValueText(message, nc::proto::MsgType::WorldStatus, 9, 512, status);
+}
+
+std::vector<uint8_t> WriteWorldReload(const WorldStatus& reload)
+{
+    return WriteCodeValueText(nc::proto::MsgType::WorldReload, reload, 128);
+}
+
+bool ReadWorldReload(const std::vector<uint8_t>& message, WorldStatus& reload)
+{
+    return ReadCodeValueText(message, nc::proto::MsgType::WorldReload, 5, 128, reload);
+}
 }
