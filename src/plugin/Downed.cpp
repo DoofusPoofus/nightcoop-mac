@@ -23,6 +23,8 @@ constexpr uint64_t FallsStayAfterPartnerMs = 45000;
 constexpr uint64_t PassOutHoldMs = 2000;
 constexpr uint64_t HelpHoldMs = 1000;
 constexpr uint64_t HelpAnswerMs = 5000;
+constexpr uint32_t MostTestDrops = 3;
+constexpr uint64_t TestDropAgainMs = 20000;
 constexpr uint64_t EveryoneDownMs = 4000;
 constexpr float AcceptReviveWithinMeters = 8.0f;
 constexpr float HintWithinMeters = 8.0f;
@@ -47,7 +49,6 @@ uint32_t HintedPeer = 0;
 uint64_t EveryoneDownSinceMs = 0;
 bool EveryoneDownSent = false;
 uint64_t TestAtMs = 0;
-bool TestDone = false;
 
 bool Resolve(const LogFunction& log)
 {
@@ -344,8 +345,9 @@ bool WeAreDown()
 void RunTest(uint64_t nowMs, bool partnerHere, const LogFunction& log)
 {
     static uint64_t nextDescribeMs = 0;
+    static uint32_t drops = 0;
     static auto* describe = game::FindFunction("NightCoopDowned", "Describe");
-    if (TestDone && nowMs >= nextDescribeMs && describe)
+    if (drops && nowMs >= nextDescribeMs && describe)
     {
         nextDescribeMs = nowMs + 2000;
         auto service = game::ScriptService("NightCoopDowned");
@@ -356,7 +358,7 @@ void RunTest(uint64_t nowMs, bool partnerHere, const LogFunction& log)
             log(std::string("test downed: ") + text.c_str());
         }
     }
-    if (TestDone || !partnerHere || !FallsInForce)
+    if (drops >= MostTestDrops || !partnerHere || !FallsInForce)
     {
         return;
     }
@@ -364,15 +366,12 @@ void RunTest(uint64_t nowMs, bool partnerHere, const LogFunction& log)
     {
         TestAtMs = nowMs + 5000;
     }
-    if (nowMs < TestAtMs)
+    if (nowMs < TestAtMs || OurState != StateUp)
     {
         return;
     }
-    if (TestDone)
-    {
-        return;
-    }
-    TestDone = true;
+    TestAtMs = nowMs + TestDropAgainMs;
+    ++drops;
     static auto* dropHealth = game::FindFunction("NightCoopDowned", "TestDropHealth");
     auto service = game::ScriptService("NightCoopDowned");
     RED4ext::StackArgs_t noArgs;
@@ -381,6 +380,7 @@ void RunTest(uint64_t nowMs, bool partnerHere, const LogFunction& log)
         return;
     }
     game::CallMethod(service.instance, dropHealth, nullptr, noArgs);
-    log("test downed: our health set to 1 %");
+    log("test downed: our health set to 1 % (drop " + std::to_string(drops) + " of " + std::to_string(MostTestDrops) +
+        ", a second heart may take the first one)");
 }
 }
