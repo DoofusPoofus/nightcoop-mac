@@ -634,6 +634,14 @@ int main()
           "hack sync is 23 bytes");
     hack.Serial = 0;
     Check(!ReadHackSync(WriteHackSync(hack), hackBack), "a hack sync without serial is refused");
+    RewardWord reward {kRewardQuest, 0x18a9e8e769ULL, 3, 0};
+    RewardWord rewardBack;
+    const auto rewardBytes = WriteRewardWord(reward);
+    Check(rewardBytes.size() == 22 && rewardBytes[4] == 238 && ReadRewardWord(rewardBytes, rewardBack) && rewardBack.Reward == 0x18a9e8e769ULL &&
+              rewardBack.Serial == 3,
+          "reward word is 22 bytes with the header");
+    reward.Reward = 0;
+    Check(!ReadRewardWord(WriteRewardWord(reward), rewardBack), "a quest reward without record is refused");
     Check(KeepClaimFlag(19) && !KeepClaimFlag(15) && KeepPlayerHitFlag(15) && !KeepPlayerHitFlag(9), "claim and player hit flag filters");
     DialogBallot ballot;
     ballot.VoteId = 3;

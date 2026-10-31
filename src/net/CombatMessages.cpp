@@ -213,6 +213,31 @@ bool ReadHackSync(const std::vector<uint8_t>& message, HackSync& hack)
            (hack.Kind == kHackOnNpc || (hack.Flags & kHackFlagVisual) == 0) && hack.Serial != 0 && hack.ActionRecord != 0 && kindNetIdOk;
 }
 
+std::vector<uint8_t> WriteRewardWord(const RewardWord& word)
+{
+    nc::proto::Writer writer(static_cast<nc::proto::MsgType>(kRewardWordType));
+    writer.PutU8(word.Kind);
+    writer.PutU64(word.Reward);
+    writer.PutU32(word.Serial);
+    writer.PutU32(word.NetId);
+    return writer.Data();
+}
+
+bool ReadRewardWord(const std::vector<uint8_t>& message, RewardWord& word)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (!OpenMessage(reader, static_cast<nc::proto::MsgType>(kRewardWordType)))
+    {
+        return false;
+    }
+    word.Kind = reader.GetU8();
+    word.Reward = reader.GetU64();
+    word.Serial = reader.GetU32();
+    word.NetId = reader.GetU32();
+    const bool kindOk = (word.Kind == kRewardQuest && word.Reward != 0) || (word.Kind == kRewardPartnerDefeat && word.NetId != 0);
+    return reader.Ok() && reader.Remaining() == 0 && kindOk;
+}
+
 std::vector<uint8_t> WritePlayerHit(const PlayerHit& hit)
 {
     nc::proto::Writer writer(nc::proto::MsgType::PlayerHit);

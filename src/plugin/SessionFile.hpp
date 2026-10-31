@@ -22,6 +22,7 @@
                          land in our own save)
    test_help             in a save f gets held down for 2 s evry 8 s to help a downed probe up (testing only)
    test_downed           in a save our health drops to 1 % once a partner is there so the fall and a revive can be checked (testing only)
+   rewards any_world     take the hosts quest rewards (guest) or send ours (host) in any world not only the hosts (testing only)
    test_claim            in a save our script claims 40 % of the first partner npc copy evry 5 s as if our player hit it (testing only)
    test_vehicle          in a save a car spawns next to our player and we get mounted at its wheel (testing only)
    test_loot [REC [N]]   loot sharing on even outside the hosts world and 10 s after a partner is there N x REC (default
@@ -59,6 +60,7 @@ struct SessionPlan
     bool TestVehicle = false;
     bool TestDowned = false;
     bool TestClaim = false;
+    bool RewardsAnyWorld = false;
     bool TestHelp = false;
     bool WorldHandoff = false;
     bool ShareNpcsAlways = false;

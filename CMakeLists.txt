@@ -99,6 +99,7 @@ add_library(NightCoopMac SHARED
   src/plugin/PlayerSampler.cpp
   src/plugin/QuestSync.cpp
   src/plugin/RemoteBodies.cpp
+  src/plugin/Rewards.cpp
   src/plugin/RttiDump.cpp
   src/plugin/SessionFile.cpp
   src/plugin/SessionFlow.cpp

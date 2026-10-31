@@ -44,6 +44,7 @@
 #include "plugin/PlayerSampler.hpp"
 #include "plugin/QuestSync.hpp"
 #include "plugin/RemoteBodies.hpp"
+#include "plugin/Rewards.hpp"
 #include "plugin/RttiDump.hpp"
 #include "plugin/SessionFlow.hpp"
 #include "plugin/TestKeys.hpp"
@@ -502,6 +503,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             Npcs->OnMessage(message.FromPeer, message.Message, nowMs, Session->GetStatus().MyPeerNumber);
         }
+        else if (nightcoop_mac::rewards::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
+        {
+            nightcoop_mac::rewards::OnMessage(message.FromPeer, message.Message, nightcoop_mac::world_handoff::InHostWorld() || Plan->RewardsAnyWorld, Log);
+        }
         else if (nightcoop_mac::npc_handoffs::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {
             nightcoop_mac::npc_handoffs::OnMessage(message.FromPeer, message.Message, nowMs, *Npcs, *OurNpcs, *Session, Log);
@@ -542,6 +547,15 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     Cars->Tick(nowMs, inSave, *Session, *Bodies);
     Npcs->Tick(nowMs, inSave, *Session);
     nightcoop_mac::npc_combat::Tick(nowMs, inSave, Plan->TestClaim, *Npcs, *OurNpcs, *Session, Log);
+    {
+        bool partnerInOurWorld = Plan->RewardsAnyWorld && !RemotePeerViews().empty();
+        for (const auto& view : RemotePeerViews())
+        {
+            partnerInOurWorld = partnerInOurWorld || nightcoop_mac::partner_roster::PeerInHostWorld(view.PeerNumber);
+        }
+        nightcoop_mac::rewards::Tick(nowMs, inSave, Session->GetStatus().MyPeerNumber == 0, partnerInOurWorld,
+                                     nightcoop_mac::world_handoff::InHostWorld() || Plan->RewardsAnyWorld, *Session, Log);
+    }
     if (inSave && nowMs >= NextCombatBodiesMs)
     {
         NextCombatBodiesMs = nowMs + 1000;

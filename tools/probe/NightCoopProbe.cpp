@@ -21,6 +21,8 @@
  PROBE_NPC_WEAPON=0x<record> then. HitClaims on it get answered like an owner (HitResult NpcDespawn 3 with the killer at 0 %)
  PROBE_CLAIM claims 35 % of the first npc the host shares evry 2 s
  PROBE_HACK=1 quickhacks the first npc the host shares with QuickHack.BlindLvl1Hack evry 4 s (HackSync completion)
+ PROBE_REWARD=<reward record name> on the host sends it as a quest reward (RewardWord kind 1) evry 10 s, the joiner prints
+ the hosts rewards
  PROBE_FAR=<meters> moves the joiners walk that far along x from where it was asked to stand
  PROBE_TAKE=1 takes the first npc the host hands over (NpcHandoffAck + NpcClaim 3), owns it for 100 steps and lets it go,
  without it evry offer gets refused
@@ -549,6 +551,21 @@ private:
     uint32_t m_printedRevision = 0;
 };
 
+uint64_t RecordId(const char* name)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    size_t length = 0;
+    for (const char* letter = name; *letter; ++letter, ++length)
+    {
+        crc ^= static_cast<uint8_t>(*letter);
+        for (int bit = 0; bit < 8; ++bit)
+        {
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        }
+    }
+    return static_cast<uint64_t>(~crc) | (static_cast<uint64_t>(length) << 32);
+}
+
 int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
 {
     bool printedCode = false;
@@ -599,9 +616,12 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     float guestX = 0;
     float guestY = 0;
     float guestZ = 0;
-    const bool staysUp = clock || hostSave || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests;
+    const char* probeReward = std::getenv("PROBE_REWARD");
+    const bool staysUp = clock || hostSave || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward;
     auto deadline = std::chrono::steady_clock::now() + (staysUp ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
+    auto nextReward = std::chrono::steady_clock::now() + 20s;
+    uint32_t rewardSerial = 0;
     std::vector<uint8_t> saveBytes;
     std::vector<uint8_t> metadataBytes;
     size_t saveSent = 0;
@@ -609,6 +629,14 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     uint32_t servingPeer = 0;
     while (std::chrono::steady_clock::now() < deadline)
     {
+        if (probeReward && session.GetStatus().ConnectedPeers > 0 && std::chrono::steady_clock::now() >= nextReward)
+        {
+            nextReward = std::chrono::steady_clock::now() + 10s;
+            nightcoop_mac::net::RewardWord word {nightcoop_mac::net::kRewardQuest, RecordId(probeReward), ++rewardSerial, 0};
+            session.SendGameMessage(nightcoop_mac::net::WriteRewardWord(word));
+            std::printf("probe: sent our quest reward %s (#%u)\n", probeReward, rewardSerial);
+            std::fflush(stdout);
+        }
         if ((hostSave || probeQuests) && session.GetStatus().ConnectedPeers > 0 && std::chrono::steady_clock::now() >= nextRoster)
         {
             nextRoster = std::chrono::steady_clock::now() + 2s;
@@ -835,21 +863,6 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
         std::this_thread::sleep_for(20ms);
     }
     return 2;
-}
-
-uint64_t RecordId(const char* name)
-{
-    uint32_t crc = 0xFFFFFFFFu;
-    size_t length = 0;
-    for (const char* letter = name; *letter; ++letter, ++length)
-    {
-        crc ^= static_cast<uint8_t>(*letter);
-        for (int bit = 0; bit < 8; ++bit)
-        {
-            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
-        }
-    }
-    return static_cast<uint64_t>(~crc) | (static_cast<uint64_t>(length) << 32);
 }
 
 uint64_t NameHash(const char* name)
@@ -1557,6 +1570,12 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                     takenAtStep = step;
                     session.SendGameMessage(nightcoop_mac::net::WriteNpcClaim({offered.Spawn.NetId, nightcoop_mac::net::kClaimAfterHandoff, message.FromPeer}));
                 }
+                continue;
+            }
+            nightcoop_mac::net::RewardWord hostReward;
+            if (nightcoop_mac::net::ReadRewardWord(message.Message, hostReward))
+            {
+                std::printf("probe: peer %u quest reward %#llx (#%u)\n", message.FromPeer, static_cast<unsigned long long>(hostReward.Reward), hostReward.Serial);
                 continue;
             }
             nightcoop_mac::net::HackSync hackOnUs;
