@@ -9,6 +9,8 @@
  usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z [STEPS [LOOKFILE [CLOTHESFILE]]]] | watch CODE HUB [seconds]
  CLOTHESFILE is a PlayerLook (31) as it is (the plugin writes own-clothes.bin), sent right after the look
  its look (PlayerCustomization 33) is LOOKFILE as it is (the plugin writes own-look.bin) or a male look with no parts
+ PROBE_WEAPON=0x<tweakdbid> in the environment makes the joiner hold that weapon and fire a shot evry 2 s (aim + shoot flags),
+ and the joiner prints the hosts weapon fields whenever they change
  HUB looks like 127.0.0.1:47900#FINGERPRINT
 */
 #include "net/GameMessages.hpp"
@@ -35,6 +37,7 @@ using namespace std::chrono_literals;
 int WalkSteps = 150;
 std::string LookFile;
 std::string ClothesFile;
+uint64_t ProbeWeapon = 0;
 float WalkStartX = -1300.0f;
 float WalkStartY = 1200.0f;
 float WalkStartZ = 18.0f;
@@ -188,6 +191,15 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint32_t animBatches = 0;
     uint32_t animInputs = 0;
     uint32_t fullStates = 0;
+    uint64_t hostWeapon = 0;
+    uint32_t hostShots = 0;
+    uint16_t hostWeaponFlags = 0;
+    uint8_t hostWeaponState = 0;
+    if (const char* weapon = std::getenv("PROBE_WEAPON"))
+    {
+        ProbeWeapon = std::strtoull(weapon, nullptr, 0);
+        std::printf("probe: holding weapon %#llx and shooting evry 2 s\n", static_cast<unsigned long long>(ProbeWeapon));
+    }
     for (int step = 0; step < WalkSteps; ++step)
     {
         nightcoop_mac::net::PlayerState state;
@@ -198,10 +210,34 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
         state.Yaw = 90.0f;
         state.Speed = 5.0f;
         state.Flags = (step / 40) % 2 ? 1 : 0;
+        if (ProbeWeapon)
+        {
+            state.RightWeaponRecord = ProbeWeapon;
+            state.RightShotCount = static_cast<uint32_t>(step / 25);
+            const bool shooting = step % 25 < 3;
+            state.WeaponState = shooting ? 8 : 5;
+            state.UpperBodyState = 6;
+            state.Flags |= 0x04 | (shooting ? 0x40 : 0);
+        }
         session.SetLocalPlayerState(state);
         if (step % 5 == 0)
         {
             session.SendGameMessage(MakeTestAnimBatch(step));
+        }
+        for (const auto& hostState : session.TakeRemotePlayerStates())
+        {
+            const uint16_t weaponFlags = hostState.Flags & 0x80C4;
+            if (hostState.RightWeaponRecord != hostWeapon || hostState.RightShotCount != hostShots || weaponFlags != hostWeaponFlags ||
+                hostState.WeaponState != hostWeaponState)
+            {
+                hostWeapon = hostState.RightWeaponRecord;
+                hostShots = hostState.RightShotCount;
+                hostWeaponFlags = weaponFlags;
+                hostWeaponState = hostState.WeaponState;
+                std::printf("probe: peer %u weapon %#llx shots %u weapon state %u upper body %u flags %#x\n", hostState.PeerNumber,
+                            static_cast<unsigned long long>(hostWeapon), hostShots, hostWeaponState, hostState.UpperBodyState, weaponFlags);
+                std::fflush(stdout);
+            }
         }
         for (const auto& message : session.TakeGameMessages())
         {

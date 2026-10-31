@@ -26,6 +26,7 @@
  cutscene V body is used: an unbuilt second player brings a second camera and hud, an unpatched one attaches as a local player.
  'body player_without_scripts' skips the script check, only for testing the builder at the main menu
  once in the world a body gets the partners clothes (Wardrobe), PlayerPuppet bodies after their third person head is in.
+ a second after it showed up it also holds the partners weapons and plays their shots (Weapons).
  like nightcoop a body waits up to 5 s for the partners look before it spawns. body_record / body_template override it.
  bodies get character records like nightcoops: Character.TPP_Player_Cutscene_Male / _Female for the V body and
  Character.Player_Puppet_Base for the PlayerPuppet one. a template path alone makes codeware invent a SpawnableObject record
@@ -40,6 +41,7 @@
 #include "net/LookMessages.hpp"
 #include "net/SessionMessages.hpp"
 #include "plugin/Wardrobe.hpp"
+#include "plugin/Weapons.hpp"
 
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/ResourcePath.hpp>
@@ -120,6 +122,7 @@ private:
         uint64_t NextThirdPersonPassMs = 0;
         uint32_t ThirdPersonPasses = 0;
         bool HeadWaitLogged = false;
+        weapons::Held Weapons;
     };
 
     bool ResolveApi();
@@ -140,6 +143,7 @@ private:
     void ShowThirdPerson(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body);
     std::string PlayerBodyTemplate(bool male);
     void DressIfNeeded(uint32_t peerNumber, Puppet& puppet, const RemotePeerView& peer, uint64_t nowMs);
+    void ArmIfNeeded(uint32_t peerNumber, Puppet& puppet, const net::PlayerState& state, uint64_t nowMs);
     bool TagAsPartnerBody(RED4ext::IScriptable* spec);
 
     LogFunction m_log;

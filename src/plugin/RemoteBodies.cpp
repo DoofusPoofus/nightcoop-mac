@@ -656,10 +656,11 @@ void RemoteBodies::ReportPolicy(uint32_t peerNumber, Puppet& puppet, float drift
     game::CallMethod(component, m_getDistanceToDestination, &toDestination, noArgs);
     game::CallMethod(component, m_isPathfindingFailed, &pathFailed, noArgs);
     game::CallMethod(component, m_isPausedByDynamicCollision, &paused, noArgs);
-    char line[200];
-    std::snprintf(line, sizeof(line), "bodies: peer %u policy: drift %.2f m, action %s, toDest %.2f, pathFailed %d, paused %d, speed %.2f, type %u, teleports %u",
+    char line[240];
+    std::snprintf(line, sizeof(line),
+                  "bodies: peer %u policy: drift %.2f m, action %s, toDest %.2f, pathFailed %d, paused %d, speed %.2f, type %u, teleports %u, shots played %u",
                   peerNumber, drift, action < 8 ? LocomotionActionNames[action] : "?", toDestination, pathFailed, paused, puppet.SmoothedSpeed,
-                  puppet.AppliedMovementType, puppet.Teleports);
+                  puppet.AppliedMovementType, puppet.Teleports, puppet.Weapons.ShotsPlayed);
     m_log(line);
 }
 
@@ -882,6 +883,7 @@ void RemoteBodies::Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers
         }
         Advance(peerNumber, puppet, *peer->second, nowMs);
         DressIfNeeded(peerNumber, puppet, *views[peerNumber], nowMs);
+        ArmIfNeeded(peerNumber, puppet, *peer->second, nowMs);
         ++puppetEntry;
     }
 
@@ -963,6 +965,19 @@ void RemoteBodies::DressIfNeeded(uint32_t peerNumber, Puppet& puppet, const Remo
         const uint32_t turned = wardrobe::TurnToThirdPerson(body);
         m_log("bodies: peer " + std::to_string(peerNumber) + " third person pass " + std::to_string(puppet.ThirdPersonPasses) + ": " +
               std::to_string(turned) + " first person appearance(s) turned, " + wardrobe::DescribeHead(body));
+    }
+}
+
+void RemoteBodies::ArmIfNeeded(uint32_t peerNumber, Puppet& puppet, const net::PlayerState& state, uint64_t nowMs)
+{
+    if (!puppet.InWorld || nowMs - puppet.InWorldMs < 1000)
+    {
+        return;
+    }
+    RED4ext::Handle<RED4ext::IScriptable> body;
+    if (GetBody(peerNumber, body))
+    {
+        weapons::Hold(peerNumber, body, state, puppet.Weapons, nowMs, m_log);
     }
 }
 

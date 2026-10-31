@@ -43,18 +43,18 @@ int main()
     PlayerState state;
     state.PeerNumber = 2;
     state.PositionX = -1300.5f;
-    state.Unknown70 = 77;
-    state.Unknown7C = 9;
+    state.LeftWeaponRecord = 77;
+    state.LeftWeaponState = 9;
     const auto stateBytes = WritePlayerState(state);
     Check(stateBytes.size() == 5 + 106, "player state size");
     PlayerState parsedState;
-    Check(ReadPlayerState(stateBytes, parsedState) && parsedState.PositionX == -1300.5f && parsedState.Unknown70 == 77 &&
-              parsedState.Unknown7C == 9 && parsedState.Bytes54[5] == 100 && parsedState.Bytes54[13] == 115,
+    Check(ReadPlayerState(stateBytes, parsedState) && parsedState.PositionX == -1300.5f && parsedState.LeftWeaponRecord == 77 &&
+              parsedState.LeftWeaponState == 9 && parsedState.Bytes54[5] == 100 && parsedState.Bytes54[13] == 115,
           "player state round trip");
 
     std::vector<uint8_t> withoutTail(stateBytes.begin(), stateBytes.end() - 13);
     PlayerState shortState;
-    Check(ReadPlayerState(withoutTail, shortState) && shortState.Unknown70 == 0 && shortState.Unknown7C == 0,
+    Check(ReadPlayerState(withoutTail, shortState) && shortState.LeftWeaponRecord == 0 && shortState.LeftWeaponState == 0,
           "player state without the 13 byte tail");
 
     PlayerState farAway = state;

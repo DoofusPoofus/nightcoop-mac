@@ -1,5 +1,7 @@
 #include "plugin/PlayerSampler.hpp"
 
+#include "plugin/Weapons.hpp"
+
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
@@ -114,6 +116,11 @@ bool PlayerSampler::Sample(net::PlayerState& state, uint64_t nowMs)
     const bool sprinting = !crouching && speed > SprintAboveMetersPerSecond;
     state.Flags = static_cast<uint16_t>((crouching ? CrouchFlag : 0) | (sprinting ? SprintFlag : 0));
     state.LocomotionState = crouching ? PsmLocomotionCrouch : (sprinting ? PsmLocomotionSprint : PsmLocomotionDefault);
+    weapons::OwnWeapons ownWeapons;
+    if (weapons::ReadOwnWeapons(player, ownWeapons, m_log))
+    {
+        weapons::PutInState(ownWeapons, state);
+    }
     return true;
 }
 }

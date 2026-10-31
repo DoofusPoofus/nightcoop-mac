@@ -50,6 +50,7 @@ add_library(NightCoopMac SHARED
   src/plugin/BodyRecords.cpp
   src/plugin/CrashNotes.cpp
   src/plugin/GameVersion.cpp
+  src/plugin/Items.cpp
   src/plugin/LookStates.cpp
   src/plugin/GameCalls.cpp
   src/plugin/PartnerBodyBuilder.cpp
@@ -60,7 +61,8 @@ add_library(NightCoopMac SHARED
   src/plugin/SessionFile.cpp
   src/plugin/SessionFlow.cpp
   src/plugin/TestKeys.cpp
-  src/plugin/Wardrobe.cpp)
+  src/plugin/Wardrobe.cpp
+  src/plugin/Weapons.cpp)
 target_include_directories(NightCoopMac PRIVATE src)
 target_link_libraries(NightCoopMac PRIVATE nightcoop_mac_net RED4ext::SDK "-framework CoreFoundation" "-framework AppKit" objc)
 target_link_options(NightCoopMac PRIVATE -Wl,-dead_strip)

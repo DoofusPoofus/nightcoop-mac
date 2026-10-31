@@ -154,6 +154,21 @@ bool WriteRttiDumpIfRequested(const std::filesystem::path& pluginFolder)
         {
             WriteClass(out, rtti, name);
         }
+        else if (kind == "classes")
+        {
+            RED4ext::DynArray<RED4ext::CClass*> classes;
+            rtti->GetClasses(rtti->GetClass("IScriptable"), classes, nullptr, true);
+            uint32_t written = 0;
+            for (auto* classType : classes)
+            {
+                const std::string className = classType->name.ToString();
+                if (className.find(name) != std::string::npos && written++ < 40)
+                {
+                    WriteClass(out, rtti, className);
+                }
+            }
+            out << "classes with " << name << " in the name: " << written << "\n\n";
+        }
         else if (kind == "enum")
         {
             auto* enumType = rtti->GetEnum(name.c_str());

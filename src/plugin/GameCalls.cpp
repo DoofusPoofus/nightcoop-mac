@@ -21,19 +21,20 @@ RED4ext::CBaseFunction* FindFunction(const char* className, const char* function
     {
         return function;
     }
-    const RED4ext::CName shortName(functionName);
-    for (uint32_t index = 0; index < classType->funcs.Size(); ++index)
+    const RED4ext::CName wantedName(functionName);
+    auto named = [&wantedName](RED4ext::CBaseFunction* function) { return function->fullName == wantedName || function->shortName == wantedName; };
+    for (auto* function : classType->funcs)
     {
-        if (classType->funcs[index]->shortName == shortName)
+        if (named(function))
         {
-            return classType->funcs[index];
+            return function;
         }
     }
-    for (uint32_t index = 0; index < classType->staticFuncs.Size(); ++index)
+    for (auto* function : classType->staticFuncs)
     {
-        if (classType->staticFuncs[index]->shortName == shortName)
+        if (named(function))
         {
-            return classType->staticFuncs[index];
+            return function;
         }
     }
     return nullptr;

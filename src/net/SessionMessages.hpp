@@ -7,8 +7,10 @@
    forwards to evry other peer. fields with offset names are ones we havent pinned down yet but the bytes
    still go thru untouched so nothing breaks for windows peers
    Flags comes from the players state machine: bit0 crouch (locomotion Crouch / CrouchSprint / CrouchDodge),
-   bit1 sprint, bit2 or bit6 aiming, bit7 reloading. the three state bytes after it are the raw gamePSM
-   locomotion / upper body / weapon states
+   bit1 sprint, bit2 aiming (upper body Aim), bit6 shooting (a hand in Shoot), bit7 reloading, bit15 silenced weapon.
+   the three state bytes after it are the raw gamePSM locomotion / upper body / RightWeapon states
+   weapons ride along: right shot count (cumulative, a partner plays the new ones) and right weapon record, then in the
+   tail the left weapon record (dual wield only), its shot count and its gamePSM LeftWeapon state
  PlayerCustomization (33): u8 version (1) | u32 | u8 is male | u8 | the look lists. only the gender is read here
 */
 #pragma once
@@ -50,20 +52,20 @@ struct PlayerState
     uint8_t LocomotionState = 0;
     uint8_t UpperBodyState = 0;
     uint8_t WeaponState = 0;
-    uint32_t Unknown30 = 0;
-    uint64_t Unknown38 = 0;
-    float Unknown40 = 1.0f;
-    float Unknown44 = 1.0f;
+    uint32_t RightShotCount = 0;
+    uint64_t RightWeaponRecord = 0;
+    float Health = 1.0f;
+    float TimeDilation = 1.0f;
     float Unknown48 = 0;
     float Unknown4C = 0;
     float Unknown50 = 0;
     uint8_t Bytes54[14] = {0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 115};
-    float Unknown64 = 0;
+    float AimYawOffset = 0;
     uint8_t Unknown68 = 255;
     uint8_t Unknown69 = 0;
-    uint64_t Unknown70 = 0;
-    uint32_t Unknown78 = 0;
-    uint8_t Unknown7C = 0;
+    uint64_t LeftWeaponRecord = 0;
+    uint32_t LeftShotCount = 0;
+    uint8_t LeftWeaponState = 0;
 };
 
 std::vector<uint8_t> WriteHello(uint64_t clientId, const std::string& nickname, uint64_t gameVersion, uint64_t installId);

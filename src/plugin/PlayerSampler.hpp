@@ -4,7 +4,8 @@
  GetPlayer gets called as the static function it is with no context. the sdk helper that looks up
  cpPlayerSystem wraps the raw system pointer in a new Handle and on mac that ends up destroying the system
  crouch comes from PlayerPuppet.inCrouch and sprint from speed (over 6.5 m/s), they go out in Flags and the
- locomotion state byte the same way nightcoops player bridge fills them from the state machine
+ locomotion state byte the same way nightcoops player bridge fills them from the state machine. weapons (records, shots,
+ weapon states, aim / shoot / reload) come from the weapons module
  if a function cant be found it says so once and stays off
 */
 #pragma once
