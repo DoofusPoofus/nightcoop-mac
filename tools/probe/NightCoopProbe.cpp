@@ -23,6 +23,7 @@
  PROBE_FAR=<meters> moves the joiners walk that far along x from where it was asked to stand
  PROBE_TAKE=1 takes the first npc the host hands over (NpcHandoffAck + NpcClaim 3), owns it for 100 steps and lets it go,
  without it evry offer gets refused
+ PROBE_OFFER=1 (with PROBE_NPC) hands its npc to the host at step 120 and stops driving it
  PROBE_MIRROR shares one of the hosts own npcs back to it as our npc (same record entity id keys and spot) for 120 steps
  so the host should make its own npc our puppet and give it back after
  PROBE_HIT=<attack record name> (with PROBE_NPC) says our npc hit the hosts body with that attack evry 3 s (PlayerHit)
@@ -1129,6 +1130,21 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             session.SendGameMessage(nightcoop_mac::net::WritePlayerHit(hit), 0);
             std::printf("probe: told the host our npc hit their body (%s = %#llx)\n", hitRecord, static_cast<unsigned long long>(hit.Details.AttackRecord));
         }
+        if (std::getenv("PROBE_OFFER") && std::getenv("PROBE_NPC") && !probeNpcDead && step == 120)
+        {
+            nightcoop_mac::net::NpcHandoff offer;
+            offer.Spawn.NetId = (session.GetStatus().MyPeerNumber << 24) | 7;
+            offer.Spawn.Record = std::strtoull(std::getenv("PROBE_NPC"), nullptr, 0);
+            offer.Spawn.Position[0] = state.PositionX;
+            offer.Spawn.Position[1] = state.PositionY + 2.0f;
+            offer.Spawn.Position[2] = state.PositionZ;
+            offer.Snapshot.NetId = offer.Spawn.NetId;
+            std::memcpy(offer.Snapshot.Position, offer.Spawn.Position, sizeof(offer.Snapshot.Position));
+            offer.Snapshot.OwnerClockMs = session.SessionClockMs();
+            session.SendGameMessage(nightcoop_mac::net::WriteNpcHandoff(offer), 0);
+            probeNpcDead = true;
+            std::printf("probe: offered our npc %#010x to the host\n", offer.Spawn.NetId);
+        }
         if (tookNpc && !takenReleased)
         {
             nightcoop_mac::net::NpcSpawn takenSpawn = takenNpc.Spawn;
@@ -1495,6 +1511,19 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                     hostNpcAnimAsked = true;
                     session.SendGameMessage(nightcoop_mac::net::WriteNpcAnimWant({npcAnim.Unknown00, true, true}), static_cast<int32_t>(message.FromPeer));
                 }
+                continue;
+            }
+            nightcoop_mac::net::NpcHandoffAck offerAnswer;
+            if (nightcoop_mac::net::ReadNpcHandoffAck(message.Message, offerAnswer))
+            {
+                std::printf("probe: peer %u %s our npc %#010x (their entity %#llx, reason %u)\n", message.FromPeer, offerAnswer.Accepted ? "took" : "refused",
+                            offerAnswer.NetId, static_cast<unsigned long long>(offerAnswer.Entity), offerAnswer.Reason);
+                continue;
+            }
+            nightcoop_mac::net::NpcClaim seenClaim;
+            if (nightcoop_mac::net::ReadNpcClaim(message.Message, seenClaim))
+            {
+                std::printf("probe: peer %u claims npc %#010x from peer %u (kind %u)\n", message.FromPeer, seenClaim.NetId, seenClaim.FromPeer, seenClaim.Kind);
                 continue;
             }
             nightcoop_mac::net::NpcHandoff offered;

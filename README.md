@@ -12,7 +12,7 @@ works in a save with the probe:
 - partner body with look clothes guns anims name plate n map pin
 - cars n riding together both ways
 - getting downed n helped up
-- npcs shared both ways with anims states weapons attitude n health. the same person in ur own world becomes the owners puppet instead of a double
+- npcs shared both ways with anims states weapons attitude n health. the same person in ur own world becomes the owners puppet instead of a double n npcs get handed over to whoever is nearer (both ways)
 - shooting a partners npc (hit claims) n the killer gets the reward
 - quest facts n journal mirror (host to guest)
 - giving items n dropped loot bags
