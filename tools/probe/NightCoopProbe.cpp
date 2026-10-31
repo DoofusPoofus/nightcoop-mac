@@ -31,9 +31,15 @@
  PROBE_REVIVE=1 makes the joiner stand still and help the host up (PlayerRevive) 3 s after the host is down (flag 0x100)
  PROBE_WEAPON=0x<tweakdbid> in the environment makes the joiner hold that weapon and fire a shot evry 2 s (aim + shoot flags),
  and the joiner prints the hosts weapon fields whenever they change (health, camera and velocity evry 100 states)
+ PROBE_DIALOG=<option>[,<rows>] on the host opens a choice vote evry 30 s (DialogBallot with rows fake options, 3 by default,
+ then DialogTally), decides the option the guest votes for right away or <option> after 20 s (shared time + 1.5 s), sends a
+ DialogLine evry 6 s and stays up for 10 min. on the joiner it prints the hosts ballots, tallies, lines and skips, votes for
+ <option> 2 s after a ballot, walks for at least 4 min and sends one scene skip press (SceneLineSkip) at step 100 and its end
+ at step 140
  HUB looks like 127.0.0.1:47900#FINGERPRINT
 */
 #include "net/DoorMessages.hpp"
+#include "net/DialogMessages.hpp"
 #include "net/GameMessages.hpp"
 #include "net/LookMessages.hpp"
 #include "net/RelaySession.hpp"
@@ -55,6 +61,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <set>
 #include <string>
 #include <thread>
@@ -72,6 +79,88 @@ float WalkStartY = 1200.0f;
 float WalkStartZ = 18.0f;
 constexpr auto ProbeTimeout = 30s;
 
+struct ProbeDialogPlan
+{
+    bool Enabled = false;
+    int8_t Option = 0;
+    uint8_t Rows = 3;
+};
+
+ProbeDialogPlan ReadProbeDialogPlan()
+{
+    ProbeDialogPlan plan;
+    const char* setting = std::getenv("PROBE_DIALOG");
+    if (!setting)
+    {
+        return plan;
+    }
+    plan.Enabled = true;
+    char* rest = nullptr;
+    plan.Option = static_cast<int8_t>(std::clamp<long>(std::strtol(setting, &rest, 0), 0, 15));
+    if (rest && *rest == ',')
+    {
+        plan.Rows = static_cast<uint8_t>(std::clamp<long>(std::strtol(rest + 1, nullptr, 0), 1, 16));
+    }
+    plan.Option = std::min<int8_t>(plan.Option, static_cast<int8_t>(plan.Rows - 1));
+    return plan;
+}
+
+void PrintBallot(uint32_t fromPeer, const nightcoop_mac::net::DialogBallot& ballot)
+{
+    std::printf("probe: peer %u opened vote #%u '%s' flags %#x, %zu voter(s):", fromPeer, ballot.VoteId, ballot.Title.c_str(), ballot.Flags,
+                ballot.Voters.size());
+    for (size_t index = 0; index < ballot.Options.size(); ++index)
+    {
+        std::printf(" [%zu '%s' type %#x]", index, ballot.Options[index].Text.c_str(), ballot.Options[index].ChoiceType);
+    }
+    std::printf("\n");
+    std::fflush(stdout);
+}
+
+void PrintTally(uint32_t fromPeer, const nightcoop_mac::net::DialogTally& tally, uint64_t sessionClockMs)
+{
+    std::printf("probe: peer %u tally of vote #%u: state %u option %d needed %u, votes", fromPeer, tally.VoteId, tally.State, tally.Option, tally.Needed);
+    for (const auto& vote : tally.Votes)
+    {
+        std::printf(" [peer %u -> %d]", vote.Peer, vote.Option);
+    }
+    std::printf(", %zu voter(s)", tally.Voters.size());
+    if (tally.SharedTime)
+    {
+        std::printf(", goes at %llu (in %lld ms)", static_cast<unsigned long long>(tally.SharedTime),
+                    static_cast<long long>(tally.SharedTime) - static_cast<long long>(sessionClockMs));
+    }
+    std::printf("\n");
+    std::fflush(stdout);
+}
+
+bool PrintSceneSkip(uint32_t fromPeer, const std::vector<uint8_t>& message)
+{
+    nightcoop_mac::net::SceneLineSkip skip;
+    if (!nightcoop_mac::net::ReadSceneLineSkip(message, skip))
+    {
+        return false;
+    }
+    std::printf("probe: peer %u says peer %u %s (scene %#llx, %u ms, flags %#x)\n", fromPeer, skip.Peer,
+                skip.Flags & nightcoop_mac::net::kSkipPress ? "started a scene fast forward" : "ended its scene fast forward",
+                static_cast<unsigned long long>(skip.SceneId), skip.Milliseconds, skip.Flags);
+    std::fflush(stdout);
+    return true;
+}
+
+void SendProbeSkip(nightcoop_mac::net::RelaySession& session, bool press, uint32_t milliseconds)
+{
+    nightcoop_mac::net::SceneLineSkip skip;
+    skip.Peer = session.GetStatus().MyPeerNumber;
+    skip.SceneId = 1;
+    skip.Milliseconds = milliseconds;
+    skip.SharedTime = std::max<uint64_t>(session.SessionClockMs(), 1);
+    skip.Flags = press ? nightcoop_mac::net::kSkipPress : 0;
+    skip.Places.push_back({1, 0x1234, 1});
+    session.SendGameMessage(nightcoop_mac::net::WriteSceneLineSkip(skip));
+    std::printf("probe: sent a scene fast forward %s\n", press ? "press" : "end");
+}
+
 int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
 {
     bool printedCode = false;
@@ -85,7 +174,34 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto nextDoorFlip = std::chrono::steady_clock::now() + 8s;
     bool probeDoorOpen = false;
     uint64_t probeDoorVersion = 0;
-    auto deadline = std::chrono::steady_clock::now() + (clock || hostSave || probeDoorKey ? 600s : ProbeTimeout);
+    const ProbeDialogPlan dialogPlan = ReadProbeDialogPlan();
+    auto deadline = std::chrono::steady_clock::now() + (clock || hostSave || probeDoorKey || dialogPlan.Enabled ? 600s : ProbeTimeout);
+    auto nextBallot = std::chrono::steady_clock::now() + 5s;
+    auto nextDialogLine = std::chrono::steady_clock::now() + 6s;
+    auto ballotDeadline = std::chrono::steady_clock::time_point::max();
+    nightcoop_mac::net::DialogBallot openBallot;
+    std::map<uint32_t, int8_t> ballotVotes;
+    uint32_t ballotsOpened = 0;
+    uint32_t dialogLinesSent = 0;
+    bool voteModeSent = false;
+    auto decideVote = [&](int8_t option, uint8_t state) {
+        nightcoop_mac::net::DialogTally tally;
+        tally.VoteId = openBallot.VoteId;
+        tally.State = state;
+        tally.Option = option;
+        tally.Needed = static_cast<uint8_t>(openBallot.Voters.size() / 2 + 1);
+        for (const auto& [peer, vote] : ballotVotes)
+        {
+            tally.Votes.push_back({peer, vote});
+        }
+        tally.Voters = openBallot.Voters;
+        tally.SharedTime = session.SessionClockMs() + 1500;
+        session.SendGameMessage(nightcoop_mac::net::WriteDialogTally(tally));
+        std::printf("probe: vote #%u decided: option %d '%s' at %llu%s\n", openBallot.VoteId, option, openBallot.Options[static_cast<size_t>(option)].Text.c_str(),
+                    static_cast<unsigned long long>(tally.SharedTime), state == nightcoop_mac::net::kTallyDecidedByTime ? " (by time)" : "");
+        std::fflush(stdout);
+        ballotDeadline = std::chrono::steady_clock::time_point::max();
+    };
     auto nextRoster = std::chrono::steady_clock::now();
     std::vector<uint8_t> saveBytes;
     std::vector<uint8_t> metadataBytes;
@@ -119,8 +235,73 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
                         probeDoorOpen ? "open" : "closed", static_cast<unsigned long long>(probeDoorVersion));
             std::fflush(stdout);
         }
+        if (dialogPlan.Enabled && session.GetStatus().ConnectedPeers > 0)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            if (!voteModeSent)
+            {
+                voteModeSent = true;
+                session.SendGameMessage(nightcoop_mac::net::WriteVoteModeWord({1, nightcoop_mac::net::kVoteModeMajority, 0}));
+            }
+            if (now >= nextBallot)
+            {
+                nextBallot = now + 30s;
+                ballotDeadline = now + 20s;
+                ballotVotes.clear();
+                openBallot = {};
+                openBallot.VoteId = ++ballotsOpened;
+                openBallot.Title = "probe vote";
+                for (uint8_t row = 0; row < dialogPlan.Rows; ++row)
+                {
+                    openBallot.Options.push_back({"probe option " + std::to_string(row + 1), 0});
+                }
+                openBallot.Voters = {0, 1};
+                session.SendGameMessage(nightcoop_mac::net::WriteDialogBallot(openBallot));
+                nightcoop_mac::net::DialogTally openTally;
+                openTally.VoteId = openBallot.VoteId;
+                openTally.Needed = 2;
+                openTally.Voters = openBallot.Voters;
+                session.SendGameMessage(nightcoop_mac::net::WriteDialogTally(openTally));
+                std::printf("probe: opened vote #%u with %u option(s), the guest has 20 s to vote\n", openBallot.VoteId, dialogPlan.Rows);
+                std::fflush(stdout);
+            }
+            if (now >= ballotDeadline)
+            {
+                decideVote(dialogPlan.Option, nightcoop_mac::net::kTallyDecidedByTime);
+            }
+            if (now >= nextDialogLine)
+            {
+                nextDialogLine = now + 6s;
+                nightcoop_mac::net::DialogLine line;
+                line.LineId = 0x5000 + ++dialogLinesSent;
+                line.LineType = 1;
+                line.Seconds = 3.0f;
+                line.Speaker = "Probe Host";
+                line.Text = "probe line " + std::to_string(dialogLinesSent);
+                line.Language = "en-us";
+                session.SendGameMessage(nightcoop_mac::net::WriteDialogLine(line));
+            }
+        }
         for (const auto& message : session.TakeGameMessages())
         {
+            nightcoop_mac::net::DialogVote dialogVote;
+            if (dialogPlan.Enabled && nightcoop_mac::net::ReadDialogVote(message.Message, dialogVote))
+            {
+                std::printf("probe: peer %u votes %d in vote #%u\n", message.FromPeer, dialogVote.Option, dialogVote.VoteId);
+                std::fflush(stdout);
+                if (dialogVote.VoteId == openBallot.VoteId && ballotDeadline != std::chrono::steady_clock::time_point::max() && dialogVote.Option >= 0 &&
+                    static_cast<size_t>(dialogVote.Option) < openBallot.Options.size())
+                {
+                    ballotVotes[message.FromPeer] = dialogVote.Option;
+                    ballotVotes[0] = dialogVote.Option;
+                    decideVote(dialogVote.Option, nightcoop_mac::net::kTallyDecided);
+                }
+                continue;
+            }
+            if (dialogPlan.Enabled && PrintSceneSkip(message.FromPeer, message.Message))
+            {
+                continue;
+            }
             nightcoop_mac::net::WorldWant want;
             nightcoop_mac::net::WorldStatus worldStatus;
             nightcoop_mac::net::DoorSync guestDoor;
@@ -205,7 +386,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
         }
         for (const auto& state : session.TakeRemotePlayerStates())
         {
-            if ((clock || hostSave || probeDoorKey) && statesSeen++ % 100 != 0)
+            if ((clock || hostSave || probeDoorKey || dialogPlan.Enabled) && statesSeen++ % 100 != 0)
             {
                 continue;
             }
@@ -213,7 +394,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
                         state.PositionX, state.PositionY, state.PositionZ, state.Yaw, state.Speed,
                         static_cast<unsigned long long>(state.SessionTimeMs));
             std::fflush(stdout);
-            if (!clock && !hostSave && !probeDoorKey && ++statesSeen >= statesToWaitFor)
+            if (!clock && !hostSave && !probeDoorKey && !dialogPlan.Enabled && ++statesSeen >= statesToWaitFor)
             {
                 return 0;
             }
@@ -409,8 +590,27 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
         ProbeWeapon = std::strtoull(weapon, nullptr, 0);
         std::printf("probe: holding weapon %#llx and shooting evry 2 s\n", static_cast<unsigned long long>(ProbeWeapon));
     }
+    const ProbeDialogPlan dialogPlan = ReadProbeDialogPlan();
+    if (dialogPlan.Enabled)
+    {
+        WalkSteps = std::max(WalkSteps, 3000);
+        std::printf("probe: voting for option %d in the hosts choice votes\n", dialogPlan.Option);
+    }
+    nightcoop_mac::net::DialogBallot hostBallot;
+    int voteAtStep = -1;
     for (int step = 0; step < WalkSteps; ++step)
     {
+        if (dialogPlan.Enabled && step == voteAtStep && !hostBallot.Options.empty())
+        {
+            const int8_t option = std::min<int8_t>(dialogPlan.Option, static_cast<int8_t>(hostBallot.Options.size() - 1));
+            const uint32_t item = static_cast<size_t>(option) < hostBallot.RowIds.size() ? hostBallot.RowIds[static_cast<size_t>(option)].Item : 0;
+            session.SendGameMessage(nightcoop_mac::net::WriteDialogVote({hostBallot.VoteId, option, item}), 0);
+            std::printf("probe: voted for option %d '%s' in vote #%u\n", option, hostBallot.Options[static_cast<size_t>(option)].Text.c_str(), hostBallot.VoteId);
+        }
+        if (dialogPlan.Enabled && (step == 100 || step == 140))
+        {
+            SendProbeSkip(session, step == 100, step == 140 ? 3200 : 0);
+        }
         nightcoop_mac::net::PlayerState state;
         const int stepInLeg = step % 300;
         state.PositionX = WalkStartX + (probeRevives || probeDoorKey ? 0.0f : (stepInLeg < 150 ? stepInLeg : 300 - stepInLeg) * 0.05f);
@@ -814,6 +1014,38 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                 {
                     probeDoorVersionSeen = std::max(probeDoorVersionSeen, hostDoor.Version);
                 }
+                continue;
+            }
+            nightcoop_mac::net::DialogBallot ballot;
+            nightcoop_mac::net::DialogTally tally;
+            nightcoop_mac::net::DialogLine dialogLine;
+            nightcoop_mac::net::VoteModeWord voteMode;
+            if (nightcoop_mac::net::ReadDialogBallot(message.Message, ballot))
+            {
+                PrintBallot(message.FromPeer, ballot);
+                hostBallot = ballot;
+                voteAtStep = step + 25;
+                continue;
+            }
+            if (nightcoop_mac::net::ReadDialogTally(message.Message, tally))
+            {
+                PrintTally(message.FromPeer, tally, session.SessionClockMs());
+                continue;
+            }
+            if (nightcoop_mac::net::ReadDialogLine(message.Message, dialogLine))
+            {
+                std::printf("probe: peer %u line %#llx type %u %.1f s '%s': '%s' (%s)\n", message.FromPeer, static_cast<unsigned long long>(dialogLine.LineId),
+                            dialogLine.LineType, dialogLine.Seconds, dialogLine.Speaker.c_str(), dialogLine.Text.c_str(), dialogLine.Language.c_str());
+                std::fflush(stdout);
+                continue;
+            }
+            if (nightcoop_mac::net::ReadVoteModeWord(message.Message, voteMode))
+            {
+                std::printf("probe: peer %u decides choices by %s\n", message.FromPeer, voteMode.Mode ? "everyone" : "majority");
+                continue;
+            }
+            if (PrintSceneSkip(message.FromPeer, message.Message))
+            {
                 continue;
             }
             nightcoop_mac::net::LiftSync lift;

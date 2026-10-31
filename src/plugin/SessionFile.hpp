@@ -25,10 +25,13 @@
    body_gender male|female  force the V body gender instead of taking it from the partners look
    body_record REC       spawn partner bodies from an npc record instead of the cutscene V
    body_template PATH    spawn partner bodies from another .ent template
+   dialogs off|everyone  off: no choice votes (each player picks alone like the game). everyone: evry partner counts as in the
+                         hosts world and near for votes and subtitles, wherever they are (testing with a probe)
  HUB is host:port#FINGERPRINT. lines starting with # are skipped. no file means the plugin just idles
 */
 #pragma once
 
+#include "plugin/DialogScenes.hpp"
 #include "plugin/RemoteBodies.hpp"
 
 #include <optional>
@@ -54,6 +57,7 @@ struct SessionPlan
     bool ShareNpcsAlways = false;
     bool ShareDoors = false;
     BodySettings Bodies;
+    dialog_scenes::DialogSettings Dialogs;
 };
 
 std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string& problem);
