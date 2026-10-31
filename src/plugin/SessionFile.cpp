@@ -65,6 +65,10 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
         {
             plan.ShareNpcsAlways = true;
         }
+        else if (keyword == "share_doors")
+        {
+            plan.ShareDoors = true;
+        }
         else if (keyword == "handoff")
         {
             plan.WorldHandoff = true;

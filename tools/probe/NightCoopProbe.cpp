@@ -19,6 +19,10 @@
  sends a float and an event evry step after that. npcs the host shares get counted with their NpcAnim batches, the first one
  gets a NpcAnimWant
  PROBE_LIFT=1 makes the joiner ask the host for a lift that does not exist (LiftSync kind 3) and print the answer
+ PROBE_DOOR=0x<door key> (the game logs keys as doors: our door 0x...) makes the joiner stand still at X Y Z (so its body can
+ hold that door open) and tell the host about that door evry 200 steps (DoorSync kind 1: opened at step 30 / closed by itself
+ at 80 / quest ForceLock at 120 / quest ForceUnlock at 160) printing evry DoorSync that comes back. on the host it flips that
+ door open / closed for evryone evry 8 s (kind 2) and takes evry kind 1 a guest sends (answer with the request number) for 10 min
  PROBE_RIDE=1 makes the joiner sit in the front right seat of the car the host shares (VehicleSeat evry step)
  PROBE_DOWN=1 makes the joiner lie downed (flag 0x100) right next to the host (0.5 m) until a PlayerRevive comes
  PROBE_REVIVE=1 makes the joiner stand still and help the host up (PlayerRevive) 3 s after the host is down (flag 0x100)
@@ -26,6 +30,7 @@
  and the joiner prints the hosts weapon fields whenever they change (health, camera and velocity evry 100 states)
  HUB looks like 127.0.0.1:47900#FINGERPRINT
 */
+#include "net/DoorMessages.hpp"
 #include "net/GameMessages.hpp"
 #include "net/LookMessages.hpp"
 #include "net/RelaySession.hpp"
@@ -71,7 +76,12 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     const uint32_t clockSeconds = clock ? static_cast<uint32_t>(std::strtoul(clock, nullptr, 0)) : 0;
     auto nextClock = std::chrono::steady_clock::now();
     const char* hostSave = std::getenv("PROBE_HOST_SAVE");
-    auto deadline = std::chrono::steady_clock::now() + (clock || hostSave ? 600s : ProbeTimeout);
+    const char* doorKeyText = std::getenv("PROBE_DOOR");
+    const uint64_t probeDoorKey = doorKeyText ? std::strtoull(doorKeyText, nullptr, 0) : 0;
+    auto nextDoorFlip = std::chrono::steady_clock::now() + 8s;
+    bool probeDoorOpen = false;
+    uint64_t probeDoorVersion = 0;
+    auto deadline = std::chrono::steady_clock::now() + (clock || hostSave || probeDoorKey ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
     std::vector<uint8_t> saveBytes;
     std::vector<uint8_t> metadataBytes;
@@ -89,11 +99,47 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             roster.Entries.push_back({0, "probe host", nightcoop_mac::net::kWhereInWorld, 0, nightcoop_mac::net::kRoleHost, 0x80, 0, 0, "", {}, ""});
             session.SendGameMessage(nightcoop_mac::net::WriteSessionRoster(roster));
         }
+        if (probeDoorKey && session.GetStatus().ConnectedPeers > 0 && std::chrono::steady_clock::now() >= nextDoorFlip)
+        {
+            nextDoorFlip = std::chrono::steady_clock::now() + 8s;
+            probeDoorOpen = !probeDoorOpen;
+            probeDoorVersion = std::max(probeDoorVersion + 1, session.SessionClockMs());
+            nightcoop_mac::net::DoorSync flip;
+            flip.Kind = nightcoop_mac::net::kDoorShared;
+            flip.DoorKey = probeDoorKey;
+            flip.State = probeDoorOpen ? nightcoop_mac::net::kDoorOpen : 0;
+            flip.Changed = nightcoop_mac::net::kDoorOpen;
+            flip.Version = probeDoorVersion;
+            session.SendGameMessage(nightcoop_mac::net::WriteDoorSync(flip));
+            std::printf("probe: door %#llx goes %s for evryone (version %llu)\n", static_cast<unsigned long long>(probeDoorKey),
+                        probeDoorOpen ? "open" : "closed", static_cast<unsigned long long>(probeDoorVersion));
+            std::fflush(stdout);
+        }
         for (const auto& message : session.TakeGameMessages())
         {
             nightcoop_mac::net::WorldWant want;
             nightcoop_mac::net::WorldStatus worldStatus;
-            if (hostSave && nightcoop_mac::net::ReadWorldWant(message.Message, want))
+            nightcoop_mac::net::DoorSync guestDoor;
+            if (probeDoorKey && nightcoop_mac::net::ReadDoorSync(message.Message, guestDoor) && guestDoor.Kind == nightcoop_mac::net::kDoorTell)
+            {
+                std::printf("probe: peer %u says door %#llx is state %u (changed %u cause %u quest ops %#x side %u #%u from version %llu) at %.1f %.1f %.1f, "
+                            "taking it\n",
+                            message.FromPeer, static_cast<unsigned long long>(guestDoor.DoorKey), guestDoor.State, guestDoor.Changed, guestDoor.Cause,
+                            guestDoor.QuestOps, guestDoor.Side, guestDoor.RequestNumber, static_cast<unsigned long long>(guestDoor.Version),
+                            guestDoor.Position[0], guestDoor.Position[1], guestDoor.Position[2]);
+                std::fflush(stdout);
+                probeDoorVersion = std::max(probeDoorVersion + 1, session.SessionClockMs());
+                nightcoop_mac::net::DoorSync taken = guestDoor;
+                taken.Kind = nightcoop_mac::net::kDoorShared;
+                taken.Peer = message.FromPeer;
+                taken.Version = probeDoorVersion;
+                session.SendGameMessage(nightcoop_mac::net::WriteDoorSync(taken), static_cast<int32_t>(message.FromPeer));
+                if (guestDoor.DoorKey == probeDoorKey)
+                {
+                    probeDoorOpen = (guestDoor.State & nightcoop_mac::net::kDoorOpen) != 0;
+                }
+            }
+            else if (hostSave && nightcoop_mac::net::ReadWorldWant(message.Message, want))
             {
                 std::printf("probe: peer %u wants our world (reason %u), sending %s\n", message.FromPeer, want.Reason, hostSave);
                 std::ifstream save(std::string(hostSave) + "/sav.dat", std::ios::binary);
@@ -155,7 +201,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
         }
         for (const auto& state : session.TakeRemotePlayerStates())
         {
-            if ((clock || hostSave) && statesSeen++ % 100 != 0)
+            if ((clock || hostSave || probeDoorKey) && statesSeen++ % 100 != 0)
             {
                 continue;
             }
@@ -163,7 +209,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
                         state.PositionX, state.PositionY, state.PositionZ, state.Yaw, state.Speed,
                         static_cast<unsigned long long>(state.SessionTimeMs));
             std::fflush(stdout);
-            if (!clock && !hostSave && ++statesSeen >= statesToWaitFor)
+            if (!clock && !hostSave && !probeDoorKey && ++statesSeen >= statesToWaitFor)
             {
                 return 0;
             }
@@ -302,6 +348,14 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint16_t hostWeaponFlags = 0;
     uint8_t hostWeaponState = 0;
     const bool probeRevives = std::getenv("PROBE_REVIVE") != nullptr || std::getenv("PROBE_RIDE") != nullptr;
+    const char* doorKeyText = std::getenv("PROBE_DOOR");
+    const uint64_t probeDoorKey = doorKeyText ? std::strtoull(doorKeyText, nullptr, 0) : 0;
+    uint64_t probeDoorVersionSeen = 0;
+    uint16_t probeDoorRequest = static_cast<uint16_t>(std::chrono::steady_clock::now().time_since_epoch().count() | 1);
+    if (probeDoorKey)
+    {
+        std::printf("probe: standing at the door %#llx\n", static_cast<unsigned long long>(probeDoorKey));
+    }
     const bool probeRides = std::getenv("PROBE_RIDE") != nullptr;
     uint32_t hostCarNetId = 0;
     bool rideSent = false;
@@ -328,7 +382,7 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     {
         nightcoop_mac::net::PlayerState state;
         const int stepInLeg = step % 300;
-        state.PositionX = WalkStartX + (probeRevives ? 0.0f : (stepInLeg < 150 ? stepInLeg : 300 - stepInLeg) * 0.05f);
+        state.PositionX = WalkStartX + (probeRevives || probeDoorKey ? 0.0f : (stepInLeg < 150 ? stepInLeg : 300 - stepInLeg) * 0.05f);
         state.PositionY = WalkStartY;
         state.PositionZ = WalkStartZ;
         state.Yaw = 90.0f;
@@ -442,6 +496,53 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             request.RequestKind = 1;
             session.SendGameMessage(nightcoop_mac::net::WriteLiftSync(request), 0);
             std::printf("probe: asked the host for lift 0x1234 to floor 2\n");
+        }
+        const int doorStep = step % 200;
+        if (probeDoorKey && (doorStep == 30 || doorStep == 80 || doorStep == 120 || doorStep == 160))
+        {
+            nightcoop_mac::net::DoorSync tell;
+            tell.Kind = nightcoop_mac::net::kDoorTell;
+            tell.Peer = session.GetStatus().MyPeerNumber;
+            tell.DoorKey = probeDoorKey;
+            tell.Version = probeDoorVersionSeen;
+            if (++probeDoorRequest == 0)
+            {
+                ++probeDoorRequest;
+            }
+            tell.RequestNumber = probeDoorRequest;
+            tell.Position[0] = state.PositionX;
+            tell.Position[1] = state.PositionY;
+            tell.Position[2] = state.PositionZ;
+            const char* what = "opened it";
+            tell.Changed = nightcoop_mac::net::kDoorOpen;
+            if (doorStep == 30)
+            {
+                tell.State = nightcoop_mac::net::kDoorOpen;
+            }
+            else if (doorStep == 80)
+            {
+                tell.Cause = nightcoop_mac::net::kDoorCauseClosedByItself;
+                what = "it closed by itself";
+            }
+            else if (doorStep == 120)
+            {
+                tell.State = nightcoop_mac::net::kDoorLocked;
+                tell.Changed = nightcoop_mac::net::kDoorLocked;
+                tell.Cause = nightcoop_mac::net::kDoorCauseQuest;
+                tell.QuestOps = 1 << nightcoop_mac::net::kDoorOpForceLock;
+                what = "our quest locked it";
+            }
+            else
+            {
+                tell.Changed = nightcoop_mac::net::kDoorLocked;
+                tell.Cause = nightcoop_mac::net::kDoorCauseQuest;
+                tell.QuestOps = 1 << nightcoop_mac::net::kDoorOpForceUnlock;
+                what = "our quest unlocked it";
+            }
+            session.SendGameMessage(nightcoop_mac::net::WriteDoorSync(tell), 0);
+            std::printf("probe: told the host door %#llx: %s (#%u, from version %llu)\n", static_cast<unsigned long long>(probeDoorKey), what,
+                        tell.RequestNumber, static_cast<unsigned long long>(probeDoorVersionSeen));
+            std::fflush(stdout);
         }
         if (probeRides && hostCarNetId)
         {
@@ -571,6 +672,19 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                     crouchInput.Name = NameHash("crouch");
                     fullState.Entries = {speedInput, crouchInput};
                     session.SendGameMessage(nightcoop_mac::net::WriteNpcAnim(fullState), static_cast<int32_t>(message.FromPeer));
+                }
+                continue;
+            }
+            nightcoop_mac::net::DoorSync hostDoor;
+            if (nightcoop_mac::net::ReadDoorSync(message.Message, hostDoor))
+            {
+                std::printf("probe: peer %u door %#llx kind %u state %u changed %u cause %u quest ops %#x actor %u version %llu request %u\n",
+                            message.FromPeer, static_cast<unsigned long long>(hostDoor.DoorKey), hostDoor.Kind, hostDoor.State, hostDoor.Changed,
+                            hostDoor.Cause, hostDoor.QuestOps, hostDoor.Peer, static_cast<unsigned long long>(hostDoor.Version), hostDoor.RequestNumber);
+                std::fflush(stdout);
+                if (hostDoor.Kind == nightcoop_mac::net::kDoorShared && hostDoor.DoorKey == probeDoorKey)
+                {
+                    probeDoorVersionSeen = std::max(probeDoorVersionSeen, hostDoor.Version);
                 }
                 continue;
             }
