@@ -116,6 +116,11 @@ bool Vehicles::Resolve()
     m_boneFromSlot = game::FindFunction("vehicleBaseObject", "GetBoneNameFromSlot");
     m_animsetForPassenger = game::FindFunction("vehicleBaseObject", "GetAnimsetOverrideForPassenger");
     m_specClass = RED4ext::CRTTISystem::Get()->GetClass("DynamicEntitySpec");
+    m_findEntity = game::FindFunction("ScriptGameInstance", "FindEntityByID");
+    if (!game::ParamsAre(m_findEntity, {"ScriptGameInstance", "entEntityID"}))
+    {
+        m_findEntity = nullptr;
+    }
     m_getMountingFacility = game::FindFunction("ScriptGameInstance", "GetMountingFacility");
     m_getMountingInfo = game::FindFunction("gamemountingIMountingFacility", "GetMountingInfoSingleWithIds");
     m_mount = game::FindFunction("gamemountingIMountingFacility", "Mount");
@@ -185,6 +190,60 @@ RED4ext::Handle<RED4ext::IScriptable> Vehicles::EntityOf(uint64_t entityHash)
     args.emplace_back(nullptr, &entityId);
     game::CallMethod(m_dynamicEntitySystem.instance, m_getEntity, &entity, args);
     return entity;
+}
+
+RED4ext::Handle<RED4ext::IScriptable> Vehicles::VehicleOf(uint32_t netId)
+{
+    auto mirror = m_mirrors.find(netId);
+    if (mirror != m_mirrors.end())
+    {
+        return mirror->second.InWorld ? EntityOf(mirror->second.EntityHash) : RED4ext::Handle<RED4ext::IScriptable>();
+    }
+    RED4ext::Handle<RED4ext::IScriptable> ours;
+    if (netId && netId == m_share.NetId && m_share.EntityHash && m_findEntity)
+    {
+        RED4ext::ScriptGameInstance gameInstance;
+        RED4ext::ent::EntityID entityId(m_share.EntityHash);
+        RED4ext::StackArgs_t args;
+        args.emplace_back(nullptr, &gameInstance);
+        args.emplace_back(nullptr, &entityId);
+        game::CallStatic(m_findEntity, &ours, args);
+    }
+    return ours;
+}
+
+uint64_t Vehicles::OurSeatSlot(RED4ext::Handle<RED4ext::IScriptable>& player)
+{
+    uint64_t slot = RED4ext::CName(DriverSeat).hash;
+    if (!m_getMountingInfo)
+    {
+        return slot;
+    }
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::Handle<RED4ext::IScriptable> mounting;
+    RED4ext::StackArgs_t mountingArgs;
+    mountingArgs.emplace_back(nullptr, &gameInstance);
+    RED4ext::StackArgs_t noArgs;
+    uint64_t playerHash = 0;
+    game::CallMethod(player.instance, m_getEntityId, &playerHash, noArgs);
+    if (game::CallStatic(m_getMountingFacility, &mounting, mountingArgs) && mounting)
+    {
+        RED4ext::ent::EntityID child(playerHash);
+        RED4ext::ent::EntityID anyParent;
+        RED4ext::CName anySlot;
+        uint8_t info[24] = {};
+        RED4ext::StackArgs_t infoArgs;
+        infoArgs.emplace_back(nullptr, &child);
+        infoArgs.emplace_back(nullptr, &anyParent);
+        infoArgs.emplace_back(nullptr, &anySlot);
+        uint64_t mountedSlot = 0;
+        if (game::CallMethod(mounting.instance, m_getMountingInfo, info, infoArgs))
+        {
+            std::memcpy(&mountedSlot, info + 16, sizeof(mountedSlot));
+        }
+        slot = mountedSlot ? mountedSlot : slot;
+    }
+    return slot;
 }
 
 void Vehicles::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs)
@@ -287,6 +346,7 @@ void Vehicles::ShareOurCar(uint64_t nowMs, net::RelaySession& session)
         game::CallMethod(player.instance, m_getMountedVehicle, &vehicle, noArgs);
     }
     uint64_t vehicleHash = 0;
+    uint32_t ridingNetId = 0;
     if (vehicle)
     {
         game::CallMethod(vehicle.instance, m_getEntityId, &vehicleHash, noArgs);
@@ -295,8 +355,32 @@ void Vehicles::ShareOurCar(uint64_t nowMs, net::RelaySession& session)
             if (mirror.EntityHash == vehicleHash)
             {
                 vehicleHash = 0;
+                ridingNetId = netId;
             }
         }
+    }
+    if (ridingNetId)
+    {
+        const uint64_t slot = OurSeatSlot(player);
+        const bool changed = m_ride.NetId != ridingNetId || m_ride.Slot != slot;
+        if (changed || nowMs >= m_ride.NextSeatMs)
+        {
+            net::VehicleSeat seat;
+            seat.NetId = ridingNetId;
+            seat.Slot = slot;
+            session.SendGameMessage(net::WriteVehicleSeat(seat), net::kEveryPeer, changed);
+            if (changed)
+            {
+                m_log("vehicles: we ride in partner car " + NetIdText(ridingNetId));
+            }
+            m_ride = RideSeat {ridingNetId, slot, nowMs + SeatEveryMs};
+        }
+    }
+    else if (m_ride.NetId)
+    {
+        session.SendGameMessage(net::WriteVehicleSeat(net::VehicleSeat {}));
+        m_log("vehicles: we got out of partner car " + NetIdText(m_ride.NetId));
+        m_ride = RideSeat {};
     }
     const uint32_t ourPeer = session.GetStatus().MyPeerNumber;
     if (!vehicleHash)
@@ -331,32 +415,7 @@ void Vehicles::ShareOurCar(uint64_t nowMs, net::RelaySession& session)
     game::CallMethod(vehicle.instance, m_getWorldOrientation, &orientation, noArgs);
     game::CallMethod(vehicle.instance, m_getLinearVelocity, &velocity, noArgs);
     game::CallMethod(vehicle.instance, m_isEngineOn, &engineOn, noArgs);
-    uint64_t slot = RED4ext::CName(DriverSeat).hash;
-    if (m_getMountingInfo)
-    {
-        RED4ext::Handle<RED4ext::IScriptable> mounting;
-        RED4ext::StackArgs_t mountingArgs;
-        mountingArgs.emplace_back(nullptr, &gameInstance);
-        uint64_t playerHash = 0;
-        game::CallMethod(player.instance, m_getEntityId, &playerHash, noArgs);
-        if (game::CallStatic(m_getMountingFacility, &mounting, mountingArgs) && mounting)
-        {
-            RED4ext::ent::EntityID child(playerHash);
-            RED4ext::ent::EntityID anyParent;
-            RED4ext::CName anySlot;
-            uint8_t info[24] = {};
-            RED4ext::StackArgs_t infoArgs;
-            infoArgs.emplace_back(nullptr, &child);
-            infoArgs.emplace_back(nullptr, &anyParent);
-            infoArgs.emplace_back(nullptr, &anySlot);
-            uint64_t mountedSlot = 0;
-            if (game::CallMethod(mounting.instance, m_getMountingInfo, info, infoArgs))
-            {
-                std::memcpy(&mountedSlot, info + 16, sizeof(mountedSlot));
-            }
-            slot = mountedSlot ? mountedSlot : slot;
-        }
-    }
+    const uint64_t slot = OurSeatSlot(player);
     if (nowMs >= m_share.NextSpawnMs)
     {
         RED4ext::TweakDBID record;
@@ -610,11 +669,10 @@ void Vehicles::SeatPartners(uint64_t nowMs, RemoteBodies& bodies)
             seat.MountedNetId = 0;
             continue;
         }
-        const bool wantsSeat = seat.NetId != 0 && m_mirrors.count(seat.NetId) && m_mirrors[seat.NetId].InWorld;
+        const bool wantsSeat = seat.NetId != 0 && VehicleOf(seat.NetId);
         if (seat.MountedNetId && (!wantsSeat || seat.MountedNetId != seat.NetId || seat.MountedSlot != seat.Slot))
         {
-            auto mounted = m_mirrors.find(seat.MountedNetId);
-            auto vehicle = mounted != m_mirrors.end() ? EntityOf(mounted->second.EntityHash) : RED4ext::Handle<RED4ext::IScriptable>();
+            auto vehicle = VehicleOf(seat.MountedNetId);
             if (vehicle)
             {
                 Unmount(vehicle, body);
@@ -628,7 +686,7 @@ void Vehicles::SeatPartners(uint64_t nowMs, RemoteBodies& bodies)
         {
             continue;
         }
-        auto vehicle = EntityOf(m_mirrors[seat.NetId].EntityHash);
+        auto vehicle = VehicleOf(seat.NetId);
         if (!vehicle)
         {
             continue;
@@ -700,6 +758,16 @@ void Vehicles::RunTestCar(uint64_t nowMs)
     {
         return;
     }
+    for (const auto& [netId, mirror] : m_mirrors)
+    {
+        if (!m_testCarHash && mirror.InWorld && mirror.EntityHash)
+        {
+            m_testCarHash = mirror.EntityHash;
+            m_testCarSpawnedMs = nowMs;
+            m_testRidesMirror = true;
+            m_log("test car: a partner car " + NetIdText(netId) + " is here, getting in next to its driver");
+        }
+    }
     if (!m_testCarHash)
     {
         RED4ext::Vector4 position {};
@@ -734,7 +802,7 @@ void Vehicles::RunTestCar(uint64_t nowMs)
         return;
     }
     auto car = EntityOf(m_testCarHash);
-    if (!car || nowMs - m_testCarSpawnedMs < 3000)
+    if (!car || nowMs - m_testCarSpawnedMs < (m_testRidesMirror ? 1000u : 3000u))
     {
         return;
     }
@@ -749,7 +817,7 @@ void Vehicles::RunTestCar(uint64_t nowMs)
     }
     uint64_t playerHash = 0;
     game::CallMethod(player.instance, m_getEntityId, &playerHash, noArgs);
-    const RED4ext::CName seat(DriverSeat);
+    const RED4ext::CName seat(m_testRidesMirror ? "seat_front_right" : DriverSeat);
     auto* options = static_cast<RED4ext::IScriptable*>(optionsClass->CreateInstance(true));
     RED4ext::Handle<RED4ext::IScriptable> optionsHandle(options);
     auto* data = static_cast<RED4ext::IScriptable*>(dataClass->CreateInstance(true));
@@ -775,7 +843,7 @@ void Vehicles::RunTestCar(uint64_t nowMs)
         RED4ext::StackArgs_t mountArgs;
         mountArgs.emplace_back(nullptr, &requestHandle);
         game::CallMethod(mounting.instance, m_mount, nullptr, mountArgs);
-        m_log("test car: asked the mounting facility to put our player at its wheel");
+        m_log("test car: asked the mounting facility to seat our player");
     }
     m_testMounted = true;
 }

@@ -12,6 +12,7 @@
  PROBE_CLOCK=<game seconds> makes the host send that GameClock evry 5 s to its guests and stay up for 10 min
  PROBE_VEHICLE=0x<tweakdbid> makes the joiner share a car of that record it drives along its walk (VehicleSpawn evry ~5 s,
  VehicleState and VehicleSeat evry step), and the joiner prints the hosts vehicle messages
+ PROBE_RIDE=1 makes the joiner sit in the front right seat of the car the host shares (VehicleSeat evry step)
  PROBE_DOWN=1 makes the joiner lie downed (flag 0x100) right next to the host (0.5 m) until a PlayerRevive comes
  PROBE_REVIVE=1 makes the joiner stand still and help the host up (PlayerRevive) 3 s after the host is down (flag 0x100)
  PROBE_WEAPON=0x<tweakdbid> in the environment makes the joiner hold that weapon and fire a shot evry 2 s (aim + shoot flags),
@@ -218,7 +219,10 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint32_t hostShots = 0;
     uint16_t hostWeaponFlags = 0;
     uint8_t hostWeaponState = 0;
-    const bool probeRevives = std::getenv("PROBE_REVIVE") != nullptr;
+    const bool probeRevives = std::getenv("PROBE_REVIVE") != nullptr || std::getenv("PROBE_RIDE") != nullptr;
+    const bool probeRides = std::getenv("PROBE_RIDE") != nullptr;
+    uint32_t hostCarNetId = 0;
+    bool rideSent = false;
     bool probeLiesDown = std::getenv("PROBE_DOWN") != nullptr;
     bool hostPositionKnown = false;
     float hostX = 0;
@@ -300,6 +304,18 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             seat.Slot = NameHash("seat_front_left");
             session.SendGameMessage(nightcoop_mac::net::WriteVehicleSeat(seat), nightcoop_mac::net::kEveryPeer, step == 0);
         }
+        if (probeRides && hostCarNetId)
+        {
+            nightcoop_mac::net::VehicleSeat ride;
+            ride.NetId = hostCarNetId;
+            ride.Slot = NameHash("seat_front_right");
+            session.SendGameMessage(nightcoop_mac::net::WriteVehicleSeat(ride), nightcoop_mac::net::kEveryPeer, !rideSent);
+            if (!rideSent)
+            {
+                std::printf("probe: sitting in the hosts car %#010x\n", hostCarNetId);
+                rideSent = true;
+            }
+        }
         if (step % 5 == 0)
         {
             session.SendGameMessage(MakeTestAnimBatch(step));
@@ -377,6 +393,7 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             {
                 std::printf("probe: peer %u shares car %#010x record %#llx at %.1f %.1f %.1f\n", message.FromPeer, hostCar.NetId,
                             static_cast<unsigned long long>(hostCar.Record), hostCar.Position[0], hostCar.Position[1], hostCar.Position[2]);
+                hostCarNetId = hostCar.NetId;
                 continue;
             }
             if (nightcoop_mac::net::ReadSessionRoster(message.Message, roster))
