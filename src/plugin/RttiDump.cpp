@@ -5,6 +5,9 @@
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
 
 #include <dlfcn.h>
+#include <mach-o/dyld.h>
+
+#include <cstring>
 
 #include <cstdio>
 #include <fstream>
@@ -165,6 +168,27 @@ bool WriteRttiDumpIfRequested(const std::filesystem::path& pluginFolder)
                 out << "  " << enumType->hashList[index].ToString() << " = " << enumType->valueList[index] << "\n";
             }
             out << "\n";
+        }
+        else if (kind == "peek")
+        {
+            Dl_info info {};
+            dladdr(reinterpret_cast<void*>(&WriteRttiDumpIfRequested), &info);
+            uintptr_t gameBase = 0;
+            for (uint32_t index = 0; index < _dyld_image_count(); ++index)
+            {
+                const char* imageName = _dyld_get_image_name(index);
+                if (imageName && std::strstr(imageName, "/Contents/MacOS/Cyberpunk2077"))
+                {
+                    gameBase = reinterpret_cast<uintptr_t>(_dyld_get_image_header(index));
+                }
+            }
+            const uintptr_t offset = std::stoull(name, nullptr, 16);
+            const auto* words = reinterpret_cast<const uintptr_t*>(gameBase + offset);
+            char line[200];
+            std::snprintf(line, sizeof(line), "peek game+%#lx: %#lx %#lx %#lx %#lx (as game offsets: %#lx %#lx)\n", static_cast<unsigned long>(offset),
+                          static_cast<unsigned long>(words[0]), static_cast<unsigned long>(words[1]), static_cast<unsigned long>(words[2]),
+                          static_cast<unsigned long>(words[3]), static_cast<unsigned long>(words[0] - gameBase), static_cast<unsigned long>(words[2] - gameBase));
+            out << line;
         }
         else if (kind == "vtable" || kind == "statevtable")
         {

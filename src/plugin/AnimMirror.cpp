@@ -83,7 +83,7 @@ void AnimMirror::OnGameMessage(uint32_t fromPeer, const std::vector<uint8_t>& me
     {
         if (m_wantLogged.insert(fromPeer).second)
         {
-            m_log("mirror: partner " + std::to_string(fromPeer) + " asks for our animation stream, the mac port cant record it yet");
+            m_log("mirror: partner " + std::to_string(fromPeer) + " asks for our animation stream (AnimTap answers with our full state)");
         }
     }
     else if (type == static_cast<uint8_t>(nc::proto::MsgType::PlayerAnimSetup))

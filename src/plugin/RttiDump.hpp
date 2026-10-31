@@ -6,6 +6,7 @@
    enum moveMovementType
    function GetPlayer;GameInstance
    vtable GetCharacterCustomizationSystem   (a ScriptGameInstance getter: its system objects vtable slots as game offsets)
+   peek 7da1500                              (4 words at game+offset, for statics that only get filled at runtime)
  the dump runs again 30 s into the Running state so game systems exist by then. only the vtable line calls anything (the getter)
 */
 #pragma once

@@ -10,6 +10,7 @@
                          player_without_scripts: player body even when its scripts are not compiled (testing only)
    bodies_in_menu        let bodies spawn in the main menu too (testing only, the session flow normally keeps them out)
    auto_continue         the main menu loads the newest save by itself (testing only)
+   test_moves            in a save the plugin presses c (crouch) 8 times, 3 s apart (testing only)
    body_gender male|female  force the V body gender instead of taking it from the partners look
    body_record REC       spawn partner bodies from an npc record instead of the cutscene V
    body_template PATH    spawn partner bodies from another .ent template
@@ -32,6 +33,7 @@ struct SessionPlan
     std::string Nickname = "guest";
     bool SamplePlayer = true;
     bool AutoContinue = false;
+    bool TestMoves = false;
     BodySettings Bodies;
 };
 

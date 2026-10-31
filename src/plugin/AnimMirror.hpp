@@ -8,7 +8,7 @@
  only slot 0 (the player graph) gets played, the body has no weapon to play slot 1 on
  when a partners body shows up it asks them for their full state with PlayerAnimWant, at most once a second like nightcoop
  evry 10 s it logs the stream per partner the way nightcoop does (batches, inputs, full states, undecodable, dropped)
- our own stream is not sent: recording it needs nightcoops native AnimTap hooks, so a PlayerAnimWant to us only gets logged
+ our own stream is recorded and sent by AnimTap, which also answers a PlayerAnimWant with our full state
 */
 #pragma once
 

@@ -10,12 +10,14 @@
  our look goes to partners as PlayerCustomization (33) when it changes (checked evry 2 s, sent again evry 20 s), a partners
  look becomes a state of its own (LookStates) that their body wears (PartnerLook). our clothes go out as PlayerLook (31) the same
  way (checked evry 250 ms, sent again evry 10 s) and a partners clothes get put on their body (Wardrobe)
+ AnimTap records the inputs the game writes into our players anim graph and sends them as PlayerAnim batches
  session-status.txt next to the plugin always says wats going on (the hosting code ends up there too)
  a crash in game code leaves crash-notes.txt there, naming the game objects the crashing thread had in its registers
 */
 #include "net/LookMessages.hpp"
 #include "net/RelaySession.hpp"
 #include "plugin/AnimMirror.hpp"
+#include "plugin/AnimTap.hpp"
 #include "plugin/CrashNotes.hpp"
 #include "plugin/GameVersion.hpp"
 #include "plugin/LookStates.hpp"
@@ -25,6 +27,7 @@
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/RttiDump.hpp"
 #include "plugin/SessionFlow.hpp"
+#include "plugin/TestKeys.hpp"
 #include "plugin/Wardrobe.hpp"
 #include "plugin/SessionFile.hpp"
 
@@ -80,6 +83,9 @@ constexpr uint64_t OwnLookResendMs = 20000;
 uint64_t NextOwnLookMs = 0;
 uint64_t NextAnsweredReportMs = 0;
 uint64_t NextTrafficReportMs = 0;
+uint64_t SaveSeenAtMs = 0;
+uint64_t NextTestMoveMs = 0;
+uint32_t TestMovesDone = 0;
 uint32_t AnsweredSinceReport = 0;
 uint64_t OwnLookSentMs = 0;
 uint64_t OwnLookFingerprint = 0;
@@ -352,6 +358,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             TakePeerClothes(message.FromPeer, message.Message);
         }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PlayerAnimWant))
+        {
+            nightcoop_mac::anim_tap::SendFullState(message.FromPeer, *Session);
+        }
         Mirror->OnGameMessage(message.FromPeer, message.Message, nowMs);
     }
     if (Plan->SamplePlayer && nowMs >= NextSampleMs)
@@ -370,6 +380,21 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             Session->SetLocalPlayerState(localState);
         }
         const bool bodiesAllowed = Flow->BodiesAllowed(nowMs);
+        if (Plan->TestMoves && bodiesAllowed)
+        {
+            if (!SaveSeenAtMs)
+            {
+                SaveSeenAtMs = nowMs;
+                NextTestMoveMs = nowMs + 8000;
+            }
+            if (TestMovesDone < 8 && nowMs >= NextTestMoveMs)
+            {
+                NextTestMoveMs = nowMs + 3000;
+                ++TestMovesDone;
+                nightcoop_mac::PressCrouchKey();
+                Log("test moves: pressed c (" + std::to_string(TestMovesDone) + " of 8)");
+            }
+        }
         if (Plan->AutoContinue)
         {
             Flow->AskForAutoContinue();
@@ -380,6 +405,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     ReportRemoteStates(nowMs);
     ShareOwnLook(nowMs);
     ShareOwnClothes(nowMs);
+    nightcoop_mac::anim_tap::Tick(nowMs, *Session);
     AnsweredSinceReport += nightcoop_mac::partner_look::TakeAnsweredCount();
     if (AnsweredSinceReport && nowMs >= NextAnsweredReportMs)
     {
@@ -404,6 +430,7 @@ bool OnRunningExit(RED4ext::CGameApplication*)
     {
         Mirror->ForgetAll();
     }
+    nightcoop_mac::anim_tap::Forget();
     if (Bodies)
     {
         Bodies->ForgetAll("forgotten, the game is closing", true);
@@ -445,6 +472,7 @@ void SetUpSession()
         return;
     }
     Log(Plan->IsHost ? "session.txt: host on " + Plan->Hub : "session.txt: join " + Plan->JoinCode + " on " + Plan->Hub);
+    nightcoop_mac::anim_tap::Install(GameSdk, PluginHandle, Log);
     if (Plan->Bodies.Enabled)
     {
         nightcoop_mac::partner_body_builder::Install(GameSdk, PluginHandle, Log);

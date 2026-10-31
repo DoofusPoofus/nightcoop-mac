@@ -184,6 +184,10 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             session.SendGameMessage(clothes);
         }
     }
+    session.SendGameMessage(nightcoop_mac::net::WriteAnimWant({true, true}), 0);
+    uint32_t animBatches = 0;
+    uint32_t animInputs = 0;
+    uint32_t fullStates = 0;
     for (int step = 0; step < WalkSteps; ++step)
     {
         nightcoop_mac::net::PlayerState state;
@@ -202,14 +206,22 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
         for (const auto& message : session.TakeGameMessages())
         {
             nightcoop_mac::net::AnimWant want;
+            nightcoop_mac::net::AnimBatch batch;
             if (nightcoop_mac::net::ReadAnimWant(message.Message, want))
             {
                 std::printf("probe: peer %u asked us for our full anim state (%d %d)\n", message.FromPeer, want.First, want.Second);
             }
+            else if (nightcoop_mac::net::ReadAnimBatch(message.Message, batch))
+            {
+                ++animBatches;
+                animInputs += static_cast<uint32_t>(batch.Entries.size());
+                fullStates += batch.FullState ? 1 : 0;
+            }
         }
         std::this_thread::sleep_for(80ms);
     }
-    std::printf("probe: walked %d steps\n", WalkSteps);
+    std::printf("probe: walked %d steps, got %u anim batch(es) with %u input(s) from the host, %u full state(s)\n", WalkSteps, animBatches,
+                animInputs, fullStates);
     return 0;
 }
 }
