@@ -4,7 +4,8 @@
  ours: the players equippedRightHandWeapon / equippedLeftHandWeapon (weak handles) -> GetItemID gives the records, the left
  one only goes out when it is tagged DualWield like nightcoop does. the psm blackboard (GetPlayerStateMachineBlackboard with
  GetAllBlackboardDefs().PlayerStateMachine) gives RightWeapon / LeftWeapon / UpperBody. a shot is a drop of the weapons
- MagazineAmmoCount (its GetSharedData blackboard) while the same weapon stays in that hand, so the counts only go up
+ MagazineAmmoCount (its GetSharedData blackboard) while the same weapon stays in that hand (a drop over 10 counts as one shot
+ like nightcoop), so the counts only go up
  flags like nightcoops bridge: aim 0x04 when UpperBody is Aim, reload 0x80 when UpperBody is Reload or a hand is in Reload,
  shoot 0x40 when a hand is in Shoot, silenced 0x8000 when the right weapons CanSilentKill stat is above 0
  a partners: the right record goes in WeaponRight (the left one in WeaponLeft) with GiveItem + AddItemToSlot on the records

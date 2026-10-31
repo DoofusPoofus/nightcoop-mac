@@ -23,7 +23,7 @@ constexpr uint16_t AimFlag = 0x04;
 constexpr uint16_t ShootFlag = 0x40;
 constexpr uint16_t ReloadFlag = 0x80;
 constexpr uint16_t SilencedFlag = 0x8000;
-constexpr uint32_t MostShotsPerMagazineDrop = 16;
+constexpr uint32_t MostRoundsPerShotDrop = 10;
 constexpr uint32_t MostShotsPerState = 4;
 constexpr uint32_t ShotCountJumpMeansRestart = 1000;
 constexpr uint32_t MostPlaceTries = 5;
@@ -182,7 +182,8 @@ void ReadHand(HandReading& hand, RED4ext::Handle<RED4ext::IScriptable>& weapon, 
     }
     if (hand.MagazineKnown && magazine < hand.Magazine)
     {
-        hand.Shots += std::min(hand.Magazine - magazine, MostShotsPerMagazineDrop);
+        const uint32_t drop = hand.Magazine - magazine;
+        hand.Shots += drop > MostRoundsPerShotDrop ? 1 : drop;
     }
     hand.Magazine = magazine;
     hand.MagazineKnown = true;

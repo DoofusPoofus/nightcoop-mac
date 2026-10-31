@@ -56,9 +56,9 @@ struct PlayerState
     uint64_t RightWeaponRecord = 0;
     float Health = 1.0f;
     float TimeDilation = 1.0f;
-    float Unknown48 = 0;
-    float Unknown4C = 0;
-    float Unknown50 = 0;
+    float VelocityX = 0;
+    float VelocityY = 0;
+    float VelocityZ = 0;
     uint8_t Bytes54[14] = {0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 0, 0, 115};
     float AimYawOffset = 0;
     uint8_t Unknown68 = 255;

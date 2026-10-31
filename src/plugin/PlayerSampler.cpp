@@ -2,17 +2,24 @@
 
 #include "plugin/Weapons.hpp"
 
+#include "plugin/GameCalls.hpp"
+
 #include <RED4ext/RED4ext.hpp>
+#include <RED4ext/Scripting/Natives/Generated/game/StatsObjectID.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
 
+#include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace nightcoop_mac
 {
 namespace
 {
 constexpr float SprintAboveMetersPerSecond = 6.5f;
+constexpr float TeleportAboveMetersPerSecond = 200.0f;
+constexpr float DegreesPerRadian = 57.29578f;
 constexpr uint16_t CrouchFlag = 1;
 constexpr uint16_t SprintFlag = 2;
 constexpr uint8_t PsmLocomotionDefault = 0;
@@ -40,6 +47,118 @@ bool PlayerSampler::ResolveFunctions(void* playerInstance)
     m_resolved = true;
     m_log("player sampler: found GetWorldPosition and GetWorldYaw");
     return true;
+}
+
+void PlayerSampler::ResolveExtras()
+{
+    m_extrasResolved = true;
+    m_getEntityId = game::FindFunction("entEntity", "GetEntityID");
+    m_getStatPoolsSystem = game::FindFunction("ScriptGameInstance", "GetStatPoolsSystem");
+    m_getStatPoolValue = game::FindFunction("gameStatPoolsSystem", "GetStatPoolValue");
+    m_getTimeDilation = game::FindFunction("gameTimeDilatable", "GetTimeDilationValue");
+    m_getCameraSystem = game::FindFunction("ScriptGameInstance", "GetCameraSystem");
+    m_getCameraForward = game::FindFunction("gameCameraSystem", "GetActiveCameraForward");
+    if (auto* pools = RED4ext::CRTTISystem::Get()->GetEnum("gamedataStatPoolType"))
+    {
+        const RED4ext::CName health("Health");
+        for (uint32_t index = 0; index < pools->hashList.Size() && index < pools->valueList.Size(); ++index)
+        {
+            if (pools->hashList[index] == health)
+            {
+                m_healthPool = static_cast<uint32_t>(pools->valueList[index]);
+                m_healthKnown = true;
+            }
+        }
+    }
+    m_healthKnown = m_healthKnown && game::ParamsAre(m_getEntityId, {}) && game::ParamsAre(m_getStatPoolsSystem, {"ScriptGameInstance"}) &&
+                    game::ParamsAre(m_getStatPoolValue, {"gameStatsObjectID", "gamedataStatPoolType", "Bool"});
+    if (!game::ParamsAre(m_getTimeDilation, {}))
+    {
+        m_getTimeDilation = nullptr;
+    }
+    if (!game::ParamsAre(m_getCameraSystem, {"ScriptGameInstance"}) || !game::ParamsAre(m_getCameraForward, {}))
+    {
+        m_getCameraForward = nullptr;
+    }
+    m_log(std::string("player sampler: health ") + (m_healthKnown ? "from the Health stat pool" : "not readable") + ", time dilation " +
+          (m_getTimeDilation ? "read" : "not readable") + ", camera pitch and aim offset " + (m_getCameraForward ? "from the active camera" : "not readable"));
+}
+
+void PlayerSampler::SampleExtras(void* playerInstance, net::PlayerState& state, uint64_t nowMs)
+{
+    if (!m_extrasResolved)
+    {
+        ResolveExtras();
+    }
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::StackArgs_t noArgs;
+    if (m_healthKnown && nowMs >= m_nextHealthMs)
+    {
+        m_nextHealthMs = nowMs + 250;
+        uint64_t entityId = 0;
+        RED4ext::Handle<RED4ext::IScriptable> pools;
+        RED4ext::StackArgs_t poolsArgs;
+        poolsArgs.emplace_back(nullptr, &gameInstance);
+        if (game::CallMethod(playerInstance, m_getEntityId, &entityId, noArgs) && game::CallStatic(m_getStatPoolsSystem, &pools, poolsArgs) && pools)
+        {
+            RED4ext::game::StatsObjectID statsObject {};
+            statsObject.entityHash = entityId;
+            statsObject.idType = RED4ext::game::StatIDType::EntityID;
+            uint32_t poolType = m_healthPool;
+            bool inPercent = true;
+            float percent = -1;
+            RED4ext::StackArgs_t valueArgs;
+            valueArgs.emplace_back(nullptr, &statsObject);
+            valueArgs.emplace_back(nullptr, &poolType);
+            valueArgs.emplace_back(nullptr, &inPercent);
+            if (game::CallMethod(pools.instance, m_getStatPoolValue, &percent, valueArgs) && std::isfinite(percent) && percent >= 0)
+            {
+                m_health = std::min(percent / 100.0f, 1.0f);
+            }
+        }
+    }
+    state.Health = m_health;
+    float dilation = 1.0f;
+    if (m_getTimeDilation && game::CallMethod(playerInstance, m_getTimeDilation, &dilation, noArgs) && std::isfinite(dilation) && dilation > 0)
+    {
+        state.TimeDilation = dilation;
+    }
+    if (m_getCameraForward)
+    {
+        RED4ext::Handle<RED4ext::IScriptable> cameras;
+        RED4ext::StackArgs_t camerasArgs;
+        camerasArgs.emplace_back(nullptr, &gameInstance);
+        RED4ext::Vector4 forward {};
+        if (game::CallStatic(m_getCameraSystem, &cameras, camerasArgs) && cameras &&
+            game::CallMethod(cameras.instance, m_getCameraForward, &forward, noArgs))
+        {
+            if (!m_cameraLogged)
+            {
+                m_cameraLogged = true;
+                char line[160];
+                std::snprintf(line, sizeof(line), "player sampler: first camera forward %.3f %.3f %.3f, body yaw %.1f", forward.X, forward.Y, forward.Z, state.Yaw);
+                m_log(line);
+            }
+            const float flat = std::sqrt(forward.X * forward.X + forward.Y * forward.Y);
+            if (flat > 0.0001f || std::fabs(forward.Z) > 0.0001f)
+            {
+                state.CameraPitch = std::atan2(forward.Z, flat) * DegreesPerRadian;
+            }
+            if (flat > 0.0001f)
+            {
+                float offset = std::atan2(-forward.X, forward.Y) * DegreesPerRadian - state.Yaw;
+                while (offset > 180.0f)
+                {
+                    offset -= 360.0f;
+                }
+                while (offset < -180.0f)
+                {
+                    offset += 360.0f;
+                }
+                state.AimYawOffset = offset;
+            }
+        }
+    }
 }
 
 bool PlayerSampler::Sample(net::PlayerState& state, uint64_t nowMs)
@@ -83,11 +202,21 @@ bool PlayerSampler::Sample(net::PlayerState& state, uint64_t nowMs)
     float speed = 0;
     if (m_hasLastSample && nowMs > m_lastSampleMs)
     {
-        const float deltaX = position.X - m_lastX;
-        const float deltaY = position.Y - m_lastY;
-        const float deltaZ = position.Z - m_lastZ;
         const float seconds = static_cast<float>(nowMs - m_lastSampleMs) / 1000.0f;
-        speed = std::sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ) / seconds;
+        const float velocityX = (position.X - m_lastX) / seconds;
+        const float velocityY = (position.Y - m_lastY) / seconds;
+        const float velocityZ = (position.Z - m_lastZ) / seconds;
+        speed = std::sqrt(velocityX * velocityX + velocityY * velocityY + velocityZ * velocityZ);
+        if (speed > TeleportAboveMetersPerSecond)
+        {
+            speed = 0;
+        }
+        else
+        {
+            state.VelocityX = velocityX;
+            state.VelocityY = velocityY;
+            state.VelocityZ = velocityZ;
+        }
     }
     m_lastX = position.X;
     m_lastY = position.Y;
@@ -116,6 +245,7 @@ bool PlayerSampler::Sample(net::PlayerState& state, uint64_t nowMs)
     const bool sprinting = !crouching && speed > SprintAboveMetersPerSecond;
     state.Flags = static_cast<uint16_t>((crouching ? CrouchFlag : 0) | (sprinting ? SprintFlag : 0));
     state.LocomotionState = crouching ? PsmLocomotionCrouch : (sprinting ? PsmLocomotionSprint : PsmLocomotionDefault);
+    SampleExtras(player.instance, state, nowMs);
     weapons::OwnWeapons ownWeapons;
     if (weapons::ReadOwnWeapons(player, ownWeapons, m_log))
     {

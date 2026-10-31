@@ -95,9 +95,9 @@ std::vector<uint8_t> WritePlayerState(const PlayerState& state)
     writer.PutU64(state.RightWeaponRecord);
     writer.PutF32(state.Health);
     writer.PutF32(state.TimeDilation);
-    writer.PutF32(state.Unknown48);
-    writer.PutF32(state.Unknown4C);
-    writer.PutF32(state.Unknown50);
+    writer.PutF32(state.VelocityX);
+    writer.PutF32(state.VelocityY);
+    writer.PutF32(state.VelocityZ);
     for (uint8_t value : state.Bytes54)
     {
         writer.PutU8(value);
@@ -134,9 +134,9 @@ bool ReadPlayerState(const std::vector<uint8_t>& message, PlayerState& state)
     state.RightWeaponRecord = reader.GetU64();
     state.Health = reader.GetF32();
     state.TimeDilation = reader.GetF32();
-    state.Unknown48 = reader.GetF32();
-    state.Unknown4C = reader.GetF32();
-    state.Unknown50 = reader.GetF32();
+    state.VelocityX = reader.GetF32();
+    state.VelocityY = reader.GetF32();
+    state.VelocityZ = reader.GetF32();
     for (uint8_t& value : state.Bytes54)
     {
         value = reader.GetU8();
@@ -176,9 +176,9 @@ bool PlayerStateLooksSane(PlayerState& state)
     ReplaceIfNotFinite(state.Speed, 0.0f, fixedSomething);
     ReplaceIfNotFinite(state.Health, 1.0f, fixedSomething);
     ReplaceIfNotFinite(state.TimeDilation, 1.0f, fixedSomething);
-    ReplaceIfNotFinite(state.Unknown48, 0.0f, fixedSomething);
-    ReplaceIfNotFinite(state.Unknown4C, 0.0f, fixedSomething);
-    ReplaceIfNotFinite(state.Unknown50, 0.0f, fixedSomething);
+    ReplaceIfNotFinite(state.VelocityX, 0.0f, fixedSomething);
+    ReplaceIfNotFinite(state.VelocityY, 0.0f, fixedSomething);
+    ReplaceIfNotFinite(state.VelocityZ, 0.0f, fixedSomething);
     ReplaceIfNotFinite(state.AimYawOffset, 0.0f, fixedSomething);
     return true;
 }

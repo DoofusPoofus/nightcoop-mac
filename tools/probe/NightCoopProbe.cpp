@@ -10,7 +10,7 @@
  CLOTHESFILE is a PlayerLook (31) as it is (the plugin writes own-clothes.bin), sent right after the look
  its look (PlayerCustomization 33) is LOOKFILE as it is (the plugin writes own-look.bin) or a male look with no parts
  PROBE_WEAPON=0x<tweakdbid> in the environment makes the joiner hold that weapon and fire a shot evry 2 s (aim + shoot flags),
- and the joiner prints the hosts weapon fields whenever they change
+ and the joiner prints the hosts weapon fields whenever they change (health, camera and velocity evry 100 states)
  HUB looks like 127.0.0.1:47900#FINGERPRINT
 */
 #include "net/GameMessages.hpp"
@@ -192,6 +192,7 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint32_t animInputs = 0;
     uint32_t fullStates = 0;
     uint64_t hostWeapon = 0;
+    uint32_t hostStatesSeen = 0;
     uint32_t hostShots = 0;
     uint16_t hostWeaponFlags = 0;
     uint8_t hostWeaponState = 0;
@@ -226,6 +227,13 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
         }
         for (const auto& hostState : session.TakeRemotePlayerStates())
         {
+            if (hostStatesSeen++ % 100 == 0)
+            {
+                std::printf("probe: peer %u health %.2f time dilation %.2f camera pitch %.1f aim offset %.1f velocity %.2f %.2f %.2f\n",
+                            hostState.PeerNumber, hostState.Health, hostState.TimeDilation, hostState.CameraPitch, hostState.AimYawOffset,
+                            hostState.VelocityX, hostState.VelocityY, hostState.VelocityZ);
+                std::fflush(stdout);
+            }
             const uint16_t weaponFlags = hostState.Flags & 0x80C4;
             if (hostState.RightWeaponRecord != hostWeapon || hostState.RightShotCount != hostShots || weaponFlags != hostWeaponFlags ||
                 hostState.WeaponState != hostWeaponState)
