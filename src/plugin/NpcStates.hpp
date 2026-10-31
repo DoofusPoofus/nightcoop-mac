@@ -6,6 +6,8 @@
  the empty gameObject one, then GetAttitudeTowards / SetAttitudeTowards). hand items are the records in the
  WeaponRight / WeaponLeft slots, given and put in the slot on a copy. health is the Health stat pool in percent, read with
  GetStatPoolValue and set with RequestSettingStatPoolValue. incapacitated and time dilation come from the puppet itself
+ match keys are the npcs community stub: gameEntityStubComponentPS (by GetConstAccessToPSObject with its PersistentID)
+ GetSpawnerID and GetOwnerCommunityEntryName, 0 for npcs without one
  all rtti, main thread only
 */
 #pragma once
@@ -39,4 +41,6 @@ float HealthPercent(uint64_t entityHash);
 bool SetHealthPercent(uint64_t entityHash, float percent);
 bool IsIncapacitated(RED4ext::Handle<RED4ext::IScriptable>& npc);
 float TimeDilation(RED4ext::Handle<RED4ext::IScriptable>& npc, bool& ignoresGlobal);
+bool MatchKeys(uint64_t entityHash, uint64_t& spawnerKey, uint64_t& communityEntryKey);
+uint64_t RecordOf(RED4ext::Handle<RED4ext::IScriptable>& npc);
 }

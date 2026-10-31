@@ -15,8 +15,11 @@
  evry 2 s, 5 tries)
  copies are marked in the NightCoopCombat script service (immortal, our hits on them go to the owner as claims) and a copy
  that dies at its owner gets its kill reward turned off unless the despawn says we killed it (then we are the instigator)
- not done yet: matching our own npc of the same person instead of spawning (static ids, community keys), look at, time
- dilation, handoffs and claims
+ before a stand in gets spawned our own world is checked for the same person like nightcoop does: the same static entity id
+ (above 0xFFFFFF) with the same record, else the only npc of that record with the same community match keys within 50 m, else
+ the only one of that record within 2 m of the owners spot. that npc of ours then becomes the owners puppet (same controls as a
+ stand in, our npc share leaves it alone) and is given back to its own ai when the owner lets it go
+ not done yet: look at, time dilation, handoffs and claims
 */
 #pragma once
 
@@ -55,6 +58,7 @@ public:
     uint32_t CopyCount() const { return static_cast<uint32_t>(m_copies.size()); }
     bool FindByEntity(uint64_t entityHash, uint32_t& netId, uint32_t& ownerPeer, float& ownerHealth) const;
     uint64_t EntityOfNetId(uint32_t netId) const;
+    bool IsPuppet(uint64_t entityHash) const;
     uint64_t CopyEntity(uint32_t netId, uint32_t& ownerPeer) const;
     uint32_t NetIdOfCopy(uint64_t entityHash) const;
     void SetHeld(uint32_t netId, bool held);
@@ -96,12 +100,16 @@ private:
         uint64_t NextHandCheckMs = 0;
         uint64_t NextStatesMs = 0;
         bool Marked = false;
+        bool OwnPuppet = false;
+        bool MatchTried = false;
         bool Held = false;
     };
 
     bool Resolve();
     RED4ext::Handle<RED4ext::IScriptable> EntityOf(uint64_t entityHash);
     void Spawn(uint32_t netId, Copy& copy, uint64_t nowMs);
+    bool TryMatch(uint32_t netId, Copy& copy);
+    void GiveBack(uint32_t netId, Copy& copy, RED4ext::Handle<RED4ext::IScriptable>& npc);
     void TakeControl(uint32_t netId, Copy& copy, RED4ext::Handle<RED4ext::IScriptable>& npc);
     void Place(Copy& copy, RED4ext::Handle<RED4ext::IScriptable>& npc, uint64_t nowMs);
     void PlayAnim(uint32_t netId, Copy& copy, RED4ext::Handle<RED4ext::IScriptable>& npc, uint64_t nowMs, net::RelaySession& session);
@@ -125,6 +133,10 @@ private:
     RED4ext::CBaseFunction* m_setDisableRagdoll = nullptr;
     RED4ext::CBaseFunction* m_kill = nullptr;
     RED4ext::CBaseFunction* m_getPlayer = nullptr;
+    RED4ext::CBaseFunction* m_findEntity = nullptr;
+    RED4ext::CBaseFunction* m_getEntityList = nullptr;
+    RED4ext::CBaseFunction* m_getWorldPosition = nullptr;
+    RED4ext::CBaseFunction* m_isDead = nullptr;
     RED4ext::Handle<RED4ext::IScriptable> m_playerAgent;
     RED4ext::CClass* m_specClass = nullptr;
     RED4ext::CClass* m_npcClass = nullptr;

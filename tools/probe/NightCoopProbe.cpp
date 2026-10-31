@@ -20,6 +20,8 @@
  gets a NpcAnimWant. the probe npc turns hostile to the host halfway with 60 % health and combat states, and holds
  PROBE_NPC_WEAPON=0x<record> then. HitClaims on it get answered like an owner (HitResult, NpcDespawn 3 with the killer at 0 %)
  PROBE_CLAIM claims 35 % of the first npc the host shares evry 2 s
+ PROBE_MIRROR shares one of the hosts own npcs back to it as our npc (same record, entity id, keys and spot) for 120 steps,
+ so the host should make its own npc our puppet and give it back after
  PROBE_HIT=<attack record name> (with PROBE_NPC) says our npc hit the hosts body with that attack evry 3 s (PlayerHit)
  PROBE_LIFT=1 makes the joiner ask the host for a lift that does not exist (LiftSync kind 3) and print the answer
  PROBE_DOOR=0x<door key> (the game logs keys as doors: our door 0x...) makes the joiner stand still at X Y Z (so its body can
@@ -980,6 +982,10 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint32_t probeClaimNumber = 0;
     uint32_t hostClaimResults = 0;
     uint32_t firstHostNpc = 0;
+    nightcoop_mac::net::NpcSpawn mirroredNpc;
+    bool mirrorChosen = false;
+    bool mirrorReleased = false;
+    int mirrorStartStep = 0;
     uint32_t probeNpcSequence = 0;
     uint32_t rosterRevision = 0xFFFFFFFF;
     const bool probeQuests = std::getenv("PROBE_QUESTS") != nullptr;
@@ -1115,6 +1121,27 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             hit.Details.Flags = {26, 29};
             session.SendGameMessage(nightcoop_mac::net::WritePlayerHit(hit), 0);
             std::printf("probe: told the host our npc hit their body (%s = %#llx)\n", hitRecord, static_cast<unsigned long long>(hit.Details.AttackRecord));
+        }
+        if (std::getenv("PROBE_MIRROR") && mirrorChosen && !mirrorReleased)
+        {
+            nightcoop_mac::net::NpcSpawn mirrorSpawn = mirroredNpc;
+            mirrorSpawn.NetId = (session.GetStatus().MyPeerNumber << 24) | 0x100;
+            if ((step - mirrorStartStep) % 8 == 0)
+            {
+                session.SendGameMessage(nightcoop_mac::net::WriteNpcSpawn(mirrorSpawn));
+            }
+            nightcoop_mac::net::NpcSnapshot mirrorState;
+            mirrorState.NetId = mirrorSpawn.NetId;
+            std::memcpy(mirrorState.Position, mirroredNpc.Position, sizeof(mirrorState.Position));
+            mirrorState.Yaw = mirroredNpc.Yaw;
+            mirrorState.OwnerClockMs = session.SessionClockMs();
+            session.SendGameMessage(nightcoop_mac::net::WriteNpcSnapshot(mirrorState), nightcoop_mac::net::kEveryPeer, false);
+            if (step - mirrorStartStep >= 120)
+            {
+                mirrorReleased = true;
+                session.SendGameMessage(nightcoop_mac::net::WriteNpcDespawn({mirrorSpawn.NetId, 1, 0xFFFFFFFF}));
+                std::printf("probe: let go of our mirror of the hosts npc\n");
+            }
         }
         if (std::getenv("PROBE_CLAIM") && firstHostNpc && step % 25 == 0)
         {
@@ -1384,6 +1411,15 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                 if (!firstHostNpc)
                 {
                     firstHostNpc = hostNpc.NetId;
+                }
+                if (std::getenv("PROBE_MIRROR") && !mirrorChosen && step > 20)
+                {
+                    mirrorChosen = true;
+                    mirroredNpc = hostNpc;
+                    mirrorStartStep = step;
+                    std::printf("probe: shares the hosts npc %#010x (entity %#llx, record %#llx, keys %#llx %#llx) back as our own\n", hostNpc.NetId,
+                                static_cast<unsigned long long>(hostNpc.OwnerEntity), static_cast<unsigned long long>(hostNpc.Record),
+                                static_cast<unsigned long long>(hostNpc.MatchKeyA), static_cast<unsigned long long>(hostNpc.MatchKeyB));
                 }
                 if (hostNpcs.insert(hostNpc.NetId).second && hostNpcs.size() <= 5)
                 {

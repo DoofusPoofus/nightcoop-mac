@@ -214,6 +214,7 @@ bool OnRunningEnter(RED4ext::CGameApplication*)
     Cars = std::make_unique<nightcoop_mac::Vehicles>(Log);
     Npcs = std::make_unique<nightcoop_mac::NpcCopies>(Log);
     OurNpcs = std::make_unique<nightcoop_mac::NpcShare>(Log);
+    OurNpcs->SetPuppetCheck([](uint64_t entityHash) { return Npcs && Npcs->IsPuppet(entityHash); });
     Mirror = std::make_unique<nightcoop_mac::AnimMirror>(Log);
     Flow = std::make_unique<nightcoop_mac::SessionFlow>(Log);
     Session->Start(config);

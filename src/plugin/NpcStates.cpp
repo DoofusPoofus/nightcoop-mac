@@ -5,6 +5,7 @@
 
 #include <RED4ext/Scripting/Natives/Generated/game/StatsObjectID.hpp>
 #include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
+#include <RED4ext/Scripting/Natives/entEntityID.hpp>
 
 #include <cmath>
 
@@ -31,6 +32,12 @@ struct Calls
     RED4ext::CBaseFunction* IsIncapacitated = nullptr;
     RED4ext::CBaseFunction* GetTimeDilationValue = nullptr;
     RED4ext::CBaseFunction* IsIgnoringGlobalTimeDilation = nullptr;
+    RED4ext::CBaseFunction* GetPSComponentName = nullptr;
+    RED4ext::CBaseFunction* GetPersistencySystem = nullptr;
+    RED4ext::CBaseFunction* GetConstAccessToPSObject = nullptr;
+    RED4ext::CBaseFunction* GetSpawnerID = nullptr;
+    RED4ext::CBaseFunction* GetOwnerCommunityEntryName = nullptr;
+    RED4ext::CBaseFunction* GetRecordID = nullptr;
     RED4ext::CClass* ScriptedPuppetClass = nullptr;
     RED4ext::CClass* NpcClass = nullptr;
     RED4ext::CClass* PuppetClass = nullptr;
@@ -100,6 +107,12 @@ bool Ready()
     Game.IsIncapacitated = game::FindFunction("NPCPuppet", "IsIncapacitated");
     Game.GetTimeDilationValue = game::FindFunction("gameTimeDilatable", "GetTimeDilationValue");
     Game.IsIgnoringGlobalTimeDilation = game::FindFunction("gameTimeDilatable", "IsIgnoringGlobalTimeDilation");
+    Game.GetPSComponentName = game::FindFunction("gameEntityStubComponentPS", "GetPSComponentName");
+    Game.GetPersistencySystem = game::FindFunction("ScriptGameInstance", "GetPersistencySystem");
+    Game.GetConstAccessToPSObject = game::FindFunction("gamePersistencySystem", "GetConstAccessToPSObject");
+    Game.GetSpawnerID = game::FindFunction("gameEntityStubComponentPS", "GetSpawnerID");
+    Game.GetOwnerCommunityEntryName = game::FindFunction("gameEntityStubComponentPS", "GetOwnerCommunityEntryName");
+    Game.GetRecordID = game::FindFunction("gamePuppetBase", "GetRecordID");
     Game.ScriptedPuppetClass = rtti->GetClass("ScriptedPuppet");
     Game.NpcClass = rtti->GetClass("NPCPuppet");
     Game.PuppetClass = rtti->GetClass("gamePuppet");
@@ -148,6 +161,18 @@ bool Ready()
     {
         Game.GetTimeDilationValue = nullptr;
         Missing += " time dilation";
+    }
+    if (!game::ParamsAre(Game.GetPSComponentName, {}) || !game::ParamsAre(Game.GetPersistencySystem, {"ScriptGameInstance"}) ||
+        !game::ParamsAre(Game.GetConstAccessToPSObject, {"gamePersistentID", "CName"}) || !game::ParamsAre(Game.GetSpawnerID, {}) ||
+        !game::ParamsAre(Game.GetOwnerCommunityEntryName, {}))
+    {
+        Game.GetPSComponentName = nullptr;
+        Missing += " match keys";
+    }
+    if (!game::ParamsAre(Game.GetRecordID, {}))
+    {
+        Game.GetRecordID = nullptr;
+        Missing += " GetRecordID";
     }
     Game.Usable = Game.ScriptedPuppetClass && Game.NpcClass && game::ParamsAre(Game.GetStatPoolsSystem, {"ScriptGameInstance"}) &&
                   game::ParamsAre(Game.GetStatPoolValue, {"gameStatsObjectID", "gamedataStatPoolType", "Bool"});
@@ -350,5 +375,68 @@ float TimeDilation(RED4ext::Handle<RED4ext::IScriptable>& npc, bool& ignoresGlob
     game::CallMethod(npc.instance, Game.GetTimeDilationValue, &dilation, noArgs);
     game::CallMethod(npc.instance, Game.IsIgnoringGlobalTimeDilation, &ignoresGlobal, noArgs);
     return std::isfinite(dilation) && dilation > 0.0f ? dilation : 1.0f;
+}
+}
+
+namespace nightcoop_mac::npc_states
+{
+namespace
+{
+struct PersistentIdLayout
+{
+    uint64_t EntityHash;
+    RED4ext::CName ComponentName;
+};
+static_assert(sizeof(PersistentIdLayout) == 16);
+}
+
+bool MatchKeys(uint64_t entityHash, uint64_t& spawnerKey, uint64_t& communityEntryKey)
+{
+    spawnerKey = 0;
+    communityEntryKey = 0;
+    if (!Ready() || !Game.GetPSComponentName || !entityHash)
+    {
+        return false;
+    }
+    RED4ext::CName componentName;
+    RED4ext::StackArgs_t noArgs;
+    game::CallStatic(Game.GetPSComponentName, &componentName, noArgs);
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::Handle<RED4ext::IScriptable> persistency;
+    RED4ext::StackArgs_t systemArgs;
+    systemArgs.emplace_back(nullptr, &gameInstance);
+    if (!game::CallStatic(Game.GetPersistencySystem, &persistency, systemArgs) || !persistency)
+    {
+        return false;
+    }
+    PersistentIdLayout persistentId {entityHash, componentName};
+    RED4ext::CName stubClassName("gameEntityStubComponentPS");
+    RED4ext::Handle<RED4ext::IScriptable> stub;
+    RED4ext::StackArgs_t accessArgs;
+    accessArgs.emplace_back(nullptr, &persistentId);
+    accessArgs.emplace_back(nullptr, &stubClassName);
+    if (!game::CallMethod(persistency.instance, Game.GetConstAccessToPSObject, &stub, accessArgs) || !stub)
+    {
+        return false;
+    }
+    RED4ext::ent::EntityID spawner;
+    RED4ext::CName communityEntry;
+    const bool spawnerRead = game::CallMethod(stub.instance, Game.GetSpawnerID, &spawner, noArgs);
+    const bool entryRead = game::CallMethod(stub.instance, Game.GetOwnerCommunityEntryName, &communityEntry, noArgs);
+    spawnerKey = spawnerRead ? spawner.hash : 0;
+    communityEntryKey = entryRead ? communityEntry.hash : 0;
+    return spawnerRead || entryRead;
+}
+
+uint64_t RecordOf(RED4ext::Handle<RED4ext::IScriptable>& npc)
+{
+    if (!Ready() || !Game.GetRecordID || !npc)
+    {
+        return 0;
+    }
+    RED4ext::TweakDBID record;
+    RED4ext::StackArgs_t noArgs;
+    game::CallMethod(npc.instance, Game.GetRecordID, &record, noArgs);
+    return record.value & 0xFFFFFFFFFFULL;
 }
 }

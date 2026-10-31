@@ -238,6 +238,8 @@ void NpcShare::Send(uint64_t nowMs, uint64_t entityHash, Source& source, RED4ext
         spawn.Record = source.Record;
         spawn.Appearance = source.Appearance;
         spawn.OwnerEntity = entityHash;
+        spawn.MatchKeyA = source.SpawnerKey;
+        spawn.MatchKeyB = source.CommunityEntryKey;
         spawn.Position[0] = position.X;
         spawn.Position[1] = position.Y;
         spawn.Position[2] = position.Z;
@@ -306,7 +308,7 @@ void NpcShare::Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::R
         RED4ext::StackArgs_t managedArgs;
         managedArgs.emplace_back(nullptr, &entityId);
         game::CallMethod(dynamicEntities.instance, m_isManaged, &managed, managedArgs);
-        if (managed)
+        if (managed || (m_isPartnerPuppet && m_isPartnerPuppet(entityHash)))
         {
             ++m_lastScanManaged;
             continue;
@@ -355,6 +357,7 @@ void NpcShare::Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::R
             game::CallMethod(npc.instance, m_getAppearance, &appearance, noArgs);
             fresh.Record = record.value & 0xFFFFFFFFFFULL;
             fresh.Appearance = appearance.hash;
+            npc_states::MatchKeys(entityHash, fresh.SpawnerKey, fresh.CommunityEntryKey);
             source = m_sources.emplace(entityHash, fresh).first;
             ++m_sharesStarted;
             WatchGraph(source->second, npc);

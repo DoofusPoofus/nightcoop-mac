@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <set>
 
 namespace nightcoop_mac
 {
@@ -38,6 +39,8 @@ constexpr uint64_t HandCheckEveryMs = 2000;
 constexpr uint32_t MostHandTries = 5;
 constexpr float HealthStepPercent = 1.0f;
 constexpr float LowestLivingHealth = 1.0f;
+constexpr float MatchKeyWithinMeters = 50.0f;
+constexpr float MatchSpotWithinMeters = 2.0f;
 const char* CopyTag = "NightCoopNpcCopy";
 const char* ComponentsTurnedOff[] = {"AIHumanComponent",          "senseComponent", "ReactionManagerComponent", "StimBroadcasterComponent",
                                      "AITargetTrackerComponent", "moveComponent",  "moveMotionPlannerComponent"};
@@ -102,6 +105,15 @@ bool NpcCopies::Resolve()
     m_setDisableRagdoll = game::FindFunction("NPCPuppet", "SetDisableRagdoll");
     m_kill = game::FindFunction("NPCPuppet", "Kill");
     m_getPlayer = rtti->GetFunction("GetPlayer;GameInstance");
+    m_findEntity = game::FindFunction("ScriptGameInstance", "FindEntityByID");
+    m_getEntityList = game::FindFunction("ScriptGameInstance", "GetEntityList");
+    m_getWorldPosition = game::FindFunction("entEntity", "GetWorldPosition");
+    m_isDead = game::FindFunction("NPCPuppet", "IsDead");
+    if (!game::ParamsAre(m_findEntity, {"ScriptGameInstance", "entEntityID"}) || !game::ParamsAre(m_getEntityList, {"ScriptGameInstance"}) ||
+        !game::ParamsAre(m_getWorldPosition, {}) || !game::ParamsAre(m_isDead, {}))
+    {
+        m_findEntity = nullptr;
+    }
     npc_states::Ready();
     m_specClass = rtti->GetClass("DynamicEntitySpec");
     m_npcClass = rtti->GetClass("NPCPuppet");
@@ -151,6 +163,18 @@ uint64_t NpcCopies::EntityOfNetId(uint32_t netId) const
     return copy != m_copies.end() && copy->second.InWorld ? copy->second.EntityHash : 0;
 }
 
+bool NpcCopies::IsPuppet(uint64_t entityHash) const
+{
+    for (const auto& [netId, copy] : m_copies)
+    {
+        if (copy.OwnPuppet && copy.EntityHash == entityHash && entityHash)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 RED4ext::Handle<RED4ext::IScriptable> NpcCopies::EntityOf(uint64_t entityHash)
 {
     RED4ext::Handle<RED4ext::IScriptable> entity;
@@ -162,7 +186,150 @@ RED4ext::Handle<RED4ext::IScriptable> NpcCopies::EntityOf(uint64_t entityHash)
     RED4ext::StackArgs_t args;
     args.emplace_back(nullptr, &entityId);
     game::CallMethod(m_dynamicEntitySystem.instance, m_getEntity, &entity, args);
+    if (!entity && m_findEntity)
+    {
+        RED4ext::ScriptGameInstance gameInstance;
+        RED4ext::StackArgs_t findArgs;
+        findArgs.emplace_back(nullptr, &gameInstance);
+        findArgs.emplace_back(nullptr, &entityId);
+        game::CallStatic(m_findEntity, &entity, findArgs);
+    }
     return entity;
+}
+
+bool NpcCopies::TryMatch(uint32_t netId, Copy& copy)
+{
+    copy.MatchTried = true;
+    if (!m_findEntity)
+    {
+        return false;
+    }
+    const uint64_t record = copy.Spawn.Record & 0xFFFFFFFFFFULL;
+    std::set<uint64_t> takenHashes;
+    for (const auto& [otherNetId, other] : m_copies)
+    {
+        if (other.EntityHash)
+        {
+            takenHashes.insert(other.EntityHash);
+        }
+    }
+    auto usable = [&](RED4ext::Handle<RED4ext::IScriptable>& npc, uint64_t entityHash) {
+        auto* npcClass = npc ? npc->GetType() : nullptr;
+        if (!npcClass || !npcClass->IsA(m_npcClass) || takenHashes.count(entityHash) || npc_states::RecordOf(npc) != record)
+        {
+            return false;
+        }
+        bool dead = false;
+        RED4ext::StackArgs_t noArgs;
+        game::CallMethod(npc.instance, m_isDead, &dead, noArgs);
+        return !dead;
+    };
+    auto adopt = [&](uint64_t entityHash, const char* how) {
+        copy.EntityHash = entityHash;
+        copy.OwnPuppet = true;
+        char line[200];
+        std::snprintf(line, sizeof(line), "npcs: our own npc %#llx is the same person as %s of peer %u (%s), it becomes their puppet",
+                      static_cast<unsigned long long>(entityHash), NetIdText(netId).c_str(), copy.OwnerPeer, how);
+        m_log(line);
+        return true;
+    };
+    if ((copy.Spawn.OwnerEntity & 0xFFFFFFFFFF000000ULL) != 0)
+    {
+        auto npc = EntityOf(copy.Spawn.OwnerEntity);
+        if (usable(npc, copy.Spawn.OwnerEntity))
+        {
+            return adopt(copy.Spawn.OwnerEntity, "same static id");
+        }
+    }
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::DynArray<RED4ext::Handle<RED4ext::IScriptable>> entities;
+    RED4ext::StackArgs_t listArgs;
+    listArgs.emplace_back(nullptr, &gameInstance);
+    if (!game::CallStatic(m_getEntityList, &entities, listArgs))
+    {
+        return false;
+    }
+    std::vector<uint64_t> byKey;
+    std::vector<uint64_t> bySpot;
+    const bool hasKeys = copy.Spawn.MatchKeyA || copy.Spawn.MatchKeyB;
+    static auto* getEntityId = game::FindFunction("entEntity", "GetEntityID");
+    for (auto& entity : entities)
+    {
+        uint64_t entityHash = 0;
+        RED4ext::StackArgs_t noArgs;
+        if (!entity || !game::CallMethod(entity.instance, getEntityId, &entityHash, noArgs) || !usable(entity, entityHash))
+        {
+            continue;
+        }
+        RED4ext::Vector4 position {};
+        game::CallMethod(entity.instance, m_getWorldPosition, &position, noArgs);
+        const float deltaX = position.X - copy.Spawn.Position[0];
+        const float deltaY = position.Y - copy.Spawn.Position[1];
+        const float deltaZ = position.Z - copy.Spawn.Position[2];
+        const float distanceSquared = deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ;
+        if (distanceSquared > MatchKeyWithinMeters * MatchKeyWithinMeters)
+        {
+            continue;
+        }
+        if (hasKeys)
+        {
+            uint64_t spawnerKey = 0;
+            uint64_t communityEntryKey = 0;
+            npc_states::MatchKeys(entityHash, spawnerKey, communityEntryKey);
+            if (spawnerKey == copy.Spawn.MatchKeyA && communityEntryKey == copy.Spawn.MatchKeyB)
+            {
+                byKey.push_back(entityHash);
+            }
+        }
+        if (distanceSquared <= MatchSpotWithinMeters * MatchSpotWithinMeters)
+        {
+            bySpot.push_back(entityHash);
+        }
+    }
+    if (byKey.size() == 1)
+    {
+        return adopt(byKey.front(), "same record and community key, the only one here");
+    }
+    if (bySpot.size() == 1)
+    {
+        return adopt(bySpot.front(), "same record on the same spot");
+    }
+    return false;
+}
+
+void NpcCopies::GiveBack(uint32_t netId, Copy& copy, RED4ext::Handle<RED4ext::IScriptable>& npc)
+{
+    RED4ext::DynArray<RED4ext::Handle<RED4ext::IScriptable>> components;
+    RED4ext::StackArgs_t noArgs;
+    game::CallMethod(npc.instance, m_getComponents, &components, noArgs);
+    for (auto& component : components)
+    {
+        auto* componentClass = component ? component->GetType() : nullptr;
+        for (auto* offClass : m_offClasses)
+        {
+            if (componentClass && componentClass->IsA(offClass))
+            {
+                bool on = true;
+                RED4ext::StackArgs_t toggleArgs;
+                toggleArgs.emplace_back(nullptr, &on);
+                game::CallMethod(component.instance, m_toggle, nullptr, toggleArgs);
+                break;
+            }
+        }
+    }
+    if (m_setDisableRagdoll)
+    {
+        bool disable = false;
+        bool force = true;
+        bool leaveEnabled = false;
+        RED4ext::StackArgs_t ragdollArgs;
+        ragdollArgs.emplace_back(nullptr, &disable);
+        ragdollArgs.emplace_back(nullptr, &force);
+        ragdollArgs.emplace_back(nullptr, &leaveEnabled);
+        game::CallMethod(npc.instance, m_setDisableRagdoll, nullptr, ragdollArgs);
+    }
+    npc_combat::ReleaseCopy(npc, true);
+    m_log("npcs: our own npc that played " + NetIdText(netId) + " is given back to the game");
 }
 
 void NpcCopies::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs, uint32_t ourPeer)
@@ -348,8 +515,8 @@ void NpcCopies::TakeControl(uint32_t netId, Copy& copy, RED4ext::Handle<RED4ext:
     }
     npc_combat::MarkCopy(npc);
     copy.Marked = true;
-    m_log("npcs: stand in of " + NetIdText(netId) + " is in the world, taken under direct control (" + std::to_string(copy.ComponentsOff) +
-          " component(s) off)");
+    m_log(std::string("npcs: ") + (copy.OwnPuppet ? "our own npc for " : "stand in of ") + NetIdText(netId) +
+          " is in the world, taken under direct control (" + std::to_string(copy.ComponentsOff) + " component(s) off)");
 }
 
 void NpcCopies::Place(Copy& copy, RED4ext::Handle<RED4ext::IScriptable>& npc, uint64_t nowMs)
@@ -609,6 +776,23 @@ void NpcCopies::Kill(RED4ext::Handle<RED4ext::IScriptable>& npc, bool weKilledIt
 
 void NpcCopies::Remove(uint32_t netId, Copy& copy, const char* why)
 {
+    if (copy.OwnPuppet)
+    {
+        auto npc = EntityOf(copy.EntityHash);
+        bool dead = false;
+        RED4ext::StackArgs_t noArgs;
+        if (npc && m_isDead)
+        {
+            game::CallMethod(npc.instance, m_isDead, &dead, noArgs);
+        }
+        if (npc && copy.InWorld && !dead)
+        {
+            GiveBack(netId, copy, npc);
+        }
+        npc_combat::ForgetCopy(copy.EntityHash);
+        m_log("npcs: " + NetIdText(netId) + " is not followed any more, " + why);
+        return;
+    }
     if (copy.Marked)
     {
         npc_combat::ForgetCopy(copy.EntityHash);
@@ -674,6 +858,11 @@ void NpcCopies::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session)
         {
             Remove(netId, copy, copy.RemoveAtMs ? "its owner let it go" : "nothing heard of it for 10 s");
             copyEntry = m_copies.erase(copyEntry);
+            continue;
+        }
+        if (!copy.EntityHash && !copy.MatchTried && TryMatch(netId, copy))
+        {
+            ++copyEntry;
             continue;
         }
         if (!copy.EntityHash && (copy.SpawnRequestedMs == 0 || nowMs - copy.SpawnRequestedMs > RetrySpawnAfterMs))
