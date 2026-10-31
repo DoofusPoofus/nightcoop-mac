@@ -45,6 +45,8 @@ public:
     explicit NpcShare(LogFunction log);
 
     void Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& partners, net::RelaySession& session);
+    uint64_t EntityOfNetId(uint32_t netId) const;
+    bool RecentlyDied(uint32_t netId, uint64_t nowMs) const;
 
 private:
     struct Source
@@ -70,7 +72,8 @@ private:
               net::RelaySession& session);
     void FillStates(uint64_t nowMs, Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc, const std::vector<Partner>& partners,
                     net::NpcSnapshot& snapshot);
-    void StopSharing(uint64_t entityHash, Source& source, uint8_t reason, net::RelaySession& session);
+    void StopSharing(uint64_t entityHash, Source& source, uint8_t reason, net::RelaySession& session, uint32_t killer = 0xFFFFFFFF);
+    uint32_t KillerOf(RED4ext::Handle<RED4ext::IScriptable>& npc, const std::vector<Partner>& partners, uint32_t ourPeer);
     void WatchGraph(Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc);
     void LetGoOfAll();
 
@@ -88,6 +91,9 @@ private:
     RED4ext::CBaseFunction* m_isManaged = nullptr;
     RED4ext::CBaseFunction* m_getAnimationController = nullptr;
     RED4ext::CBaseFunction* m_getPlayer = nullptr;
+    RED4ext::CBaseFunction* m_getKiller = nullptr;
+    RED4ext::Handle<RED4ext::IScriptable> m_player;
+    std::map<uint32_t, uint64_t> m_diedAtMs;
     RED4ext::Handle<RED4ext::IScriptable> m_playerAgent;
     std::vector<RED4ext::Handle<RED4ext::IScriptable>> m_partnerAgents;
     RED4ext::CClass* m_npcClass = nullptr;

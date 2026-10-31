@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <random>
 
 namespace nightcoop_mac
@@ -71,6 +72,11 @@ bool NpcShare::Resolve()
     m_isManaged = game::FindFunction("DynamicEntitySystem", "IsManaged");
     m_getAnimationController = game::FindFunction("ScriptedPuppet", "GetAnimationControllerComponent");
     m_getPlayer = RED4ext::CRTTISystem::Get()->GetFunction("GetPlayer;GameInstance");
+    m_getKiller = game::FindFunction("ScriptedPuppet", "GetKiller");
+    if (!game::ParamsAre(m_getKiller, {}))
+    {
+        m_getKiller = nullptr;
+    }
     m_npcClass = rtti->GetClass("NPCPuppet");
     m_usable = game::ParamsAre(m_getEntityList, {"ScriptGameInstance"}) && game::ParamsAre(m_getEntityId, {}) &&
                game::ParamsAre(m_getWorldPosition, {}) && game::ParamsAre(m_getWorldYaw, {}) && game::ParamsAre(m_getRecordId, {}) &&
@@ -80,10 +86,56 @@ bool NpcShare::Resolve()
     return m_usable;
 }
 
-void NpcShare::StopSharing(uint64_t entityHash, Source& source, uint8_t reason, net::RelaySession& session)
+void NpcShare::StopSharing(uint64_t entityHash, Source& source, uint8_t reason, net::RelaySession& session, uint32_t killer)
 {
     anim_tap::StopWatchingNpc(source.NetId);
-    session.SendGameMessage(net::WriteNpcDespawn({source.NetId, reason, 0xFFFFFFFF}));
+    session.SendGameMessage(net::WriteNpcDespawn({source.NetId, reason, reason == ReasonDied ? killer : 0xFFFFFFFF}));
+}
+
+uint32_t NpcShare::KillerOf(RED4ext::Handle<RED4ext::IScriptable>& npc, const std::vector<Partner>& partners, uint32_t ourPeer)
+{
+    if (!m_getKiller)
+    {
+        return 0xFFFFFFFF;
+    }
+    RED4ext::WeakHandle<RED4ext::IScriptable> killer;
+    RED4ext::StackArgs_t noArgs;
+    game::CallMethod(npc.instance, m_getKiller, &killer, noArgs);
+    auto killerEntity = killer.Lock();
+    if (!killerEntity)
+    {
+        return 0xFFFFFFFF;
+    }
+    if (m_player && killerEntity.instance == m_player.instance)
+    {
+        return ourPeer;
+    }
+    for (const auto& partner : partners)
+    {
+        if (partner.Body && partner.Body.instance == killerEntity.instance)
+        {
+            return partner.PeerNumber;
+        }
+    }
+    return 0xFFFFFFFF;
+}
+
+uint64_t NpcShare::EntityOfNetId(uint32_t netId) const
+{
+    for (const auto& [entityHash, source] : m_sources)
+    {
+        if (source.NetId == netId)
+        {
+            return entityHash;
+        }
+    }
+    return 0;
+}
+
+bool NpcShare::RecentlyDied(uint32_t netId, uint64_t nowMs) const
+{
+    const auto died = m_diedAtMs.find(netId);
+    return died != m_diedAtMs.end() && nowMs - died->second < 30000;
 }
 
 void NpcShare::WatchGraph(Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc)
@@ -111,7 +163,9 @@ void NpcShare::LetGoOfAll()
     }
     m_sources.clear();
     m_playerAgent.Reset();
+    m_player.Reset();
     m_partnerAgents.clear();
+    m_diedAtMs.clear();
 }
 
 void NpcShare::FillStates(uint64_t nowMs, Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc, const std::vector<Partner>& partners,
@@ -285,7 +339,12 @@ void NpcShare::Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::R
         source->second.Seen = true;
         if (dead)
         {
-            StopSharing(entityHash, source->second, ReasonDied, session);
+            const uint32_t killer = KillerOf(npc, partners, session.GetStatus().MyPeerNumber);
+            m_diedAtMs[source->second.NetId] = nowMs;
+            char line[120];
+            std::snprintf(line, sizeof(line), "npcs: our shared npc %#010x died", source->second.NetId);
+            m_log(std::string(line) + (killer != 0xFFFFFFFF ? ", killed by peer " + std::to_string(killer) : ""));
+            StopSharing(entityHash, source->second, ReasonDied, session, killer);
             m_sources.erase(source);
         }
     }
@@ -327,6 +386,11 @@ void NpcShare::Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& par
         game::CallStatic(m_getPlayer, &player, playerArgs);
     }
     m_playerAgent = npc_states::AttitudeAgentOf(player);
+    m_player = player;
+    for (auto died = m_diedAtMs.begin(); died != m_diedAtMs.end();)
+    {
+        died = nowMs - died->second > 60000 ? m_diedAtMs.erase(died) : std::next(died);
+    }
     m_partnerAgents.clear();
     for (const auto& partner : partners)
     {

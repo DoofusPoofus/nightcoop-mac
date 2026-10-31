@@ -18,7 +18,8 @@
  NpcSnapshot evry step) and lets it go at the end (NpcDespawn). its NpcAnim stream answers a NpcAnimWant with a full state and
  sends a float and an event evry step after that. npcs the host shares get counted with their NpcAnim batches, the first one
  gets a NpcAnimWant. the probe npc turns hostile to the host halfway with 60 % health and combat states, and holds
- PROBE_NPC_WEAPON=0x<record> then
+ PROBE_NPC_WEAPON=0x<record> then. HitClaims on it get answered like an owner (HitResult, NpcDespawn 3 with the killer at 0 %)
+ PROBE_CLAIM claims 35 % of the first npc the host shares evry 2 s
  PROBE_LIFT=1 makes the joiner ask the host for a lift that does not exist (LiftSync kind 3) and print the answer
  PROBE_RIDE=1 makes the joiner sit in the front right seat of the car the host shares (VehicleSeat evry step)
  PROBE_DOWN=1 makes the joiner lie downed (flag 0x100) right next to the host (0.5 m) until a PlayerRevive comes
@@ -34,6 +35,7 @@
 #include "net/VehicleMessages.hpp"
 #include "net/WorldMessages.hpp"
 #include "net/NpcMessages.hpp"
+#include "net/CombatMessages.hpp"
 
 #include <Log.hpp>
 #include <NetCrypto.hpp>
@@ -303,6 +305,12 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     std::set<uint8_t> hostNpcHighLevels;
     std::set<uint32_t> hostNpcsArmedSeen;
     bool probeNpcWanted = false;
+    float probeNpcHealth = 100.0f;
+    bool probeNpcDead = false;
+    uint32_t claimsAnswered = 0;
+    uint32_t probeClaimNumber = 0;
+    uint32_t hostClaimResults = 0;
+    uint32_t firstHostNpc = 0;
     uint32_t probeNpcSequence = 0;
     uint32_t rosterRevision = 0xFFFFFFFF;
     uint32_t hostShots = 0;
@@ -393,7 +401,18 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             seat.Slot = NameHash("seat_front_left");
             session.SendGameMessage(nightcoop_mac::net::WriteVehicleSeat(seat), nightcoop_mac::net::kEveryPeer, step == 0);
         }
-        if (const char* npcRecord = std::getenv("PROBE_NPC"))
+        if (std::getenv("PROBE_CLAIM") && firstHostNpc && step % 25 == 0)
+        {
+            nightcoop_mac::net::HitClaim claim;
+            claim.ClaimNumber = ++probeClaimNumber;
+            claim.NetId = firstHostNpc;
+            claim.HealthPercent = 35.0f;
+            claim.ClaimTimeMs = session.SessionClockMs();
+            claim.Details.AttackType = 10;
+            claim.Details.Flags = {26};
+            session.SendGameMessage(nightcoop_mac::net::WriteHitClaim(claim), 0);
+        }
+        if (const char* npcRecord = std::getenv("PROBE_NPC"); npcRecord && !probeNpcDead)
         {
             const uint32_t npcNetId = (session.GetStatus().MyPeerNumber << 24) | 7;
             if (step % 8 == 0)
@@ -415,7 +434,7 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             npcState.Yaw = state.Yaw;
             npcState.Speed = state.Speed;
             npcState.OwnerClockMs = session.SessionClockMs();
-            npcState.Health = step < WalkSteps / 2 ? 100.0f : 60.0f;
+            npcState.Health = std::min(probeNpcHealth, step < WalkSteps / 2 ? 100.0f : 60.0f);
             npcState.States[0] = 3;
             npcState.States[1] = step < WalkSteps / 2 ? 6 : 0;
             npcState.States[2] = step < WalkSteps / 2 ? 5 : 2;
@@ -537,6 +556,10 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::NpcDespawn hostNpcGone;
             if (nightcoop_mac::net::ReadNpcSpawn(message.Message, hostNpc))
             {
+                if (!firstHostNpc)
+                {
+                    firstHostNpc = hostNpc.NetId;
+                }
                 if (hostNpcs.insert(hostNpc.NetId).second && hostNpcs.size() <= 5)
                 {
                     std::printf("probe: peer %u shares npc %#010x record %#llx at %.1f %.1f %.1f\n", message.FromPeer, hostNpc.NetId,
@@ -587,6 +610,43 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                     hostNpcAnimAsked = true;
                     session.SendGameMessage(nightcoop_mac::net::WriteNpcAnimWant({npcAnim.Unknown00, true, true}), static_cast<int32_t>(message.FromPeer));
                 }
+                continue;
+            }
+            nightcoop_mac::net::HitClaim claimOnUs;
+            if (nightcoop_mac::net::ReadHitClaim(message.Message, claimOnUs))
+            {
+                nightcoop_mac::net::HitResult answer;
+                answer.ClaimNumber = claimOnUs.ClaimNumber;
+                const uint32_t probeNpcNetId = (session.GetStatus().MyPeerNumber << 24) | 7;
+                if (probeNpcDead || static_cast<uint32_t>(claimOnUs.NetId) != probeNpcNetId)
+                {
+                    answer.Outcome = probeNpcDead ? nightcoop_mac::net::kHitTargetDead : nightcoop_mac::net::kHitNoTarget;
+                }
+                else
+                {
+                    answer.AppliedPercent = std::min(claimOnUs.HealthPercent, probeNpcHealth);
+                    probeNpcHealth = std::max(0.0f, probeNpcHealth - claimOnUs.HealthPercent);
+                    answer.HealthAfter = probeNpcHealth;
+                }
+                session.SendGameMessage(nightcoop_mac::net::WriteHitResult(answer), static_cast<int32_t>(message.FromPeer));
+                ++claimsAnswered;
+                std::printf("probe: peer %u claims #%u on npc %#010x: %.1f %% (%zu flag(s), attack type %u)%s, our npc is at %.1f %%\n", message.FromPeer,
+                            claimOnUs.ClaimNumber, static_cast<uint32_t>(claimOnUs.NetId), claimOnUs.HealthPercent, claimOnUs.Details.Flags.size(),
+                            claimOnUs.Details.AttackType, claimOnUs.Flags & nightcoop_mac::net::kHitClaimLethal ? " lethal" : "", probeNpcHealth);
+                if (!probeNpcDead && probeNpcHealth <= 0.0f && answer.Outcome == nightcoop_mac::net::kHitApplied)
+                {
+                    probeNpcDead = true;
+                    session.SendGameMessage(nightcoop_mac::net::WriteNpcDespawn({probeNpcNetId, 3, message.FromPeer}));
+                    std::printf("probe: our npc died, killed by peer %u\n", message.FromPeer);
+                }
+                continue;
+            }
+            nightcoop_mac::net::HitResult claimAnswer;
+            if (nightcoop_mac::net::ReadHitResult(message.Message, claimAnswer))
+            {
+                ++hostClaimResults;
+                std::printf("probe: host answered claim #%u: outcome %u applied %.1f %% health after %.1f %%\n", claimAnswer.ClaimNumber, claimAnswer.Outcome,
+                            claimAnswer.AppliedPercent, claimAnswer.HealthAfter);
                 continue;
             }
             nightcoop_mac::net::NpcAnimWant npcWant;

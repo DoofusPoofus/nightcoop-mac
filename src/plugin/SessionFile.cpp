@@ -77,6 +77,10 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
         {
             plan.TestDowned = true;
         }
+        else if (keyword == "test_claim")
+        {
+            plan.TestClaim = true;
+        }
         else if (keyword == "test_vehicle")
         {
             plan.TestVehicle = true;

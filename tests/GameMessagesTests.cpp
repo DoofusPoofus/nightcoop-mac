@@ -8,6 +8,7 @@
 #include "net/VehicleMessages.hpp"
 #include "net/WorldMessages.hpp"
 #include "net/NpcMessages.hpp"
+#include "net/CombatMessages.hpp"
 #include "net/SessionMessages.hpp"
 
 #include <cstdio>
@@ -342,6 +343,49 @@ int main()
     Check(ReadPlayerClothes(noTail, clothesBack) && clothesBack.Slots.empty() && clothesBack.Items.size() == 2, "clothes without the slot tail");
     clothes.Slots.pop_back();
     Check(ReadPlayerClothes(WritePlayerClothes(clothes), clothesBack) && clothesBack.Slots.empty(), "mismatched slots are not sent");
+
+    HitClaim claim;
+    claim.ClaimNumber = 9;
+    claim.NetId = 0x00123456;
+    claim.HealthPercent = 12.5f;
+    claim.Flags = kHitClaimLethal;
+    claim.ClaimTimeMs = 777;
+    claim.Details.AttackRecord = 0xAB12345678ull;
+    claim.Details.AttackType = 10;
+    claim.Details.Offset[0] = 0.2f;
+    claim.Details.Direction[1] = 1.0f;
+    claim.Details.Flags = {19, 26};
+    const auto claimBytes = WriteHitClaim(claim);
+    HitClaim claimBack;
+    Check(claimBytes.size() == 5 + 26 + 39 + 8, "hit claim is 26 + 39 + 4 per flag bytes after the header");
+    Check(ReadHitClaim(claimBytes, claimBack) && claimBack.ClaimNumber == 9 && claimBack.NetId == 0x00123456 && claimBack.HealthPercent == 12.5f &&
+              claimBack.Flags == kHitClaimLethal && claimBack.Details.AttackType == 10 && claimBack.Details.Flags.size() == 2 &&
+              claimBack.Details.Flags[1] == 26 && claimBack.Details.Offset[0] == 0.2f,
+          "hit claim round trip");
+    HitClaim farClaim = claim;
+    farClaim.Details.Offset[0] = 9.0f;
+    Check(ReadHitClaim(WriteHitClaim(farClaim), claimBack) && claimBack.Details.Offset[0] == 0.0f && claimBack.Details.Offset[2] == 1.3f,
+          "a hit offset past 2.5 m goes as (0, 0, 1.3)");
+    HitClaim zeroClaim = claim;
+    zeroClaim.HealthPercent = 0.0f;
+    Check(!ReadHitClaim(WriteHitClaim(zeroClaim), claimBack), "a claim of 0 % is refused");
+    HitResult result {9, kHitApplied, 12.5f, 40.0f};
+    HitResult resultBack;
+    const auto resultBytes = WriteHitResult(result);
+    Check(resultBytes.size() == 5 + 13 && ReadHitResult(resultBytes, resultBack) && resultBack.Outcome == kHitApplied && resultBack.HealthAfter == 40.0f,
+          "hit result is 13 bytes and reads back");
+    NpcAction action {1, 9, 3};
+    NpcAction actionBack;
+    Check(WriteNpcAction(action).size() == 5 + 6 && ReadNpcAction(WriteNpcAction(action), actionBack) && actionBack.Zone == 3, "npc action round trip");
+    PlayerHit playerHit;
+    playerHit.HitNumber = 4;
+    playerHit.AttackerNetId = 0x00000011;
+    playerHit.Details.Flags = {15};
+    PlayerHit playerHitBack;
+    Check(WritePlayerHit(playerHit).size() == 5 + 16 + 39 + 4 && ReadPlayerHit(WritePlayerHit(playerHit), playerHitBack) &&
+              playerHitBack.AttackerNetId == 0x11 && playerHitBack.Details.Flags[0] == 15,
+          "player hit is 60 + 4 per flag bytes with the header");
+    Check(KeepClaimFlag(19) && !KeepClaimFlag(15) && KeepPlayerHitFlag(15) && !KeepPlayerHitFlag(9), "claim and player hit flag filters");
 
     std::printf("%s\n", FailedChecks ? "some checks failed" : "all game message checks passed");
     return FailedChecks ? 1 : 0;

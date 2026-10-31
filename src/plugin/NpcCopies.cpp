@@ -3,6 +3,7 @@
 #include "net/GameMessages.hpp"
 #include "net/RelaySession.hpp"
 #include "plugin/GameCalls.hpp"
+#include "plugin/NpcCombat.hpp"
 #include "plugin/NpcStates.hpp"
 
 #include <ProtocolCore.hpp>
@@ -129,6 +130,21 @@ bool NpcCopies::Resolve()
     return m_usable;
 }
 
+bool NpcCopies::FindByEntity(uint64_t entityHash, uint32_t& netId, uint32_t& ownerPeer, float& ownerHealth) const
+{
+    for (const auto& [copyNetId, copy] : m_copies)
+    {
+        if (copy.EntityHash == entityHash && entityHash)
+        {
+            netId = copyNetId;
+            ownerPeer = copy.OwnerPeer;
+            ownerHealth = copy.HasSnapshot ? copy.Latest.Health : 100.0f;
+            return true;
+        }
+    }
+    return false;
+}
+
 RED4ext::Handle<RED4ext::IScriptable> NpcCopies::EntityOf(uint64_t entityHash)
 {
     RED4ext::Handle<RED4ext::IScriptable> entity;
@@ -143,7 +159,7 @@ RED4ext::Handle<RED4ext::IScriptable> NpcCopies::EntityOf(uint64_t entityHash)
     return entity;
 }
 
-void NpcCopies::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs)
+void NpcCopies::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs, uint32_t ourPeer)
 {
     const uint8_t type = net::MessageTypeOf(message);
     net::NpcSpawn spawn;
@@ -227,13 +243,16 @@ void NpcCopies::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message
         }
         if (despawn.Reason == DiedReason)
         {
+            const bool weKilledIt = despawn.Killer == ourPeer;
             auto npc = EntityOf(copy->second.EntityHash);
             if (npc)
             {
-                Kill(npc);
+                Kill(npc, weKilledIt);
             }
             copy->second.RemoveAtMs = nowMs + CorpseStaysMs;
-            m_log("npcs: " + NetIdText(despawn.NetId) + " died at its owner, the body stays 10 s");
+            m_log("npcs: " + NetIdText(despawn.NetId) + " died at its owner" +
+                  (weKilledIt ? ", we killed it so our game rewards it" : despawn.Killer != 0xFFFFFFFF ? ", peer " + std::to_string(despawn.Killer) + " killed it" : "") +
+                  ", the body stays 10 s");
         }
         else
         {
@@ -321,6 +340,8 @@ void NpcCopies::TakeControl(uint32_t netId, Copy& copy, RED4ext::Handle<RED4ext:
         ragdollArgs.emplace_back(nullptr, &leaveEnabled);
         game::CallMethod(npc.instance, m_setDisableRagdoll, nullptr, ragdollArgs);
     }
+    npc_combat::MarkCopy(npc);
+    copy.Marked = true;
     m_log("npcs: stand in of " + NetIdText(netId) + " is in the world, taken under direct control (" + std::to_string(copy.ComponentsOff) +
           " component(s) off)");
 }
@@ -554,18 +575,27 @@ void NpcCopies::Report(uint64_t nowMs)
     m_healthWrites = m_stateWrites = m_attitudeWrites = m_handWrites = 0;
 }
 
-void NpcCopies::Kill(RED4ext::Handle<RED4ext::IScriptable>& npc)
+void NpcCopies::Kill(RED4ext::Handle<RED4ext::IScriptable>& npc, bool weKilledIt)
 {
     auto* npcClass = npc->GetType();
     if (!m_kill || !npcClass || !npcClass->IsA(m_npcClass))
     {
         return;
     }
-    RED4ext::WeakHandle<RED4ext::IScriptable> noInstigator;
+    npc_combat::ReleaseCopy(npc, weKilledIt);
+    RED4ext::Handle<RED4ext::IScriptable> player;
+    if (weKilledIt && m_getPlayer)
+    {
+        RED4ext::ScriptGameInstance gameInstance;
+        RED4ext::StackArgs_t playerArgs;
+        playerArgs.emplace_back(nullptr, &gameInstance);
+        game::CallStatic(m_getPlayer, &player, playerArgs);
+    }
+    RED4ext::WeakHandle<RED4ext::IScriptable> instigator(player);
     bool skipDeathAnim = false;
     bool disableRagdoll = false;
     RED4ext::StackArgs_t args;
-    args.emplace_back(nullptr, &noInstigator);
+    args.emplace_back(nullptr, &instigator);
     args.emplace_back(nullptr, &skipDeathAnim);
     args.emplace_back(nullptr, &disableRagdoll);
     game::CallMethod(npc.instance, m_kill, nullptr, args);
@@ -573,6 +603,10 @@ void NpcCopies::Kill(RED4ext::Handle<RED4ext::IScriptable>& npc)
 
 void NpcCopies::Remove(uint32_t netId, Copy& copy, const char* why)
 {
+    if (copy.Marked)
+    {
+        npc_combat::ForgetCopy(copy.EntityHash);
+    }
     if (copy.EntityHash && m_dynamicEntitySystem)
     {
         RED4ext::ent::EntityID entityId(copy.EntityHash);
@@ -590,6 +624,7 @@ void NpcCopies::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session)
         if (!m_copies.empty())
         {
             m_copies.clear();
+            npc_combat::ForgetAll();
             m_playerAgent.Reset();
             m_dynamicEntitySystem.Reset();
             m_teleportationFacility.Reset();

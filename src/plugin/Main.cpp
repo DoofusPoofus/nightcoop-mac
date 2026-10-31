@@ -26,6 +26,7 @@
 #include "plugin/GameVersion.hpp"
 #include "plugin/KeyWatch.hpp"
 #include "plugin/LiftSync.hpp"
+#include "plugin/NpcCombat.hpp"
 #include "plugin/NpcCopies.hpp"
 #include "plugin/NpcShare.hpp"
 #include "plugin/LookStates.hpp"
@@ -480,7 +481,12 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) >= static_cast<uint8_t>(nc::proto::MsgType::NpcSpawn) &&
                  nightcoop_mac::net::MessageTypeOf(message.Message) <= static_cast<uint8_t>(nc::proto::MsgType::NpcAnim))
         {
-            Npcs->OnMessage(message.FromPeer, message.Message, nowMs);
+            Npcs->OnMessage(message.FromPeer, message.Message, nowMs, Session->GetStatus().MyPeerNumber);
+        }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::HitClaim) ||
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::HitResult))
+        {
+            nightcoop_mac::npc_combat::OnMessage(message.FromPeer, message.Message, nowMs, *OurNpcs, *Bodies, *Session, Log);
         }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::GameClock))
         {
@@ -491,6 +497,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     nightcoop_mac::partner_roster::Tick(nowMs, inSave, Plan->Nickname, *Session, Log);
     Cars->Tick(nowMs, inSave, *Session, *Bodies);
     Npcs->Tick(nowMs, inSave, *Session);
+    nightcoop_mac::npc_combat::Tick(nowMs, inSave, Plan->TestClaim, *Npcs, *Session, Log);
     {
         const bool weAreHost = Session->GetStatus().MyPeerNumber == 0;
         std::vector<nightcoop_mac::NpcShare::Partner> npcPartners;

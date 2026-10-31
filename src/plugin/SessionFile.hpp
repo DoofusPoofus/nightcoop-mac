@@ -17,6 +17,7 @@
                          handoff, for now the hosts save as it is, without our own character spliced in)
    test_help             in a save f gets held down for 2 s evry 8 s, to help a downed probe up (testing only)
    test_downed           in a save our health drops to 1 % once a partner is there, so the fall and a revive can be checked (testing only)
+   test_claim            in a save our script claims 40 % of the first partner npc copy evry 5 s, as if our player hit it (testing only)
    test_vehicle          in a save a car spawns next to our player and we get mounted at its wheel (testing only)
    test_weapon           in a save our player gets a Lexington drawn and once its in hand its magazine drops by one evry 2 s, 10 times,
                          so the weapon fields and shot counts can be checked with nobody at the keyboard (testing only)
@@ -46,6 +47,7 @@ struct SessionPlan
     bool TestWeapon = false;
     bool TestVehicle = false;
     bool TestDowned = false;
+    bool TestClaim = false;
     bool TestHelp = false;
     bool WorldHandoff = false;
     bool ShareNpcsAlways = false;

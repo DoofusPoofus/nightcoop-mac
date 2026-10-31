@@ -13,6 +13,8 @@
  the 8 ai net states that changed (dead kept off a living copy, cover shown as crouch like nightcoop), the attitude the owners
  npc has to our partner body as its attitude to our player, and the owners hand weapons (given and put in the slot, checked
  evry 2 s, 5 tries)
+ copies are marked in the NightCoopCombat script service (immortal, our hits on them go to the owner as claims) and a copy
+ that dies at its owner gets its kill reward turned off unless the despawn says we killed it (then we are the instigator)
  not done yet: matching our own npc of the same person instead of spawning (static ids, community keys), look at, time
  dilation, handoffs and claims
 */
@@ -48,9 +50,10 @@ public:
     {
     }
 
-    void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs);
+    void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs, uint32_t ourPeer);
     void Tick(uint64_t nowMs, bool inSave, net::RelaySession& session);
     uint32_t CopyCount() const { return static_cast<uint32_t>(m_copies.size()); }
+    bool FindByEntity(uint64_t entityHash, uint32_t& netId, uint32_t& ownerPeer, float& ownerHealth) const;
 
 private:
     struct Sample
@@ -88,6 +91,7 @@ private:
         uint32_t HandTries[2] = {0, 0};
         uint64_t NextHandCheckMs = 0;
         uint64_t NextStatesMs = 0;
+        bool Marked = false;
     };
 
     bool Resolve();
@@ -99,7 +103,7 @@ private:
     void ApplyStates(uint32_t netId, Copy& copy, RED4ext::Handle<RED4ext::IScriptable>& npc, uint64_t nowMs, uint32_t ourPeer);
     void ApplyHands(uint32_t netId, Copy& copy, RED4ext::Handle<RED4ext::IScriptable>& npc, uint64_t nowMs);
     void Report(uint64_t nowMs);
-    void Kill(RED4ext::Handle<RED4ext::IScriptable>& npc);
+    void Kill(RED4ext::Handle<RED4ext::IScriptable>& npc, bool weKilledIt);
     void Remove(uint32_t netId, Copy& copy, const char* why);
 
     LogFunction m_log;
