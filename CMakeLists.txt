@@ -45,6 +45,7 @@ add_library(nightcoop_mac_net STATIC
   src/net/CombatMessages.cpp
   src/net/DoorMessages.cpp
   src/net/DialogMessages.cpp
+  src/net/QuestMessages.cpp
   src/net/RelaySession.cpp
 )
 target_include_directories(nightcoop_mac_net PUBLIC src)
@@ -66,6 +67,7 @@ add_library(NightCoopMac SHARED
   src/plugin/DoorSync.cpp
   src/plugin/DialogScenes.cpp
   src/plugin/Downed.cpp
+  src/plugin/FactsDb.cpp
   src/plugin/GameVersion.cpp
   src/plugin/Hud.cpp
   src/plugin/KeyWatch.cpp
@@ -84,6 +86,7 @@ add_library(NightCoopMac SHARED
   src/plugin/PartnerPlates.cpp
   src/plugin/PartnerRoster.cpp
   src/plugin/PlayerSampler.cpp
+  src/plugin/QuestSync.cpp
   src/plugin/RemoteBodies.cpp
   src/plugin/RttiDump.cpp
   src/plugin/SessionFile.cpp
