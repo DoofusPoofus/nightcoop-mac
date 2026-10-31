@@ -136,14 +136,16 @@ void Tick(uint64_t nowMs, bool inSave, const std::vector<PartnerSpot>& partners,
     bool haveCamera = false;
     game::CallMethod(cameras.instance, Game.CameraTransform, &haveCamera, transformArgs);
     const RED4ext::Vector4 forward = CameraVector(cameras, Game.CameraForward);
+    const RED4ext::Vector4 cameraRight = CameraVector(cameras, Game.CameraRight);
+    const RED4ext::Vector4 cameraUp = CameraVector(cameras, Game.CameraUp);
     if (!haveCamera)
     {
         return;
     }
     if (!Calibrated)
     {
-        const RED4ext::Vector4 right = CameraVector(cameras, Game.CameraRight);
-        const RED4ext::Vector4 up = CameraVector(cameras, Game.CameraUp);
+        const RED4ext::Vector4& right = cameraRight;
+        const RED4ext::Vector4& up = cameraUp;
         const RED4ext::Vector4 ahead {camera.Position.X + forward.X * 10.0f, camera.Position.Y + forward.Y * 10.0f, camera.Position.Z + forward.Z * 10.0f, 1.0f};
         const RED4ext::Vector4 aheadRight {ahead.X + right.X, ahead.Y + right.Y, ahead.Z + right.Z, 1.0f};
         const RED4ext::Vector4 aheadUp {ahead.X + up.X, ahead.Y + up.Y, ahead.Z + up.Z, 1.0f};
@@ -168,19 +170,43 @@ void Tick(uint64_t nowMs, bool inSave, const std::vector<PartnerSpot>& partners,
         const float deltaZ = anchor.Z - camera.Position.Z;
         const float depth = deltaX * forward.X + deltaY * forward.Y + deltaZ * forward.Z;
         const float distance = std::sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
-        if (depth < 0.1f || !std::isfinite(distance) || distance > FarthestMeters)
-        {
-            continue;
-        }
-        const RED4ext::Vector4 projected = Project(cameras, anchor);
-        const float screenX = (projected.X * XSign + 1.0f) * 0.5f * HudWidth;
-        const float screenY = (1.0f - projected.Y * YSign) * 0.5f * HudHeight;
-        if (std::fabs(projected.X) > 1.0f || std::fabs(projected.Y) > 1.0f)
+        if (!std::isfinite(distance) || distance > FarthestMeters)
         {
             continue;
         }
         float scale = 1.0f - std::clamp((distance - 15.0f) / 285.0f, 0.0f, 1.0f) * 0.28f;
         float opacity = distance < 6.0f ? std::clamp((distance - 2.5f) / 3.5f, 0.0f, 1.0f) * 0.65f + 0.35f : 1.0f;
+        float screenX = 0;
+        float screenY = 0;
+        const RED4ext::Vector4 projected = depth >= 0.1f ? Project(cameras, anchor) : RED4ext::Vector4 {};
+        if (depth >= 0.1f && std::fabs(projected.X) <= 1.0f && std::fabs(projected.Y) <= 1.0f)
+        {
+            screenX = (projected.X * XSign + 1.0f) * 0.5f * HudWidth;
+            screenY = (1.0f - projected.Y * YSign) * 0.5f * HudHeight;
+        }
+        else
+        {
+            float towardX = deltaX * cameraRight.X + deltaY * cameraRight.Y + deltaZ * cameraRight.Z;
+            float towardY = -(deltaX * cameraUp.X + deltaY * cameraUp.Y + deltaZ * cameraUp.Z);
+            const float length = std::sqrt(towardX * towardX + towardY * towardY);
+            if (length < 0.0001f)
+            {
+                towardY = 1.0f;
+            }
+            else
+            {
+                towardX /= length;
+                towardY /= length;
+            }
+            const float halfWidth = HudWidth * 0.5f - HudWidth * 0.035f;
+            const float halfHeight = HudHeight * 0.5f - HudHeight * 0.05f;
+            const float reach = std::min(std::fabs(towardX) > 0.0001f ? halfWidth / std::fabs(towardX) : 1e9f,
+                                         std::fabs(towardY) > 0.0001f ? halfHeight / std::fabs(towardY) : 1e9f);
+            screenX = HudWidth * 0.5f + towardX * reach;
+            screenY = std::max(HudHeight * 0.5f + towardY * reach, 160.0f * scale);
+            scale = std::min(scale, 0.85f);
+            opacity *= 0.85f;
+        }
         int32_t peer = static_cast<int32_t>(partner.PeerNumber);
         RED4ext::CString name(partner.Name.c_str());
         RED4ext::CString distanceText(DistanceText(distance).c_str());
