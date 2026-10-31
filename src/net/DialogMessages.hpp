@@ -1,19 +1,19 @@
 /*
  dialog and scene messages rebuilt from nightcoops dialogvote and sceneskip modules (0.1.2 dll). all ride in Game envelopes
  DialogBallot (74) host -> evryone when a choice window opens: u32 vote id (not 0) | u64 scene id | u8 flags (1 timed by the
-   game, 2 exactly one option, 4 gather at the npc) | string title (512) | u8 options 1..16 x (string text (512) | u32 choice
+   game 2 exactly one option 4 gather at the npc) | string title (512) | u8 options 1..16 x (string text (512) | u32 choice
    type bits) | u8 voters 0..8 x u32 peer | u8 keys (0 or one per option) x u64 | u8 row ids (0 or one per option) x (u64 scene
-   | u32 item, both 0 or both set, at least one pair set)
- DialogVote (75) guest -> host, 14 bytes: u32 vote id | i8 option (-1 takes the vote back) | u32 item (0 when option is -1)
+   | u32 item both 0 or both set at least one pair set)
+ DialogVote (75) guest -> host 14 bytes: u32 vote id | i8 option (-1 takes the vote back) | u32 item (0 when option is -1)
  DialogTally (76) host -> evryone on evry change: u32 vote id | u8 state (1 open 2 decided 3 cancelled 4 decided by time) | i8
    option (0..15 for 2 and 4) | u8 votes needed (0 by mode) | u8 votes 0..8 x (u32 peer | i8 option) | u8 voters 0..8 x u32 peer
-   | u64 shared time (the session clock moment evryone applies it at, 0 while open or cancelled)
- DialogLine (78) host -> evryone, one per subtitle line: u64 line id (not 0) | u64 scene id | u8 line type (0..13) | f32
+   | u64 shared time (the session clock moment evryone applies it at 0 while open or cancelled)
+ DialogLine (78) host -> evryone one per subtitle line: u64 line id (not 0) | u64 scene id | u8 line type (0..13) | f32
    seconds (0..120) | string speaker (128) | string text (1024) | u64 scene file | u64 line key | string language (8)
  VoteModeWord (249) host -> each peer: u8 sub (1) | u8 mode (0 majority 1 evryone) | u8 flag. 249 is not in the hub enum
  SceneLineSkip (118) any -> host -> evryone: u32 peer | u64 scene id (not 0) | u32 ms (up to 100000) | u64 shared time (not 0)
-   | u8 flags (bits 0..2, bit0 alone or not at all) | u8 places 1..8 x (u8 kind 1..4 | u64 key (not 0) | u16 nth (not 0))
- readers drop short reads, values out of range and bytes left over like the windows readers do. writers cut strings and
+   | u8 flags (bits 0..2 bit0 alone or not at all) | u8 places 1..8 x (u8 kind 1..4 | u64 key (not 0) | u16 nth (not 0))
+ readers drop short reads values out of range and bytes left over like the windows readers do. writers cut strings and
  lists to what the readers take
 */
 #pragma once

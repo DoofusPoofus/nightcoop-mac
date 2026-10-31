@@ -1,6 +1,6 @@
 /*
- byte layout checks for the rebuilt game layer messages (Game envelope, PlayerAnim, PlayerAnimWant, PlayerAnimSetup,
- PlayerCustomization, NpcAnim, DoorSync, the dialog votes, QuestFacts, the device messages and friends)
+ byte layout checks for the rebuilt game layer messages (Game envelope PlayerAnim PlayerAnimWant PlayerAnimSetup
+ PlayerCustomization NpcAnim DoorSync the dialog votes QuestFacts the device messages and friends)
 */
 #include "net/DoorMessages.hpp"
 #include "net/DialogMessages.hpp"

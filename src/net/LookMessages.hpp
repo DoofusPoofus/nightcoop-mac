@@ -1,18 +1,18 @@
 /*
- PlayerCustomization (33), the whole look state of a players V, rebuilt from nightcoops PlayerCustomization::Write / Read
- every name is a raw CName hash, there are no strings. little endian, after the usual message header:
-   u8 version (1, anything else is refused) | u32 data version (state +0xC0) | u8 body gender male (+0x44) | u8 brain gender male (+0x45)
-   head, body and arms group lists (state +0x70 / +0x80 / +0x90), each:
-     u16 group count (max 128), per group: u64 name
-       u8 part count (max 255), per part: u64 resource (raRef path hash) | u64 definition | u64 name | u32 censor flag | u8 censor action
-       u8 morph count (max 255), per morph: u64 region name | u64 target name | u32 censor flag | u8 censor action
-   u8 perspective count (max 255) (+0xA0), each: u64 name | u64 fpp | u64 tpp
-   u8 tag count (max 255) (+0xB0), each: u64 tag
- no clothes in here, those ride in PlayerLook (31). skin tone is part of a definition name
- PlayerLook (31), the clothes, rebuilt from nightcoops wardrobe module (writer / reader of the 0.1.2 dll):
-   u8 female | u16 item count (max 64) | per item a 16 byte ItemID: u64 record (tdbid as sent, top 3 bytes are the senders tdb
+ PlayerCustomization (33) the whole look state of a players V rebuilt from nightcoops PlayerCustomization::Write / Read
+ every name is a raw CName hash there are no strings. little endian after the usual message header:
+   u8 version (1 anything else is refused) | u32 data version (state +0xC0) | u8 body gender male (+0x44) | u8 brain gender male (+0x45)
+   head body and arms group lists (state +0x70 / +0x80 / +0x90) each:
+     u16 group count (max 128) per group: u64 name
+       u8 part count (max 255) per part: u64 resource (raRef path hash) | u64 definition | u64 name | u32 censor flag | u8 censor action
+       u8 morph count (max 255) per morph: u64 region name | u64 target name | u32 censor flag | u8 censor action
+   u8 perspective count (max 255) (+0xA0) each: u64 name | u64 fpp | u64 tpp
+   u8 tag count (max 255) (+0xB0) each: u64 tag
+ no clothes in here those ride in PlayerLook (31). skin tone is part of a definition name
+ PlayerLook (31) the clothes rebuilt from nightcoops wardrobe module (writer / reader of the 0.1.2 dll):
+   u8 female | u16 item count (max 64) | per item a 16 byte ItemID: u64 record (tdbid as sent top 3 bytes are the senders tdb
    offset) | u32 rng seed | u16 unique counter | u8 structure | u8 flags | u64 arms record | u16 slot count | per item its u64
-   placement slot (the tail is only read when its there, and dropped when the count is not the item count)
+   placement slot (the tail is only read when its there and dropped when the count is not the item count)
 */
 #pragma once
 

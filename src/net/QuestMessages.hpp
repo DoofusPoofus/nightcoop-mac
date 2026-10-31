@@ -1,13 +1,13 @@
 /*
- quest sharing, the mirror part of nightcoops quest sync rebuilt from the 0.1.2 dll. all three ride in Game envelopes, reliable
- QuestFacts (70) host -> guests: u8 batch (1 delta, 2 snapshot begin, 3 snapshot part, 4 snapshot end) | u32 number (0 for a
-   delta, the snapshot number) | u32 total (entries of the whole batch) | u16 n (up to 1024) | n x (u8 table + 1 with bit 7 =
-   a writer follows | u32 fact id (fnv1a32 of the fact name) | i32 value | writer: u32 graph, u16 node)
+ quest sharing the mirror part of nightcoops quest sync rebuilt from the 0.1.2 dll. all three ride in Game envelopes reliable
+ QuestFacts (70) host -> guests: u8 batch (1 delta 2 snapshot begin 3 snapshot part 4 snapshot end) | u32 number (0 for a
+   delta the snapshot number) | u32 total (entries of the whole batch) | u16 n (up to 1024) | n x (u8 table + 1 with bit 7 =
+   a writer follows | u32 fact id (fnv1a32 of the fact name) | i32 value | writer: u32 graph u16 node)
  QuestJournal (71) host -> guests: u8 batch | u32 number | u32 total | u8 1 = the tracked entry is valid | u32 tracked entry
-   hash | u16 n (up to 1024) | n x (u32 entry hash | u8 state 0..4 | u8 1 quiet or 2 with notification, bit 7 = a writer
-   follows | writer: u32 graph, u16 node)
- QuestWant (73) guest -> host: u32 our world number, after evry load in the hosts world
- a delta goes as batch 1 messages of 1024 entries at most, a snapshot as a begin and an end without entries and the parts
+   hash | u16 n (up to 1024) | n x (u32 entry hash | u8 state 0..4 | u8 1 quiet or 2 with notification bit 7 = a writer
+   follows | writer: u32 graph u16 node)
+ QuestWant (73) guest -> host: u32 our world number after evry load in the hosts world
+ a delta goes as batch 1 messages of 1024 entries at most a snapshot as a begin and an end without entries and the parts
  between. readers want the exact length and drop broken limits like the dll does
 */
 #pragma once

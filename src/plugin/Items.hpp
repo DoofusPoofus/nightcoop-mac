@@ -1,10 +1,10 @@
 /*
- items, the transaction system calls the wardrobe and the weapons both need (all rtti, main thread only)
- give an item to a body, put it in an attachment slot (all 11 AddItemToSlot args, scene plane), take a slot empty, ask what
- sits in a slot (GetItemInSlot -> the item objects GetItemID, GetActiveItemInSlot as the fallback since it only knows weapon
+ items the transaction system calls the wardrobe and the weapons both need (all rtti main thread only)
+ give an item to a body put it in an attachment slot (all 11 AddItemToSlot args scene plane) take a slot empty ask what
+ sits in a slot (GetItemInSlot -> the item objects GetItemID GetActiveItemInSlot as the fallback since it only knows weapon
  slots) and read tweakdb flats like a records placementSlots. EquipmentData is a players EquipmentSystemPlayerData (thru the
  scriptable systems container). Ready says once if the calls look different than expected
- Quantity and Remove count and take items off a body for the loot give, CanCountAndRemove says if those two calls are there
+ Quantity and Remove count and take items off a body for the loot give CanCountAndRemove says if those two calls are there
 */
 #pragma once
 

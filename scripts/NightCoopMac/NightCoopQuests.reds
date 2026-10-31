@@ -1,9 +1,9 @@
-// quests, the script half of the plugins quest sync (src/plugin/QuestSync.cpp, nightcoops mirror mode). on the host Watch(true)
-// hooks the journal managers state listener, evry entry state change lands in m_changedHashes / m_changedStates /
-// m_changedNotify and the plugin takes them evry 250 ms (ClearChanges). CollectJournal walks the whole journal (quests, meta
-// quests, contacts, tarots, internet sites, codex, briefings and evrything under them) into m_snapshotHashes /
+// quests the script half of the plugins quest sync (src/plugin/QuestSync.cpp nightcoops mirror mode). on the host Watch(true)
+// hooks the journal managers state listener evry entry state change lands in m_changedHashes / m_changedStates /
+// m_changedNotify and the plugin takes them evry 250 ms (ClearChanges). CollectJournal walks the whole journal (quests meta
+// quests contacts tarots internet sites codex briefings and evrything under them) into m_snapshotHashes /
 // m_snapshotStates when a guest asks for a snapshot. on a guest ApplyJournal writes one entry state of the host thru
-// ChangeEntryStateByHash: 0 changed, 1 already like that, 2 no such entry here
+// ChangeEntryStateByHash: 0 changed 1 already like that 2 no such entry here
 
 public class NightCoopQuestSync extends ScriptableService {
   private let m_watching: Bool;

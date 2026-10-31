@@ -1,11 +1,11 @@
 /*
- partner plates, the plugin half of nightcoops world markers (the script half is NightCoopPartnerPlates in
+ partner plates the plugin half of nightcoops world markers (the script half is NightCoopPartnerPlates in
  scripts/NightCoopMac/NightCoopPartnerMarkers.reds). evry frame in a save each partner spot 2.05 m up goes thru the active
- camera: in front of it (deeper than 0.1 m) and within 2000 m it gets projected with gameCameraSystem.ProjectPoint, the
- axis signs checked once with points 10 m ahead and 1 m right / up like nightcoops calibration, and placed in the 3840 x 2160
- hud space. scale 1.0 up to 15 m down to 0.72 at 300 m, closer than 6 m it fades to 35 %, distance text empty under 8 m,
- metres to 1000 m (5 m steps past 100), then km. a partner off screen or behind us sticks to the screen border in their
- direction (3.5 % / 5 % margins, scale at most 0.85, opacity * 0.85) like nightcoops plates
+ camera: in front of it (deeper than 0.1 m) and within 2000 m it gets projected with gameCameraSystem.ProjectPoint the
+ axis signs checked once with points 10 m ahead and 1 m right / up like nightcoops calibration and placed in the 3840 x 2160
+ hud space. scale 1.0 up to 15 m down to 0.72 at 300 m closer than 6 m it fades to 35 % distance text empty under 8 m
+ metres to 1000 m (5 m steps past 100) then km. a partner off screen or behind us sticks to the screen border in their
+ direction (3.5 % / 5 % margins scale at most 0.85 opacity * 0.85) like nightcoops plates
 */
 #pragma once
 

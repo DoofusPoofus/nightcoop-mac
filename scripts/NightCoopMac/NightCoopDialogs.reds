@@ -3,8 +3,8 @@
 // lands in hubOpen hubId hubTitle rowTexts rowTypes selectedIndex and the plugin reads those fields thru rtti
 // it also listens to UIGameData.ShowDialogLine: evry subtitle line we see lands in the line arrays (the host relays them as
 // DialogLine) and ownLinesSeen counts them so a guest knows when its own scene talks. ShowRelayedLine puts a hosts line on
-// our subtitles and HideRelayedLine takes it off again, those never count as our own
-// SetBodyHidden turns the visual components of a partner body and of the items in its slots off and remembers them, showing
+// our subtitles and HideRelayedLine takes it off again those never count as our own
+// SetBodyHidden turns the visual components of a partner body and of the items in its slots off and remembers them showing
 // turns only those back on (the body builder keeps some parts off on purpose)
 // skipActive skipAllowed mirror the scene fast forward and StartSkip StopSkip run it for a partner that skips
 // there is no script call that picks a dialog choice so the plugin presses the keys for that

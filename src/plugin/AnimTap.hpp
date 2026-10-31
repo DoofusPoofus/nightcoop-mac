@@ -1,24 +1,24 @@
 /*
- anim tap, the mac take on nightcoops AnimTap: records the inputs the game writes into our players anim graph so partners can
- replay them on our body (their AnimMirror, or ours on a mac partner)
- nightcoop hooks the anim controller components input writes by address hash, none of them are in the mac db. on mac 2.5.0 they
- were found by following the script natives (SetInputFloat & co, registered at game+0x18b45xx) to the component level setters
- they call, which the games own c++ calls too:
-   PushEvent game+0x18b5dfc (comp, name) | SetInputFloat +0x18b60d8 (comp, name, float) | SetInputInt +0x18b6270 (comp, name, int)
-   SetInputBool +0x18b6408 (comp, name, bool) | SetInputVector +0x18b633c (comp, name, Vector4*)
-   SetInputQuaternion +0x18b61a4 (comp, name, Quaternion*) | ApplyFeature +0x18b64d4 (comp, name, Handle<animAnimFeature>*)
+ anim tap the mac take on nightcoops AnimTap: records the inputs the game writes into our players anim graph so partners can
+ replay them on our body (their AnimMirror or ours on a mac partner)
+ nightcoop hooks the anim controller components input writes by address hash none of them are in the mac db. on mac 2.5.0 they
+ were found by following the script natives (SetInputFloat & co registered at game+0x18b45xx) to the component level setters
+ they call which the games own c++ calls too:
+   PushEvent game+0x18b5dfc (comp name) | SetInputFloat +0x18b60d8 (comp name float) | SetInputInt +0x18b6270 (comp name int)
+   SetInputBool +0x18b6408 (comp name bool) | SetInputVector +0x18b633c (comp name Vector4*)
+   SetInputQuaternion +0x18b61a4 (comp name Quaternion*) | ApplyFeature +0x18b64d4 (comp name Handle<animAnimFeature>*)
  the player state machine writes thru the script statics (AnimationControllerComponent.ApplyFeature / SetInputFloat / PushEvent
- ...), which queue an entAnimInputSetter* / entAnimExternalEvent on the entity instead, so the entity event queue push is hooked too
- (game+0x1021abc (entity +0xd8 queue, Handle<Event>*), the native QueueEvent calls it): events queued on our player get their key
+ ...) which queue an entAnimInputSetter* / entAnimExternalEvent on the entity instead so the entity event queue push is hooked too
+ (game+0x1021abc (entity +0xd8 queue Handle<Event>*) the native QueueEvent calls it): events queued on our player get their key
  and value (or name) read thru rtti. each is hooked only when its first 24 code bytes are the ones seen in 2.5.0. a write is kept only when the component is our
- players anim controller (looked up from the main thread evry 100 ms, so a new players setup writes get caught), features keep evry rtti field up to 32 bytes like nightcoops batches
- a value write that repeats the last queued value of that input is not queued again (the partners graph still holds it),
- events always go. the main thread sends the queued writes as PlayerAnim (29) batches on slot 0 evry 50 ms, and a partners PlayerAnimWant gets a
+ players anim controller (looked up from the main thread evry 100 ms so a new players setup writes get caught) features keep evry rtti field up to 32 bytes like nightcoops batches
+ a value write that repeats the last queued value of that input is not queued again (the partners graph still holds it)
+ events always go. the main thread sends the queued writes as PlayerAnim (29) batches on slot 0 evry 50 ms and a partners PlayerAnimWant gets a
  full state batch (the last value of evry input seen) sent to them alone. wrapper weights and graph attach / detach have no
  component setter here and are not recorded
  npcs we share (NpcShare) get watched the same way: up to 64 controller / event queue pointers in a lock free table the hooks
- look thru, each with its own queue. evry 50 ms each one with new writes goes out as NpcAnim (23) with its net id, our clock, a
- per npc counter and the age of evry input in ms, an empty one after 1 s of quiet, and a NpcAnimWant gets that npcs full state
+ look thru each with its own queue. evry 50 ms each one with new writes goes out as NpcAnim (23) with its net id our clock a
+ per npc counter and the age of evry input in ms an empty one after 1 s of quiet and a NpcAnimWant gets that npcs full state
 */
 #pragma once
 

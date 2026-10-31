@@ -1,24 +1,24 @@
 /*
  nightcoop game layer messages rebuilt from the 0.1.2 dll
  Game (25) is the envelope evry game message rides in: i32 to peer (-1 evryone) | u32 from peer | u8 reliable | inner message.
-   a guest only talks to the host, the host takes it itself, forwards it to the one it is for or to evryone but the sender,
+   a guest only talks to the host the host takes it itself forwards it to the one it is for or to evryone but the sender
    and checks that the from peer is really the guest that sent it
  PlayerAnim (29) is one batch of anim graph inputs:
-   u32 | u8 flags (bit0 full state, bit1 entries carry an extra byte) | u64 | u32 | u16 count (max 4096) | entries
-   entry: u8 slot | u8 kind | u64 name | payload | [u8 extra, always for features, else only with flag bit1]
-   kinds: 0 feature (u64 type | u8 fields (max 48) | per field u64 name, u8 size (max 32), bytes)
-          1 float, 7 wrapper weight (f32) | 2 int, 3 bool (i32) | 4 vector, 5 quaternion (4 x f32) | 6 event (nothing)
-          8 attach, 9 detach (u64 not zero, u64)
- PlayerAnimWant (30): u8 | u8, a partner asks for our full anim state (sent to one peer, once a second at most)
- NpcAnim (23) is the same batch for one of the owners shared npcs: the first word is its net id, the u64 the owners clock in ms,
+   u32 | u8 flags (bit0 full state bit1 entries carry an extra byte) | u64 | u32 | u16 count (max 4096) | entries
+   entry: u8 slot | u8 kind | u64 name | payload | [u8 extra always for features else only with flag bit1]
+   kinds: 0 feature (u64 type | u8 fields (max 48) | per field u64 name u8 size (max 32) bytes)
+          1 float 7 wrapper weight (f32) | 2 int 3 bool (i32) | 4 vector 5 quaternion (4 x f32) | 6 event (nothing)
+          8 attach 9 detach (u64 not zero u64)
+ PlayerAnimWant (30): u8 | u8 a partner asks for our full anim state (sent to one peer once a second at most)
+ NpcAnim (23) is the same batch for one of the owners shared npcs: the first word is its net id the u64 the owners clock in ms
    the second u32 a per npc batch counter and the extra byte (flag bit1) how many ms old that input was when it went out
- NpcAnimWant (35): u32 net id | u8 full state | u8 reset, a watcher asks the owner for that npcs full anim state
+ NpcAnimWant (35): u32 net id | u8 full state | u8 reset a watcher asks the owner for that npcs full anim state
  PlayerAnimSetup (34): u64 rig | u16 sets (max 512) | per set u64 anim set path | u8 priority | u8 variables (max 32) |
    that many u64 variable names. reliable to evryone when it changes and evry 20 s
- the u32 / u64 / u32 batch header words are passed along as they came, wat they mean is not pinned down yet
- GameClock (46): u32 game seconds (the time systems GetGameTime). the host sends it to evryone evry 5 s, unreliable
- PlayerRevive (47): u32 target peer | f32 x3 the helpers position, reliable to the downed partner once F was held 1 s
- DownedNotice (48): u8 kind (1 evryone down, the host loads its last save / 2 evryone down, evryone passes out), host -> evryone
+ the u32 / u64 / u32 batch header words are passed along as they came wat they mean is not pinned down yet
+ GameClock (46): u32 game seconds (the time systems GetGameTime). the host sends it to evryone evry 5 s unreliable
+ PlayerRevive (47): u32 target peer | f32 x3 the helpers position reliable to the downed partner once F was held 1 s
+ DownedNotice (48): u8 kind (1 evryone down the host loads its last save / 2 evryone down evryone passes out) host -> evryone
 */
 #pragma once
 

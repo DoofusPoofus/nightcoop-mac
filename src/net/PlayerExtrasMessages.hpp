@@ -1,21 +1,21 @@
 /*
- player extras messages rebuilt from the 0.1.2 dll. they ride in Game envelopes, all reliable
- PlayerCarry (92) carrier -> evryone, 69 bytes or 77 with the look tail: u32 carry number (new number = new carry) | u64 the
-   carriers session clock | u8 kind (0 none 1 pickup 2 carry 3 drop 4 release 5 dispose 6 jump 7 aim 8 throw) | u8 spare (0,
-   up to 8) | u8 pickup animation (up to 16) | u8 flags (bit0 both hands, bit1 instant, bit2 fast mode, bit3 carry active,
-   bit4 friendly carry, bit5 was thrown, bit6 quest carry in the arms, bit7 must be clear) | u32 net id of the carried npc
+ player extras messages rebuilt from the 0.1.2 dll. they ride in Game envelopes all reliable
+ PlayerCarry (92) carrier -> evryone 69 bytes or 77 with the look tail: u32 carry number (new number = new carry) | u64 the
+   carriers session clock | u8 kind (0 none 1 pickup 2 carry 3 drop 4 release 5 dispose 6 jump 7 aim 8 throw) | u8 spare (0
+   up to 8) | u8 pickup animation (up to 16) | u8 flags (bit0 both hands bit1 instant bit2 fast mode bit3 carry active
+   bit4 friendly carry bit5 was thrown bit6 quest carry in the arms bit7 must be clear) | u32 net id of the carried npc
    (0 none) | u64 its entity id hash in the carriers world | u64 its character record | u64 x2 community key | f32 x3 where it
    is (0 0 0 unknown) | u64 appearance name of it (optional). net id or entity id must be set
- BuildStats (141) evryone -> evryone at a change and evry 5 s: u32 revision | u8 flags (bit0 team build checks, bit1 native
-   quest checks, other bits clear) | u8 n (up to 32) | n x (u8 stat index, each once | f32 value 0..10000). stat index =
+ BuildStats (141) evryone -> evryone at a change and evry 5 s: u32 revision | u8 flags (bit0 team build checks bit1 native
+   quest checks other bits clear) | u8 n (up to 32) | n x (u8 stat index each once | f32 value 0..10000). stat index =
    nightcoops own table: 0 Strength 1 Reflexes 2 TechnicalAbility 3 Intelligence 4 Cool 5 StrengthSkillcheckBonus
    6 TechnicalAbilitySkillcheckBonus 7 IntelligenceSkillcheckBonus 8 Level 9 StreetCred 10 Hacking
- PhoneSync (133): u8 kind (1 request guest -> host, 2 committed host -> evryone, 3 the hosts call state again, 4 refused) |
-   u8 action (1 call phase, 2 pickup answer) | u32 the asking peer | u32 request number | u32 commit number | u32 call id |
-   u64 the hosts session clock | string contact name (1..96 printable ascii, never player) | u8 call phase (1 incoming
-   2 start 3 end) | u8 call mode | u8 visuals | u8 flags (bit0 player calling, bit1 player triggered, bit2 rejectable,
-   bit3 show avatar, bit4 audio call, bit5 should be rejected)
- readers drop wrong sizes, broken limits and not finite floats like the dll does
+ PhoneSync (133): u8 kind (1 request guest -> host 2 committed host -> evryone 3 the hosts call state again 4 refused) |
+   u8 action (1 call phase 2 pickup answer) | u32 the asking peer | u32 request number | u32 commit number | u32 call id |
+   u64 the hosts session clock | string contact name (1..96 printable ascii never player) | u8 call phase (1 incoming
+   2 start 3 end) | u8 call mode | u8 visuals | u8 flags (bit0 player calling bit1 player triggered bit2 rejectable
+   bit3 show avatar bit4 audio call bit5 should be rejected)
+ readers drop wrong sizes broken limits and not finite floats like the dll does
 */
 #pragma once
 

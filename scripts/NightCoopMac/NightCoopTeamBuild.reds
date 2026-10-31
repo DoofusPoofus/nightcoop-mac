@@ -1,7 +1,7 @@
-// team build, the script half of nightcoops teambuild (BuildStats 141, the plugin half is src/plugin/TeamBuild.cpp)
+// team build the script half of nightcoops teambuild (BuildStats 141 the plugin half is src/plugin/TeamBuild.cpp)
 // an attribute check of a dialog option or a scene asks RPGManager.GetBuildScore for our V. in co-op the best of the team counts:
-// the plugin hands over the best score of the partners per build (cool, netrunner, reflexes, solo, techie) worked out like
-// nightcoop does (attribute + its skill check bonus, 20 at most) and the wrap gives the higher of ours and theirs.
+// the plugin hands over the best score of the partners per build (cool netrunner reflexes solo techie) worked out like
+// nightcoop does (attribute + its skill check bonus 20 at most) and the wrap gives the higher of ours and theirs.
 // checks on anything but our own player stay as they are
 
 public class NightCoopTeamBuild extends ScriptableService {

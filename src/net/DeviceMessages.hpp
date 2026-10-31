@@ -1,19 +1,19 @@
 /*
- device messages rebuilt from the 0.1.2 dll (nightcoops devicesync and barrels). they ride in Game envelopes, all reliable
- DeviceSync (139), variable size, min 80 bytes after the type: u8 kind (1 guest -> host i did this, 2 host -> guests state +
-   the action to do again, 3 host -> peers state only or the answer) | u32 peer (kind 1 the sender, else whose action it was) |
-   u64 ps entity hash (not 0) | u64 ps component name | u64 ps class name (not 0) | u8 action kind (0 state only, 1 the same
-   action, 2 the same action at the host only, 3 a skill check, 4 destroyed, 5 not shared and refused) | u8 skill (1 hacking,
-   2 engineering, 3 demolition, set only for action kind 3) | i8 state before | i8 state after (EDeviceStatus -2..2 or 0x7f
-   unknown) | u8 flags (bit0 timed, bit1 quickhack, bit2 a lasting state) | u64 version (kind 2 and 3 not 0) | u16 request
+ device messages rebuilt from the 0.1.2 dll (nightcoops devicesync and barrels). they ride in Game envelopes all reliable
+ DeviceSync (139) variable size min 80 bytes after the type: u8 kind (1 guest -> host i did this 2 host -> guests state +
+   the action to do again 3 host -> peers state only or the answer) | u32 peer (kind 1 the sender else whose action it was) |
+   u64 ps entity hash (not 0) | u64 ps component name | u64 ps class name (not 0) | u8 action kind (0 state only 1 the same
+   action 2 the same action at the host only 3 a skill check 4 destroyed 5 not shared and refused) | u8 skill (1 hacking
+   2 engineering 3 demolition set only for action kind 3) | i8 state before | i8 state after (EDeviceStatus -2..2 or 0x7f
+   unknown) | u8 flags (bit0 timed bit1 quickhack bit2 a lasting state) | u64 version (kind 2 and 3 not 0) | u16 request
    number (kind 1 not 0) | u32 ms since the action | u64 action class name (action kind 1 and 2 not 0) | f32 duration s
    (0..3600) | u8 has prop | u64 prop name | u64 prop type name | u8 prop flags | u8 n fields (up to 48) | n x (u64 field name |
    u64 field type name | u8 len 1..8 | len bytes) | u8 m prop values (up to 3) | m x (u64 index 0..2 | u64 type name | u8 len
    1..8 | len bytes)
- TurretWord (214), 10 bytes after the type: u8 kind (1 guest asks, 2 host answers) | u64 turret entity hash | u8 state (0 the
-   host has no such turret, 1 calm, 2 in combat; an ask sends 0). the reader takes extra bytes like the dll does
- DeviceBlast (130): u8 kind (0 a live blast, 1 a snapshot of devices that blew before) | u8 n (up to 32) | n x (u64 device
-   entity hash (bits above 24 set, spawned ids differ between machines) | f32 x3 position | u8 blown by the senders own player)
+ TurretWord (214) 10 bytes after the type: u8 kind (1 guest asks 2 host answers) | u64 turret entity hash | u8 state (0 the
+   host has no such turret 1 calm 2 in combat; an ask sends 0). the reader takes extra bytes like the dll does
+ DeviceBlast (130): u8 kind (0 a live blast 1 a snapshot of devices that blew before) | u8 n (up to 32) | n x (u64 device
+   entity hash (bits above 24 set spawned ids differ between machines) | f32 x3 position | u8 blown by the senders own player)
  readers drop what the dll drops and bytes left over
 */
 #pragma once

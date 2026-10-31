@@ -1,13 +1,13 @@
 /*
  relay session
  a nightcoop session thru a hub only (no direct path yet) running on its own thread
- the game thread hands in the local player state and takes the remote ones out, both behind a mutex
- host: answers Hello with Welcome, forwards each guests PlayerState to the other guests and sends its own to all
- guest: sends Hello after the link is up and its PlayerState to the host, gets evryone elses from the host
- PlayerStates go unreliable on channel 1, evrything else reliable on channel 0
- game messages ride in Game envelopes (net/GameMessages.hpp): a guest sends them to the host, the host keeps the ones for it,
+ the game thread hands in the local player state and takes the remote ones out both behind a mutex
+ host: answers Hello with Welcome forwards each guests PlayerState to the other guests and sends its own to all
+ guest: sends Hello after the link is up and its PlayerState to the host gets evryone elses from the host
+ PlayerStates go unreliable on channel 1 evrything else reliable on channel 0
+ game messages ride in Game envelopes (net/GameMessages.hpp): a guest sends them to the host the host keeps the ones for it
  forwards the rest (to one peer or to evryone but the sender) and drops envelopes whose sender number is not the guest that
- sent it. the game thread takes the ones for us out with their real sender, PlayerCustomization also feeds the gender list
+ sent it. the game thread takes the ones for us out with their real sender PlayerCustomization also feeds the gender list
 */
 #pragma once
 

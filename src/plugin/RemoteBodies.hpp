@@ -1,41 +1,41 @@
 /*
- remote bodies, the mac take on nightcoops puppets module
+ remote bodies the mac take on nightcoops puppets module
  one puppet per partner that sends PlayerStates. same rules as nightcoop:
-   spawn a body once the partner is within 150 m of us, take it away when they get over 200 m
+   spawn a body once the partner is within 150 m of us take it away when they get over 200 m
    let the npc walk there with its own locomotion: a movePolicies object on its movePoliciesComponent gets the partners
-   spot as destination and a point 12 m ahead along their look (yaw + aim offset, camera pitch) as strafing target, the gait comes from their speed
+   spot as destination and a point 12 m ahead along their look (yaw + aim offset camera pitch) as strafing target the gait comes from their speed
    (walk / run / sprint with nightcoops thresholds and hysteresis)
-   if the body is over 8 m off or has no move policies it gets put there by the games teleport, and so does a body whose
+   if the body is over 8 m off or has no move policies it gets put there by the games teleport and so does a body whose
    policy does nothing for 3 s while the partner is over 1 m away (the main menu world never moves npcs for example)
-   (gameTeleportationFacility.Teleport, only when they moved over 2 cm or turned over 0.5 deg)
+   (gameTeleportationFacility.Teleport only when they moved over 2 cm or turned over 0.5 deg)
    stance like nightcoops ApplyStance: the partners crouch / aim / reload flags become an NPCStateChangeSignal
-   (stance Crouch or Stand, upper body Aim / Reload / Normal) on the bodys signal table
-   despawn when they leave (no state for 5 s), forget it when our world goes away (it goes with the world)
+   (stance Crouch or Stand upper body Aim / Reload / Normal) on the bodys signal table
+   despawn when they leave (no state for 5 s) forget it when our world goes away (it goes with the world)
  bodies only exist while SessionFlow allows them (a loaded save): in the main menu or a session thats ending they get removed
  nightcoop spawns thru native calls on gameIDynamicEntityIDSystem / gameIEntityStubSystem / gameIPopulationSystem.
  those slots are not verified on mac so the body comes from codewares DynamicEntitySystem instead
- (CreateEntity / GetEntity / DeleteEntity), which needs codeware for mac installed
- 'body npc' gives nightcoops fallback body: the cutscene V template (player_wa_tpp_cutscene.ent or player_ma_ by the
- partners gender from their PlayerCustomization), which spawns as an NPCPuppet on mac so the npc locomotion and stance work on it.
+ (CreateEntity / GetEntity / DeleteEntity) which needs codeware for mac installed
+ body npc gives nightcoops fallback body: the cutscene V template (player_wa_tpp_cutscene.ent or player_ma_ by the
+ partners gender from their PlayerCustomization) which spawns as an NPCPuppet on mac so the npc locomotion and stance work on it.
  the default is nightcoops real body: a second PlayerPuppet from the template family our own player
- came from (ep1 or base, player_wa_fpp / player_ma_fpp by the partners gender) with a character record cloned for that template
- (BodyRecords). it carries the NightCoopPartnerBody tag for the script side, its id goes to the
- PartnerBodyBuilder before the game builds it, and once its in the world it gets an ActivateTPPRepresentationEvent so it shows
- its third person self. it moves by teleport and its anims come from the partners stream (AnimMirror), no npc policies or stance.
- if the builder hook or the script side (scripts/NightCoopMac, the NightCoopPartnerBodies class in rtti) is not there the
- cutscene V body is used: an unbuilt second player brings a second camera and hud, an unpatched one attaches as a local player.
- 'body player_without_scripts' skips the script check, only for testing the builder at the main menu
- once in the world a body gets the partners clothes (Wardrobe), PlayerPuppet bodies after their third person head is in.
+ came from (ep1 or base player_wa_fpp / player_ma_fpp by the partners gender) with a character record cloned for that template
+ (BodyRecords). it carries the NightCoopPartnerBody tag for the script side its id goes to the
+ PartnerBodyBuilder before the game builds it and once its in the world it gets an ActivateTPPRepresentationEvent so it shows
+ its third person self. it moves by teleport and its anims come from the partners stream (AnimMirror) no npc policies or stance.
+ if the builder hook or the script side (scripts/NightCoopMac the NightCoopPartnerBodies class in rtti) is not there the
+ cutscene V body is used: an unbuilt second player brings a second camera and hud an unpatched one attaches as a local player.
+ body player_without_scripts skips the script check only for testing the builder at the main menu
+ once in the world a body gets the partners clothes (Wardrobe) PlayerPuppet bodies after their third person head is in.
  a second after it showed up it also holds the partners weapons and plays their shots (Weapons).
- a body the vehicles module seated in a car (SetSeated) is left to its seat workspot, no teleports or move policies then.
+ a body the vehicles module seated in a car (SetSeated) is left to its seat workspot no teleports or move policies then.
  like nightcoop a body waits up to 5 s for the partners look before it spawns. body_record / body_template override it.
  bodies get character records like nightcoops: Character.TPP_Player_Cutscene_Male / _Female for the V body and
  Character.Player_Puppet_Base for the PlayerPuppet one. a template path alone makes codeware invent a SpawnableObject record
- (TweakDBID(hash, 1)), and the bodys character customization parts read its record as a character record, get nothing and
- crash the game a moment after the body is built (found with crash notes: HairstyleController, FeetController ...). codeware
- cant spawn from a template and a record at once (nightcoop does, natively), and writing the record into the spawn request
- from the build hook comes too late, the body keeps the invented one
- when the game closes the handles we hold get leaked on purpose, the game tears its objects down first
+ (TweakDBID(hash 1)) and the bodys character customization parts read its record as a character record get nothing and
+ crash the game a moment after the body is built (found with crash notes: HairstyleController FeetController ...). codeware
+ cant spawn from a template and a record at once (nightcoop does natively) and writing the record into the spawn request
+ from the build hook comes too late the body keeps the invented one
+ when the game closes the handles we hold get leaked on purpose the game tears its objects down first
 */
 #pragma once
 

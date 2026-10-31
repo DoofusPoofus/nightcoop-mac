@@ -1,25 +1,25 @@
 /*
- npc copies, the watching half of nightcoops npccopies (NpcSpawn 20 / NpcSnapshot 21 / NpcDespawn 22)
+ npc copies the watching half of nightcoops npccopies (NpcSpawn 20 / NpcSnapshot 21 / NpcDespawn 22)
  a partners npc shows up here as a stand in: codeware DynamicEntitySystem spawns it from the owners character record and
- appearance (tag NightCoopNpcCopy), and once it is in the world it is taken under direct control like nightcoop does: its
- AIHumanComponent, senseComponent, ReactionManagerComponent, StimBroadcasterComponent, AITargetTrackerComponent,
- moveComponent and moveMotionPlannerComponent get toggled off and its ragdoll disabled, so only the owners snapshots move it.
- snapshots are shown 100 ms late, lerped between the two around that moment by when they came, and placed by the games
- teleport (at most 30 times a second, only when it moved 2 cm or turned half a degree). a despawn removes the copy, a death
+ appearance (tag NightCoopNpcCopy) and once it is in the world it is taken under direct control like nightcoop does: its
+ AIHumanComponent senseComponent ReactionManagerComponent StimBroadcasterComponent AITargetTrackerComponent
+ moveComponent and moveMotionPlannerComponent get toggled off and its ragdoll disabled so only the owners snapshots move it.
+ snapshots are shown 100 ms late lerped between the two around that moment by when they came and placed by the games
+ teleport (at most 30 times a second only when it moved 2 cm or turned half a degree). a despawn removes the copy a death
  (reason 3) kills it first and leaves the body for 10 s. a copy nobody heard of for 10 s goes away
  the owners NpcAnim (23) batches play on the copys anim controller thru the same setters as the partner body mirror. a copy
  waits for a full graph state first: it asks with NpcAnimWant (35) once a second and drops the plain batches till one came
- from evry snapshot the copy gets the owners health % (kept at 1 % or more while it lives, death comes with the despawn),
- the 8 ai net states that changed (dead kept off a living copy, cover shown as crouch like nightcoop), the attitude the owners
- npc has to our partner body as its attitude to our player, and the owners hand weapons (given and put in the slot, checked
- evry 2 s, 5 tries)
- copies are marked in the NightCoopCombat script service (immortal, our hits on them go to the owner as claims) and a copy
+ from evry snapshot the copy gets the owners health % (kept at 1 % or more while it lives death comes with the despawn)
+ the 8 ai net states that changed (dead kept off a living copy cover shown as crouch like nightcoop) the attitude the owners
+ npc has to our partner body as its attitude to our player and the owners hand weapons (given and put in the slot checked
+ evry 2 s 5 tries)
+ copies are marked in the NightCoopCombat script service (immortal our hits on them go to the owner as claims) and a copy
  that dies at its owner gets its kill reward turned off unless the despawn says we killed it (then we are the instigator)
  before a stand in gets spawned our own world is checked for the same person like nightcoop does: the same static entity id
- (above 0xFFFFFF) with the same record, else the only npc of that record with the same community match keys within 50 m, else
+ (above 0xFFFFFF) with the same record else the only npc of that record with the same community match keys within 50 m else
  the only one of that record within 2 m of the owners spot. that npc of ours then becomes the owners puppet (same controls as a
- stand in, our npc share leaves it alone) and is given back to its own ai when the owner lets it go
- not done yet: look at, time dilation, handoffs and claims
+ stand in our npc share leaves it alone) and is given back to its own ai when the owner lets it go
+ not done yet: look at time dilation handoffs and claims
 */
 #pragma once
 

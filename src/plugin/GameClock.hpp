@@ -1,5 +1,5 @@
 /*
- game clock, nightcoops time of day sync (part of its sessionflow)
+ game clock nightcoops time of day sync (part of its sessionflow)
  the host sends its game seconds (gameTimeSystem.GetGameTime) to evryone evry 5 s as GameClock (46) while a save is loaded.
  a guest in a loaded save compares them with its own and when they are more than 120 s apart it takes the hosts time
  (SetGameTimeBySeconds). smaller gaps are left alone so the clock does not jump back and forth

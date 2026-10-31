@@ -1,20 +1,20 @@
 /*
- weapons, the mac take on the weapon parts of nightcoops player bridge and puppets. no message of its own, it all rides in
- PlayerState (records, shot counts, the psm weapon states and the aim / shoot / reload flags)
- ours: the players equippedRightHandWeapon / equippedLeftHandWeapon (weak handles) -> GetItemID gives the records, the left
+ weapons the mac take on the weapon parts of nightcoops player bridge and puppets. no message of its own it all rides in
+ PlayerState (records shot counts the psm weapon states and the aim / shoot / reload flags)
+ ours: the players equippedRightHandWeapon / equippedLeftHandWeapon (weak handles) -> GetItemID gives the records the left
  one only goes out when it is tagged DualWield like nightcoop does. the state machine board gives RightWeapon / LeftWeapon /
  UpperBody. a shot is a drop of the weapons
  MagazineAmmoCount (its GetSharedData blackboard) while the same weapon stays in that hand (a drop over 10 counts as one shot
- like nightcoop), so the counts only go up
- flags like nightcoops bridge: aim 0x04 when UpperBody is Aim, reload 0x80 when UpperBody is Reload or a hand is in Reload,
- shoot 0x40 when a hand is in Shoot, silenced 0x8000 when the right weapons CanSilentKill stat is above 0
+ like nightcoop) so the counts only go up
+ flags like nightcoops bridge: aim 0x04 when UpperBody is Aim reload 0x80 when UpperBody is Reload or a hand is in Reload
+ shoot 0x40 when a hand is in Shoot silenced 0x8000 when the right weapons CanSilentKill stat is above 0
  a partners: the right record goes in WeaponRight (the left one in WeaponLeft) with GiveItem + AddItemToSlot on the records
- first placementSlot, checked a second later (then evry 5 s) with GetItemInSlot and put back when it went missing (5 tries in a row). new shots (at
- most 4 per state, the first state is just the baseline) set up the weapons npc effects once (fxPackage -> npc_vfx_set ->
- actions into SetWeaponEffects, SetWeaponOwner 1), then queue an entAnimExternalEvent Shoot on the body and the weapon and
+ first placementSlot checked a second later (then evry 5 s) with GetItemInSlot and put back when it went missing (5 tries in a row). new shots (at
+ most 4 per state the first state is just the baseline) set up the weapons npc effects once (fxPackage -> npc_vfx_set ->
+ actions into SetWeaponEffects SetWeaponOwner 1) then queue an entAnimExternalEvent Shoot on the body and the weapon and
  call TriggerWeaponEffects for the muzzle flash. nightcoops native weapon sound has no mac address and is left out
- testing only: DrawTestWeapon gives our player a weapon and draws it (EquipItem + DrawItem on its EquipmentSystemPlayerData),
- FakeShot takes one round out of its MagazineAmmoCount like a real shot would, DescribeOwn tells wat the reads see
+ testing only: DrawTestWeapon gives our player a weapon and draws it (EquipItem + DrawItem on its EquipmentSystemPlayerData)
+ FakeShot takes one round out of its MagazineAmmoCount like a real shot would DescribeOwn tells wat the reads see
 */
 #pragma once
 

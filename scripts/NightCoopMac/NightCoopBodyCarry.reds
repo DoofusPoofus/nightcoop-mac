@@ -1,8 +1,8 @@
-// body carry, the script half of nightcoops bodycarry (PlayerCarry 92, the plugin half is src/plugin/BodyCarry.cpp)
+// body carry the script half of nightcoops bodycarry (PlayerCarry 92 the plugin half is src/plugin/BodyCarry.cpp)
 // FindCarried looks for an npc mounted on our player in leftShoulder (or bothHands for quest carries in the arms) and reads the
-// body carrying values of our state machine blackboard, Describe reads record look and place of any entity for the message.
+// body carrying values of our state machine blackboard Describe reads record look and place of any entity for the message.
 // on the partner side Attach mounts our body of the carried npc on the partner body in leftShoulder like the game does with a
-// carried body and turns its ragdoll off, Pose writes the Carry and Mounting anim features on it, Detach takes it off with its
+// carried body and turns its ragdoll off Pose writes the Carry and Mounting anim features on it Detach takes it off with its
 // ragdoll back on and Place puts it where the partner left it. HideForGood turns its visuals off after a partner put it away
 
 public class NightCoopBodyCarry extends ScriptableService {

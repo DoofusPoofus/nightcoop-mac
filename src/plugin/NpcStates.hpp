@@ -1,14 +1,14 @@
 /*
- npc states, the game calls npc share and npc copies both need for wat NpcSnapshot carries besides the place
- the 8 ai net states (stance, upper body, high level, behavior, hit reaction mode, defense mode, phase, locomotion mode) are
+ npc states the game calls npc share and npc copies both need for wat NpcSnapshot carries besides the place
+ the 8 ai net states (stance upper body high level behavior hit reaction mode defense mode phase locomotion mode) are
  read with the GetReplicated getters of the npcs NPCStatesComponent and written with the SetReplicated setters. attitude goes
- thru the attitude agents (the native gamePuppet.GetAttitude, since a direct call of the scripted GetAttitudeAgent lands on
- the empty gameObject one, then GetAttitudeTowards / SetAttitudeTowards). hand items are the records in the
- WeaponRight / WeaponLeft slots, given and put in the slot on a copy. health is the Health stat pool in percent, read with
+ thru the attitude agents (the native gamePuppet.GetAttitude since a direct call of the scripted GetAttitudeAgent lands on
+ the empty gameObject one then GetAttitudeTowards / SetAttitudeTowards). hand items are the records in the
+ WeaponRight / WeaponLeft slots given and put in the slot on a copy. health is the Health stat pool in percent read with
  GetStatPoolValue and set with RequestSettingStatPoolValue. incapacitated and time dilation come from the puppet itself
  match keys are the npcs community stub: gameEntityStubComponentPS (by GetConstAccessToPSObject with its PersistentID)
- GetSpawnerID and GetOwnerCommunityEntryName, 0 for npcs without one
- all rtti, main thread only
+ GetSpawnerID and GetOwnerCommunityEntryName 0 for npcs without one
+ all rtti main thread only
 */
 #pragma once
 

@@ -1,15 +1,15 @@
 /*
- session flow, the plugin half of the mac take on nightcoops SessionFlow
+ session flow the plugin half of the mac take on nightcoops SessionFlow
  nightcoop follows the world its player is in and keeps partner bodies out of the main menu (IsPreGame from the ui
- requests handler, which only a menu controller hands out). on mac the script half (scripts/NightCoopMac/NightCoopSessionFlow.reds)
+ requests handler which only a menu controller hands out). on mac the script half (scripts/NightCoopMac/NightCoopSessionFlow.reds)
  listens to codewares session events and this reads its fields thru rtti (codewares ScriptableServiceContainer hands out
- the service, the fields sit in its script value holder):
+ the service the fields sit in its script value holder):
    bodies may exist only while a game session runs that is not the menu
-   evry change gets logged (session #n started in the menu or in a save, the session is ending)
- without the script half (no redscript for mac) the menu and a save look the same from here, so then there are no bodies.
- the scripts land in rtti a bit after the Running state starts, so the lookup tries again evry 2 s
- AskForAutoContinue (session.txt auto_continue, testing only) sets the services autoContinue so the main menu loads the newest save,
- and while the press any key screen is up a space key event goes into the games own event queue (NSApp postEvent, in process)
+   evry change gets logged (session #n started in the menu or in a save the session is ending)
+ without the script half (no redscript for mac) the menu and a save look the same from here so then there are no bodies.
+ the scripts land in rtti a bit after the Running state starts so the lookup tries again evry 2 s
+ AskForAutoContinue (session.txt auto_continue testing only) sets the services autoContinue so the main menu loads the newest save
+ and while the press any key screen is up a space key event goes into the games own event queue (NSApp postEvent in process)
 */
 #pragma once
 

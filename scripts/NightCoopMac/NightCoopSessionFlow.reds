@@ -1,13 +1,13 @@
-// the script half of the mac sessionflow, like nightcoops SessionFlow it decides when partner bodies may exist
+// the script half of the mac sessionflow like nightcoops SessionFlow it decides when partner bodies may exist
 // codeware tells evry game session start and end. a session that starts with IsPreGame is the main menu (or the intro
-// world before it): no bodies there, the menu has no character look and a V body copying it crashes the game.
+// world before it): no bodies there the menu has no character look and a V body copying it crashes the game.
 // right before any session ends all tagged partner bodies get deleted so none is left when the world goes
-// the plugin gets this service from codewares container and reads its three fields thru rtti, script statics are not in rtti
+// the plugin gets this service from codewares container and reads its three fields thru rtti script statics are not in rtti
 // testing only: when the plugin sets autoContinue (session.txt auto_continue) the main menu loads the newest save once by
-// itself (LoadLastCheckpoint, wat its Continue button does), so a test copy of the game gets into a
-// save with nobody at the keyboard (the plugin presses a key on the press any key screen, see SessionFlow). a locked mac
-// screen lets no key thru, so tests start the game with -save=<save folder> -skipStartScreen instead, that skips the menu
-// menuSteps keeps the menu steps seen as decimal digits (1 start screen, 2 saves listed, 3 no saves, 4 load asked)
+// itself (LoadLastCheckpoint wat its Continue button does) so a test copy of the game gets into a
+// save with nobody at the keyboard (the plugin presses a key on the press any key screen see SessionFlow). a locked mac
+// screen lets no key thru so tests start the game with -save=<save folder> -skipStartScreen instead that skips the menu
+// menuSteps keeps the menu steps seen as decimal digits (1 start screen 2 saves listed 3 no saves 4 load asked)
 // partnerPinProfiles counts the minimap looks made for partner pins (NightCoopPartnerMarkers)
 
 public class NightCoopSessionFlow extends ScriptableService {

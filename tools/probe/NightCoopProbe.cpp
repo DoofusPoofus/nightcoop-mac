@@ -2,25 +2,25 @@
  nightcoop probe
  a headless nightcoop client on the same RelaySession the plugin uses
  host mode opens a session prints the code and prints evry PlayerState it gets
- join mode joins by code, says its look is male, then walks PlayerStates back and forth along x (from X Y Z if given,
- 150 steps of 80 ms or STEPS of them) crouching on and off, and sends PlayerAnim batches (a float, a bool, an event and a
+ join mode joins by code says its look is male then walks PlayerStates back and forth along x (from X Y Z if given
+ 150 steps of 80 ms or STEPS of them) crouching on and off and sends PlayerAnim batches (a float a bool an event and a
  feature) in Game envelopes
  watch mode joins by code and prints the PlayerStates and game messages it gets for a while
  usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z [STEPS [LOOKFILE [CLOTHESFILE]]]] | watch CODE HUB [seconds]
- CLOTHESFILE is a PlayerLook (31) as it is (the plugin writes own-clothes.bin), sent right after the look
+ CLOTHESFILE is a PlayerLook (31) as it is (the plugin writes own-clothes.bin) sent right after the look
  its look (PlayerCustomization 33) is LOOKFILE as it is (the plugin writes own-look.bin) or a male look with no parts
  PROBE_HOST_SAVE=<save folder> makes the host say it is in its world (SessionRoster) and answer a WorldWant with that
- folders metadata.*.json and sav.dat (WorldStatus 3 + WorldFile chunks), printing what the guest says back
+ folders metadata.*.json and sav.dat (WorldStatus 3 + WorldFile chunks) printing what the guest says back
  PROBE_CLOCK=<game seconds> makes the host send that GameClock evry 5 s to its guests and stay up for 10 min
- PROBE_VEHICLE=0x<tweakdbid> makes the joiner share a car of that record it drives along its walk (VehicleSpawn evry ~5 s,
- VehicleState and VehicleSeat evry step), and the joiner prints the hosts vehicle messages
- PROBE_NPC=0x<character record> makes the joiner share an npc of that record that walks 2 m beside it (NpcSpawn evry 625 ms,
+ PROBE_VEHICLE=0x<tweakdbid> makes the joiner share a car of that record it drives along its walk (VehicleSpawn evry ~5 s
+ VehicleState and VehicleSeat evry step) and the joiner prints the hosts vehicle messages
+ PROBE_NPC=0x<character record> makes the joiner share an npc of that record that walks 2 m beside it (NpcSpawn evry 625 ms
  NpcSnapshot evry step) and lets it go at the end (NpcDespawn). its NpcAnim stream answers a NpcAnimWant with a full state and
- sends a float and an event evry step after that. npcs the host shares get counted with their NpcAnim batches, the first one
- gets a NpcAnimWant. the probe npc turns hostile to the host halfway with 60 % health and combat states, and holds
- PROBE_NPC_WEAPON=0x<record> then. HitClaims on it get answered like an owner (HitResult, NpcDespawn 3 with the killer at 0 %)
+ sends a float and an event evry step after that. npcs the host shares get counted with their NpcAnim batches the first one
+ gets a NpcAnimWant. the probe npc turns hostile to the host halfway with 60 % health and combat states and holds
+ PROBE_NPC_WEAPON=0x<record> then. HitClaims on it get answered like an owner (HitResult NpcDespawn 3 with the killer at 0 %)
  PROBE_CLAIM claims 35 % of the first npc the host shares evry 2 s
- PROBE_MIRROR shares one of the hosts own npcs back to it as our npc (same record, entity id, keys and spot) for 120 steps,
+ PROBE_MIRROR shares one of the hosts own npcs back to it as our npc (same record entity id keys and spot) for 120 steps
  so the host should make its own npc our puppet and give it back after
  PROBE_HIT=<attack record name> (with PROBE_NPC) says our npc hit the hosts body with that attack evry 3 s (PlayerHit)
  PROBE_LIFT=1 makes the joiner ask the host for a lift that does not exist (LiftSync kind 3) and print the answer
@@ -31,27 +31,27 @@
  PROBE_RIDE=1 makes the joiner sit in the front right seat of the car the host shares (VehicleSeat evry step)
  PROBE_DOWN=1 makes the joiner lie downed (flag 0x100) right next to the host (0.5 m) until a PlayerRevive comes
  PROBE_REVIVE=1 makes the joiner stand still and help the host up (PlayerRevive) 3 s after the host is down (flag 0x100)
- PROBE_WEAPON=0x<tweakdbid> in the environment makes the joiner hold that weapon and fire a shot evry 2 s (aim + shoot flags),
- and the joiner prints the hosts weapon fields whenever they change (health, camera and velocity evry 100 states)
- PROBE_DIALOG=<option>[,<rows>] on the host opens a choice vote evry 30 s (DialogBallot with rows fake options, 3 by default,
- then DialogTally), decides the option the guest votes for right away or <option> after 20 s (shared time + 1.5 s), sends a
- DialogLine evry 6 s and stays up for 10 min. on the joiner it prints the hosts ballots, tallies, lines and skips, votes for
- <option> 2 s after a ballot, walks for at least 4 min and sends one scene skip press (SceneLineSkip) at step 100 and its end
+ PROBE_WEAPON=0x<tweakdbid> in the environment makes the joiner hold that weapon and fire a shot evry 2 s (aim + shoot flags)
+ and the joiner prints the hosts weapon fields whenever they change (health camera and velocity evry 100 states)
+ PROBE_DIALOG=<option>[<rows>] on the host opens a choice vote evry 30 s (DialogBallot with rows fake options 3 by default
+ then DialogTally) decides the option the guest votes for right away or <option> after 20 s (shared time + 1.5 s) sends a
+ DialogLine evry 6 s and stays up for 10 min. on the joiner it prints the hosts ballots tallies lines and skips votes for
+ <option> 2 s after a ballot walks for at least 4 min and sends one scene skip press (SceneLineSkip) at step 100 and its end
  at step 140
- PROBE_QUESTS=1 on the host makes it say it is in its world, answer a QuestWant with a snapshot (the fact
- nightcoop_mac_probe_fact = 1, gmpl_player_dodged = 1 which a guest has to keep as its own, and a journal entry 0x4e434f50
+ PROBE_QUESTS=1 on the host makes it say it is in its world answer a QuestWant with a snapshot (the fact
+ nightcoop_mac_probe_fact = 1 gmpl_player_dodged = 1 which a guest has to keep as its own and a journal entry 0x4e434f50
  nobody has) and send nightcoop_mac_probe_fact + 1 as a delta evry 5 s for 10 min. on the joiner it sends QuestWant for
- world 1 at step 10, the same world again at step 20 (the host has to ignore that) and world 2 at step 110, and prints the
+ world 1 at step 10 the same world again at step 20 (the host has to ignore that) and world 2 at step 110 and prints the
  hosts QuestFacts / QuestJournal batches with a few well known facts out of the snapshots
  PROBE_LOOT=<item record name or 0x tdbid> (1 = Items.money) works as host and as joiner and prints evry loot message (38-44).
- it answers debits and grants of item gives like a player with endless pockets (the host one keeps a small ledger), gives the
- game 5 of the record after ~4 s, shares a bag drop with 3 of it 1 m next to the game player from ~5 s on (LootState evry 5 s,
- a LootTake gets granted and the bag shrinks, PROBE_LOOT_DENY=1 denies them) and takes 1 of the first item of the first open
- drop the game shares, printing the LootTakeResult. the host stays up 10 min with it
- PROBE_CARRY=1 (with PROBE_NPC) makes the joiner pick its npc up at step 30 (PlayerCarry pickup, then carry evry second) and drop
- it 1 m ahead at step 100 (drop, sent 3 times). PROBE_CARRY=0x<entity id> carries that entity of the hosts world instead.
+ it answers debits and grants of item gives like a player with endless pockets (the host one keeps a small ledger) gives the
+ game 5 of the record after ~4 s shares a bag drop with 3 of it 1 m next to the game player from ~5 s on (LootState evry 5 s
+ a LootTake gets granted and the bag shrinks PROBE_LOOT_DENY=1 denies them) and takes 1 of the first item of the first open
+ drop the game shares printing the LootTakeResult. the host stays up 10 min with it
+ PROBE_CARRY=1 (with PROBE_NPC) makes the joiner pick its npc up at step 30 (PlayerCarry pickup then carry evry second) and drop
+ it 1 m ahead at step 100 (drop sent 3 times). PROBE_CARRY=0x<entity id> carries that entity of the hosts world instead.
  the joiner prints evry PlayerCarry the host sends
- PROBE_BUILD=<value> makes the joiner send BuildStats with all 11 stats at that value evry ~5 s, and it prints the hosts build
+ PROBE_BUILD=<value> makes the joiner send BuildStats with all 11 stats at that value evry ~5 s and it prints the hosts build
  HUB looks like 127.0.0.1:47900#FINGERPRINT
 */
 #include "net/DoorMessages.hpp"

@@ -1,18 +1,18 @@
 /*
- npc combat, the first cut of nightcoops damageclaims (HitClaim 18 / HitResult 19, the script half is NightCoopCombat in
+ npc combat the first cut of nightcoops damageclaims (HitClaim 18 / HitResult 19 the script half is NightCoopCombat in
  scripts/NightCoopMac/NightCoopCombat.reds)
- attacker side: copies of partner npcs get marked in the script service (immortal, so our hits only count). evry tick the
- claims the script made from our players hits on copies are taken, turned into HitClaim (claim number, the copys net id, the
- percent, lethal when it is at least the health the owner last sent, our clock, the hit details with the narrow flag filter) and
+ attacker side: copies of partner npcs get marked in the script service (immortal so our hits only count). evry tick the
+ claims the script made from our players hits on copies are taken turned into HitClaim (claim number the copys net id the
+ percent lethal when it is at least the health the owner last sent our clock the hit details with the narrow flag filter) and
  sent to the copys owner. HitResult answers get counted
- owner side: a HitClaim for one of our shared npcs (NpcShare) is checked (finite and above 0, not a claim number we already
+ owner side: a HitClaim for one of our shared npcs (NpcShare) is checked (finite and above 0 not a claim number we already
  took from that peer in the last 1024) and applied by the script as damage from the claimers partner body (killed at 0.15 % or
- when lethal), then HitResult goes back with the applied percent and the health after (4 no such npc, 5 it died already)
- the killer of a shared npc goes out in NpcDespawn (NpcShare), the copy of evry partner but the killer gets no kill reward
- PlayerHit: partner bodies are marked in the script service, an npc hit on one goes to that partner (the attacker as the net id
- of our shared npc or copy, 0 when it is neither). a PlayerHit for us is rebuilt by the script with our copy (or our own npc)
- of the attacker as instigator and queued on our player, an unknown attacker is dropped like nightcoop does
- not done yet: NpcAction hit zones, hit reactions and threat on the owner, the expected hit path, xp / bounty wraps
+ when lethal) then HitResult goes back with the applied percent and the health after (4 no such npc 5 it died already)
+ the killer of a shared npc goes out in NpcDespawn (NpcShare) the copy of evry partner but the killer gets no kill reward
+ PlayerHit: partner bodies are marked in the script service an npc hit on one goes to that partner (the attacker as the net id
+ of our shared npc or copy 0 when it is neither). a PlayerHit for us is rebuilt by the script with our copy (or our own npc)
+ of the attacker as instigator and queued on our player an unknown attacker is dropped like nightcoop does
+ not done yet: NpcAction hit zones hit reactions and threat on the owner the expected hit path xp / bounty wraps
 */
 #pragma once
 

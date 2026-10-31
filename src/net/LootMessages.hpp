@@ -1,20 +1,20 @@
 /*
- loot messages, nightcoops lootsync (item give) and worldloot (shared containers) rebuilt from the 0.1.2 dll. all reliable in
+ loot messages nightcoops lootsync (item give) and worldloot (shared containers) rebuilt from the 0.1.2 dll. all reliable in
  Game envelopes. an item id is 16 bytes like the games ItemID: u64 record | u32 rng seed | u16 unique counter | u8 structure | u8 flags
- ItemTransferOffer (38) / Debit (39) / Grant (40) share one 32 byte body: u64 transfer id (sender peer << 32 | counter, never 0) |
+ ItemTransferOffer (38) / Debit (39) / Grant (40) share one 32 byte body: u64 transfer id (sender peer << 32 | counter never 0) |
    u32 recipient peer (not 0xFFFFFFFF) | item id (record not 0) | u32 quantity 1..9999
-   offer: sender -> host, debit: host -> sender, grant: host -> recipient
- ItemTransferAck (41), 10 bytes: u64 transfer id (not 0) | u8 phase (1 debit done, from the sender / 2 grant done, from the
-   recipient) | u8 ok 0/1, always to the host
- LootState (42), owner -> evryone, 73 + 21 per entry bytes: u8 kind (1 corpse of a shared npc, 2 drop, 3 world corpse) |
-   u64 container id (not 0, drops are owner peer << 24 | a 24 bit counter) | u32 source npc net id (0 none) | u32 revision |
-   u8 state (0 open, 1 closed, 2 let go, entries only when open) | u8 bag (the owner has no item object for it) | u64 npc
+   offer: sender -> host debit: host -> sender grant: host -> recipient
+ ItemTransferAck (41) 10 bytes: u64 transfer id (not 0) | u8 phase (1 debit done from the sender / 2 grant done from the
+   recipient) | u8 ok 0/1 always to the host
+ LootState (42) owner -> evryone 73 + 21 per entry bytes: u8 kind (1 corpse of a shared npc 2 drop 3 world corpse) |
+   u64 container id (not 0 drops are owner peer << 24 | a 24 bit counter) | u32 source npc net id (0 none) | u32 revision |
+   u8 state (0 open 1 closed 2 let go entries only when open) | u8 bag (the owner has no item object for it) | u64 npc
    record (kind 3) | u64 community key low | u64 community key high | f32 x3 position | f32 x4 orientation (i j k r) |
    u16 n (max 64) | n x entry
- an entry is 21 bytes: item id | u32 quantity 1..9999999 | u8 quality (0 Common .. 10 LegendaryPlusPlus, 0xFF unknown)
- LootTake (43), taker -> owner, 34 bytes: u8 kind | u64 container id | u32 take number (not 0) | entry
- LootTakeResult (44), owner -> taker, 14 bytes: u8 kind | u64 container id | u32 take number | u8 granted 0/1
- readers drop bytes left over, out of range fields and positions that are not finite or past 100 km
+ an entry is 21 bytes: item id | u32 quantity 1..9999999 | u8 quality (0 Common .. 10 LegendaryPlusPlus 0xFF unknown)
+ LootTake (43) taker -> owner 34 bytes: u8 kind | u64 container id | u32 take number (not 0) | entry
+ LootTakeResult (44) owner -> taker 14 bytes: u8 kind | u64 container id | u32 take number | u8 granted 0/1
+ readers drop bytes left over out of range fields and positions that are not finite or past 100 km
  ItemRecordFromName makes a TweakDBID from a record name (crc32 | length << 32) for the probe and the tests
 */
 #pragma once

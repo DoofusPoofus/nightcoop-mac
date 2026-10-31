@@ -1,10 +1,10 @@
-// downed and revive, the script half of the plugins Downed module (nightcoops downed)
+// downed and revive the script half of the plugins Downed module (nightcoops downed)
 // while falls are in force (the plugin says so while a partner is in our world) our player is immortal (NightCoopDowned)
 // and at the 1 % floor it falls instead of dying: the death state is entered with resurrection allowed and the player lies
-// as downed (invulnerable NightCoopDownedShield, npcs see a dead body, no phone) until the plugin asks it to rise (a partner
-// helped us up, we held T, or falls are not in force any more). the games own resurrect state stands it up again.
-// the game keeps its real death when it wants one: ForceKill, ForcePreventResurrect or our own Second Heart
-// the plugin calls PluginTick evry 100 ms and gets the state back: 0 up, 1 down, 2 rising
+// as downed (invulnerable NightCoopDownedShield npcs see a dead body no phone) until the plugin asks it to rise (a partner
+// helped us up we held T or falls are not in force any more). the games own resurrect state stands it up again.
+// the game keeps its real death when it wants one: ForceKill ForcePreventResurrect or our own Second Heart
+// the plugin calls PluginTick evry 100 ms and gets the state back: 0 up 1 down 2 rising
 
 public class NightCoopDowned extends ScriptableService {
   private let m_fallsInForce: Bool;

@@ -1,22 +1,22 @@
 /*
- vehicles, a first cut of nightcoops vehicles module (VehicleSpawn 60 / State 61 / Despawn 62 / Seat 63)
+ vehicles a first cut of nightcoops vehicles module (VehicleSpawn 60 / State 61 / Despawn 62 / Seat 63)
  ours: the car our player sits in (PlayerPuppet.GetMountedVehicle) gets a netId (our peer << 24 | counter) and goes out as
- VehicleSpawn evry 5 s, VehicleState evry 50 ms while it moves (0.3 m/s or more) and once a second standing, with our
- player as its occupant, plus our VehicleSeat evry 200 ms (reliable when it changes). getting out sends an empty seat at
+ VehicleSpawn evry 5 s VehicleState evry 50 ms while it moves (0.3 m/s or more) and once a second standing with our
+ player as its occupant plus our VehicleSeat evry 200 ms (reliable when it changes). getting out sends an empty seat at
  once and VehicleDespawn 2 s later like nightcoops grace. our seat slot comes from the mounting facility
- (GetMountingInfoSingleWithIds), seat_front_left when it says nothing
- a partners: a mirror car from codewares DynamicEntitySystem with their record and appearance (tag NightCoopVehicleMirror),
- placed on their track: snapshots of their states shown 100 ms late, lerped between two or pushed on by the velocity past the
- last one (500 ms at most), put there by the games teleport at most evry 32 ms like nightcoops teleport mode. nightcoop makes
- its mirrors kinematic thru a native physics flag and moves them with native ForceMoveTo, neither has a mac address yet.
- their body sits in the mirror with the workspot systems MountToVehicle (OccupantSlots, their seat, the seat bone and its
- passenger animset as anim variables, instant entry, 4 tries 250 ms apart) and is left alone by RemoteBodies while seated,
+ (GetMountingInfoSingleWithIds) seat_front_left when it says nothing
+ a partners: a mirror car from codewares DynamicEntitySystem with their record and appearance (tag NightCoopVehicleMirror)
+ placed on their track: snapshots of their states shown 100 ms late lerped between two or pushed on by the velocity past the
+ last one (500 ms at most) put there by the games teleport at most evry 32 ms like nightcoops teleport mode. nightcoop makes
+ its mirrors kinematic thru a native physics flag and moves them with native ForceMoveTo neither has a mac address yet.
+ their body sits in the mirror with the workspot systems MountToVehicle (OccupantSlots their seat the seat bone and its
+ passenger animset as anim variables instant entry 4 tries 250 ms apart) and is left alone by RemoteBodies while seated
  UnmountFromVehicle when they get out. a mirror nobody heard of for 10 s or a despawn takes the car away
- riding together: sitting in a partners mirror sends only our VehicleSeat for their netId (evry 200 ms, reliable when it changes,
- an empty one when we get out), and a partners seat in our own shared car seats their body in our real car (FindEntityByID)
- not done yet: handover, crowd / npc / quest cars, doors, lights, damage, steering
+ riding together: sitting in a partners mirror sends only our VehicleSeat for their netId (evry 200 ms reliable when it changes
+ an empty one when we get out) and a partners seat in our own shared car seats their body in our real car (FindEntityByID)
+ not done yet: handover crowd / npc / quest cars doors lights damage steering
  testing only: RunTestCar spawns a car next to our player (tag NightCoopTestCar) and mounts us at its wheel with the
- mounting facility (MountingRequest, instant), so the sending side runs with nobody at the keyboard. when a partner car mirror
+ mounting facility (MountingRequest instant) so the sending side runs with nobody at the keyboard. when a partner car mirror
  is already here it puts us in its front right seat instead
 */
 #pragma once

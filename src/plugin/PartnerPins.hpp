@@ -1,9 +1,9 @@
 /*
- partner pins, the map half of nightcoops playermarkers: evry partner gets a pin on the minimap and the world map
- nightcoop attaches a CPO_RemotePlayerVariant mappin (Mappins.CPO_RemotePlayerMappinDefinition, active, seen thru walls,
- the partners name as caption) to the partner body. mac bodies only exist within 150 m, so the pin goes at the partners
- PlayerState spot instead (RegisterMappin) and follows them with SetMappinPosition when they moved over 1 m, checked evry
- 250 ms like nightcoop. name changes go thru SetMappinDebugCaption, a partner that left gets UnregisterMappin, a new mappin
+ partner pins the map half of nightcoops playermarkers: evry partner gets a pin on the minimap and the world map
+ nightcoop attaches a CPO_RemotePlayerVariant mappin (Mappins.CPO_RemotePlayerMappinDefinition active seen thru walls
+ the partners name as caption) to the partner body. mac bodies only exist within 150 m so the pin goes at the partners
+ PlayerState spot instead (RegisterMappin) and follows them with SetMappinPosition when they moved over 1 m checked evry
+ 250 ms like nightcoop. name changes go thru SetMappinDebugCaption a partner that left gets UnregisterMappin a new mappin
  system (new world) forgets the old ids. outside a loaded save there are no pins. the look of the pin comes from
  scripts/NightCoopMac/NightCoopPartnerMarkers.reds
 */

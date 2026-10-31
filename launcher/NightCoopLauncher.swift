@@ -1,6 +1,6 @@
 /*
  nightcoop mac launcher
- a tiny window to pick host or join, which writes session.txt for the plugin and starts the game
+ a tiny window to pick host or join which writes session.txt for the plugin and starts the game
  with launch_red4ext.sh. while the game runs it shows session-status.txt (the hosting code lands there)
 */
 import AppKit

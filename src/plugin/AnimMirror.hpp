@@ -1,14 +1,14 @@
 /*
- anim mirror, the mac take on nightcoops AnimMirror receive side
+ anim mirror the mac take on nightcoops AnimMirror receive side
  partners send their anim graph inputs as PlayerAnim batches (net/GameMessages.hpp). this queues them per partner and plays
- them on that partners body thru its entAnimationControllerComponent, like nightcoops replay does with the native setters:
-   feature -> ApplyFeature (the feature class and its fields are found by their name hashes), float -> SetInputFloat,
-   int -> SetInputInt, bool -> SetInputBool, vector -> SetInputVector, quaternion -> SetInputQuaternion, event -> PushEvent
- wrapper weights and graph attach / detach have no script reachable setter, they only get counted
- only slot 0 (the player graph) gets played, the body has no weapon to play slot 1 on
- when a partners body shows up it asks them for their full state with PlayerAnimWant, at most once a second like nightcoop
- evry 10 s it logs the stream per partner the way nightcoop does (batches, inputs, full states, undecodable, dropped)
- our own stream is recorded and sent by AnimTap, which also answers a PlayerAnimWant with our full state
+ them on that partners body thru its entAnimationControllerComponent like nightcoops replay does with the native setters:
+   feature -> ApplyFeature (the feature class and its fields are found by their name hashes) float -> SetInputFloat
+   int -> SetInputInt bool -> SetInputBool vector -> SetInputVector quaternion -> SetInputQuaternion event -> PushEvent
+ wrapper weights and graph attach / detach have no script reachable setter they only get counted
+ only slot 0 (the player graph) gets played the body has no weapon to play slot 1 on
+ when a partners body shows up it asks them for their full state with PlayerAnimWant at most once a second like nightcoop
+ evry 10 s it logs the stream per partner the way nightcoop does (batches inputs full states undecodable dropped)
+ our own stream is recorded and sent by AnimTap which also answers a PlayerAnimWant with our full state
 */
 #pragma once
 

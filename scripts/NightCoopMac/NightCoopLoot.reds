@@ -1,15 +1,15 @@
-// loot, the script half of the plugins ItemGive and WorldLoot (nightcoops lootsync and worldloot)
-// NightCoopGiveItem(record, quantity, peer) stands in for nightcoops native of that name: it queues the give in NightCoopItemGive,
-// the plugin takes the queue evry 100 ms, checks it and runs the host ledger (worst case an item gets lost, never duped).
+// loot the script half of the plugins ItemGive and WorldLoot (nightcoops lootsync and worldloot)
+// NightCoopGiveItem(record quantity peer) stands in for nightcoops native of that name: it queues the give in NightCoopItemGive
+// the plugin takes the queue evry 100 ms checks it and runs the host ledger (worst case an item gets lost never duped).
 // NightCoopInventoryStatus / NightCoopLootStatus hand back the plugins last status lines like the windows natives do
 // NightCoopWorldLoot: a drop that comes into the world (gameItemDropObject.OnGameAttached) at most 3 s after our player dropped
 // something (DropAction.CompleteAction) and at most 8 m from us is ours and lands in newOwnDrops for the plugin to share. a
-// drop next to a spot the plugin watches (a mirror it spawned thru the partners body like nightcoop, or one that streamed out)
-// lands in boundTickets / boundDrops instead (within 3 m, and one within 10 m of such a spot is never taken for ours). a spot
-// stays watched until the plugin lets it go, so a late second copy of a mirror gets caught too. the loot window
+// drop next to a spot the plugin watches (a mirror it spawned thru the partners body like nightcoop or one that streamed out)
+// lands in boundTickets / boundDrops instead (within 3 m and one within 10 m of such a spot is never taken for ours). a spot
+// stays watched until the plugin lets it go so a late second copy of a mirror gets caught too. the loot window
 // (LootingGameController.OnUpdateData) says wat our player looks at
-// Read fills the read fields with the items of a container, TakeFrom / PutInto / RollBack move items around for the plugin
-// quality goes out as nightcoops tier: Quality stat * 2 + IsItemPlus (0 Common .. 10 LegendaryPlusPlus, 255 unknown)
+// Read fills the read fields with the items of a container TakeFrom / PutInto / RollBack move items around for the plugin
+// quality goes out as nightcoops tier: Quality stat * 2 + IsItemPlus (0 Common .. 10 LegendaryPlusPlus 255 unknown)
 
 public class NightCoopItemGive extends ScriptableService {
   private let m_askRecords: array<String>;

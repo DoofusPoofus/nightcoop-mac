@@ -1,10 +1,10 @@
 /*
- partner roster, the names part of nightcoops lobby: who is in the session and wat they are called
- a guest sends PlayerPresence (111) to the host when it changed and evry 2 s (our name, in a world or in the menu, and the in
+ partner roster the names part of nightcoops lobby: who is in the session and wat they are called
+ a guest sends PlayerPresence (111) to the host when it changed and evry 2 s (our name in a world or in the menu and the in
  the hosts world flag once the world handoff put us there). the host keeps the latest presence per guest and sends SessionRoster (112) to evryone evry 2 s and when
- it changed, its own entry first (role host), then evry guest with the name from their presence or their Hello. a guest keeps
+ it changed its own entry first (role host) then evry guest with the name from their presence or their Hello. a guest keeps
  the roster it got from peer 0
- NameOf follows nightcoops order: the roster, then the presence (host), then the Hello nickname, then "Player N"
+ NameOf follows nightcoops order: the roster then the presence (host) then the Hello nickname then "Player N"
 */
 #pragma once
 

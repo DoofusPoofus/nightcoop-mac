@@ -1,18 +1,18 @@
 /*
- shared npcs, the first three of nightcoops npc messages rebuilt from the 0.1.2 dll. they ride in Game envelopes
- net id = the sharers peer << 24 | a 24 bit counter, it stays with the npc thru handoffs
- NpcSpawn (20), owner -> evryone, reliable, again evry 625 ms, 62 bytes: u32 net id | u64 character record | u64 appearance
+ shared npcs the first three of nightcoops npc messages rebuilt from the 0.1.2 dll. they ride in Game envelopes
+ net id = the sharers peer << 24 | a 24 bit counter it stays with the npc thru handoffs
+ NpcSpawn (20) owner -> evryone reliable again evry 625 ms 62 bytes: u32 net id | u64 character record | u64 appearance
    cname | u64 the owners entity id hash | u64 match key a (stub ps spawner id) | u64 match key b (community entry name) |
    f32 x3 position | f32 yaw degrees | u8 high level state (0xFF unknown) | u8 1 = crowd
- NpcSnapshot (21), owner -> evryone, mostly unreliable, 68 + 2 per partner bytes: u32 net id | f32 x3 position | f32 yaw |
-   f32 speed m/s | f32 health % | u8 x8 ai net states (stance, upper body, high level, behavior, hit reaction mode, defense
-   mode, phase, locomotion mode) | u8 attitude to the owners player | u8 n (up to 7) | n x (u8 peer, u8 attitude) | u64 right
-   hand item record | u64 owner clock ms | f32 time dilation | u8 dilation flags | u8 flags (0x01 in a workspot, 0x02 body
-   lost, 0x04 calm workspot, 0x08 forced, 0x10 disposed, 0x20 held keepalive, 0x40 prelude, 0x80 incapacitated) | u64 left
+ NpcSnapshot (21) owner -> evryone mostly unreliable 68 + 2 per partner bytes: u32 net id | f32 x3 position | f32 yaw |
+   f32 speed m/s | f32 health % | u8 x8 ai net states (stance upper body high level behavior hit reaction mode defense
+   mode phase locomotion mode) | u8 attitude to the owners player | u8 n (up to 7) | n x (u8 peer u8 attitude) | u64 right
+   hand item record | u64 owner clock ms | f32 time dilation | u8 dilation flags | u8 flags (0x01 in a workspot 0x02 body
+   lost 0x04 calm workspot 0x08 forced 0x10 disposed 0x20 held keepalive 0x40 prelude 0x80 incapacitated) | u64 left
    hand item
- NpcDespawn (22), owner -> evryone, reliable, 9 bytes: u32 net id | u8 reason (1 stopped sharing, 2 body left the owners
-   world, 3 died) | u32 killer peer (reason 3, else 0xFFFFFFFF)
- readers drop not finite floats, positions past 100 km and bytes left over
+ NpcDespawn (22) owner -> evryone reliable 9 bytes: u32 net id | u8 reason (1 stopped sharing 2 body left the owners
+   world 3 died) | u32 killer peer (reason 3 else 0xFFFFFFFF)
+ readers drop not finite floats positions past 100 km and bytes left over
 */
 #pragma once
 

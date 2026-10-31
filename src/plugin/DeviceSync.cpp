@@ -1,5 +1,5 @@
 /*
- device sync, how it works is up in DeviceSync.hpp. the game side calls all go thru NightCoopDeviceSync, only the action copy
+ device sync how it works is up in DeviceSync.hpp. the game side calls all go thru NightCoopDeviceSync only the action copy
  and the rebuild of a partners action walk the rtti here
 */
 #include "plugin/DeviceSync.hpp"

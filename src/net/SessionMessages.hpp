@@ -1,17 +1,17 @@
 /*
  nightcoop session messages rebuilt from the 0.1.2 dll
  Hello (1): u32 protocol | u64 client id | u16 len + nickname | u64 game version | [u64 install id]
-   game version and install id are only read when bytes are left, same as the host does
+   game version and install id are only read when bytes are left same as the host does
  Welcome (2): u32 peer number | i64 host session clock ms (guest keeps host clock - own clock as its offset)
- PlayerState (6): 106 bytes in a fixed order, sent unreliable. guests send theirs to the host and the host
+ PlayerState (6): 106 bytes in a fixed order sent unreliable. guests send theirs to the host and the host
    forwards to evry other peer. fields with offset names are ones we havent pinned down yet but the bytes
    still go thru untouched so nothing breaks for windows peers
-   Flags comes from the players state machine: bit0 crouch (locomotion Crouch / CrouchSprint / CrouchDodge),
-   bit1 sprint, bit2 aiming (upper body Aim), bit4 in a vehicle, bit6 shooting (a hand in Shoot), bit7 reloading, bit8 down
-   (Vitals Dead), bit9 sandevistan, bit15 silenced weapon.
+   Flags comes from the players state machine: bit0 crouch (locomotion Crouch / CrouchSprint / CrouchDodge)
+   bit1 sprint bit2 aiming (upper body Aim) bit4 in a vehicle bit6 shooting (a hand in Shoot) bit7 reloading bit8 down
+   (Vitals Dead) bit9 sandevistan bit15 silenced weapon.
    the three state bytes after it are the raw gamePSM locomotion / upper body / RightWeapon states
-   weapons ride along: right shot count (cumulative, a partner plays the new ones) and right weapon record, then in the
-   tail the left weapon record (dual wield only), its shot count and its gamePSM LeftWeapon state
+   weapons ride along: right shot count (cumulative a partner plays the new ones) and right weapon record then in the
+   tail the left weapon record (dual wield only) its shot count and its gamePSM LeftWeapon state
  PlayerCustomization (33): u8 version (1) | u32 | u8 is male | u8 | the look lists. only the gender is read here
 */
 #pragma once

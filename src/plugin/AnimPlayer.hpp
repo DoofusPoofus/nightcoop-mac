@@ -1,7 +1,7 @@
 /*
- anim player, plays one recorded anim graph input on a puppets entAnimationControllerComponent thru the script setters
- (feature -> ApplyFeature with the feature class and fields found by name hash, float / int / bool / vector / quaternion ->
- SetInputX, event -> PushEvent). wrapper weights and attach / detach have no script setter. only slot 0 gets played
+ anim player plays one recorded anim graph input on a puppets entAnimationControllerComponent thru the script setters
+ (feature -> ApplyFeature with the feature class and fields found by name hash float / int / bool / vector / quaternion ->
+ SetInputX event -> PushEvent). wrapper weights and attach / detach have no script setter. only slot 0 gets played
  shared by the partner body mirror (PlayerAnim) and the npc copies (NpcAnim)
 */
 #pragma once

@@ -1,5 +1,5 @@
-// lifts, the area guard of nightcoops liftsync: a lift reacts to whoever walks into its cab or call area, and our partner
-// bodies and mirror cars would call or hold lifts nobody here asked for. their enter / exit events are swallowed, evryone
+// lifts the area guard of nightcoops liftsync: a lift reacts to whoever walks into its cab or call area and our partner
+// bodies and mirror cars would call or hold lifts nobody here asked for. their enter / exit events are swallowed evryone
 // elses go thru as before. the shared one cab trips of nightcoop (LiftSync 86 / LiftRide 97) are not done yet
 
 public abstract class NightCoopLifts {

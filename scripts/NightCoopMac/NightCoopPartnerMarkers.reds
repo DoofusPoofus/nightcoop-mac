@@ -1,7 +1,7 @@
-// partner pins on the minimap and the world map, the script half of the plugins PartnerPins (nightcoops playermarkers)
-// the plugin registers one CPO_RemotePlayerVariant mappin per partner, the games ui has no proper look for that leftover
+// partner pins on the minimap and the world map the script half of the plugins PartnerPins (nightcoops playermarkers)
+// the plugin registers one CPO_RemotePlayerVariant mappin per partner the games ui has no proper look for that leftover
 // multiplayer variant so these wraps give it one like nightcoop does: the minimap shows it with the poi widget and the quest
-// runtime profile, the 3d world container shows nothing (nightcoop draws its own plates there), the icon is codex_character
+// runtime profile the 3d world container shows nothing (nightcoop draws its own plates there) the icon is codex_character
 // and its texts say Partner. evry minimap profile made for one gets counted in the session flow service so the plugin can log it
 
 @wrapMethod(MinimapContainerController)

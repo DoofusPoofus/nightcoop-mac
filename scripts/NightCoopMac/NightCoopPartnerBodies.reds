@@ -1,12 +1,12 @@
-// the script side of nightcoops real partner body (session.txt 'body player'), rebuilt from its script patch table
+// the script side of nightcoops real partner body (session.txt body player) rebuilt from its script patch table
 // a partner body is a second PlayerPuppet that codeware spawned with the NightCoopPartnerBody tag. for those only:
-//   components: wat ScriptedPuppet requests plus the aim point and environment damage receiver, no phone, quick slots,
+//   components: wat ScriptedPuppet requests plus the aim point and environment damage receiver no phone quick slots
 //     player or vehicle cameras (the mandatory vehicle ones are kept off the body by the native builder)
-//   attach: ScriptedPuppets attach, then the players sense type and visibility offsets. no PlayerAttachRequest, input,
-//     facts, ui blackboards, stat pools, grace period or radio of a local player
-//   detach: ScriptedPuppets detach, no PlayerDetachRequest
-//   status effects, being noticed, laser sights and car hits do nothing, death / item slots go to ScriptedPuppet,
-//   kills, inventory, item appearance and encumbrance callbacks of the local player are skipped, the corpse is not lootable
+//   attach: ScriptedPuppets attach then the players sense type and visibility offsets. no PlayerAttachRequest input
+//     facts ui blackboards stat pools grace period or radio of a local player
+//   detach: ScriptedPuppets detach no PlayerDetachRequest
+//   status effects being noticed laser sights and car hits do nothing death / item slots go to ScriptedPuppet
+//   kills inventory item appearance and encumbrance callbacks of the local player are skipped the corpse is not lootable
 // every partner body (npc ones too) carries the tag. NightCoopSessionFlow.reds deletes them before a session ends
 // the plugin looks for the NightCoopPartnerBodies class at runtime and only spawns PlayerPuppet bodies when its there.
 // needs codeware for its DynamicEntitySystem tags and redscript for mac (engine/tools/scc) to compile

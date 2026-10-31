@@ -1,16 +1,16 @@
-// devices, the script half of the plugins DeviceSync (nightcoops devicesync, turret_host_led and barrels)
+// devices the script half of the plugins DeviceSync (nightcoops devicesync turret_host_led and barrels)
 // while a world is shared the plugin turns shared on. then device actions our player finished (ScriptableDeviceAction.CompleteAction
-// with our player as executor) land in doneActions with their ps id, ps class and the state before, devices our player
-// destroyed (Device / SecurityTurret OnDeath) in deadIds, turrets that want our player as their target in turretWants and
+// with our player as executor) land in doneActions with their ps id ps class and the state before devices our player
+// destroyed (Device / SecurityTurret OnDeath) in deadIds turrets that want our player as their target in turretWants and
 // explosive devices that start to blow here in blastDevices. the plugin reads and clears all that evry 100 ms
 // the apply side finds a partners device by its ps id + ps class (GetConstAccessToPSObject): Prepare + Run do an action the
-// plugin built thru rtti, StepTo forces a state with the quest actions, MarkSkill passes a skill check, MarkQuickHacked
+// plugin built thru rtti StepTo forces a state with the quest actions MarkSkill passes a skill check MarkQuickHacked
 // queues a SetQuickHackEvent and Kill destroys the device (or disables it while its not streamed in). Kill gives 0 destroyed
-// now, 1 broken already, 2 not in our stream (disabled for now), 3 no such device here
+// now 1 broken already 2 not in our stream (disabled for now) 3 no such device here
 // a turret in calmTurrets does not take our player as its target (the hosts same turret is calm). an explosive device in
-// quietBlasts blows without its damage and extra effect, the blast came from a partner and did its damage over there.
-// Blast mode 0 blows quietly, 1 blows with damage (both thru Device.Die like nightcoop), 2 sets it exploded and hidden (a
-// snapshot). it gives 0 done, 1 exploded already, 2 not in our stream, 3 another device at that id (more than 3 m off).
+// quietBlasts blows without its damage and extra effect the blast came from a partner and did its damage over there.
+// Blast mode 0 blows quietly 1 blows with damage (both thru Device.Die like nightcoop) 2 sets it exploded and hidden (a
+// snapshot). it gives 0 done 1 exploded already 2 not in our stream 3 another device at that id (more than 3 m off).
 // FallbackBlow starts the explosion pipeline itself when Die did not start it
 
 public class NightCoopDeviceSync extends ScriptableService {

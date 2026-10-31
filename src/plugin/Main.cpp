@@ -5,14 +5,14 @@
  evry frame (at most 30 times a second) the main thread samples our player for PlayerState
  remote states drive RemoteBodies (partner bodies like nightcoops puppets) and get logged evry 2 s
  with bodies on the entity build job gets hooked at load (PartnerBodyBuilder) so partner bodies come out built like nightcoops
- SessionFlow says when bodies may exist at all: only in a loaded save, never in the main menu or a session thats ending
- game messages from partners go to AnimMirror, which plays their anim streams on their bodies
- our look goes to partners as PlayerCustomization (33) when it changes (checked evry 2 s, sent again evry 20 s), a partners
+ SessionFlow says when bodies may exist at all: only in a loaded save never in the main menu or a session thats ending
+ game messages from partners go to AnimMirror which plays their anim streams on their bodies
+ our look goes to partners as PlayerCustomization (33) when it changes (checked evry 2 s sent again evry 20 s) a partners
  look becomes a state of its own (LookStates) that their body wears (PartnerLook). our clothes go out as PlayerLook (31) the same
- way (checked evry 250 ms, sent again evry 10 s) and a partners clothes get put on their body (Wardrobe)
+ way (checked evry 250 ms sent again evry 10 s) and a partners clothes get put on their body (Wardrobe)
  AnimTap records the inputs the game writes into our players anim graph and sends them as PlayerAnim batches
  session-status.txt next to the plugin always says wats going on (the hosting code ends up there too)
- a crash in game code leaves crash-notes.txt there, naming the game objects the crashing thread had in its registers
+ a crash in game code leaves crash-notes.txt there naming the game objects the crashing thread had in its registers
 */
 #include "net/LookMessages.hpp"
 #include "net/RelaySession.hpp"
