@@ -8,7 +8,7 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 
 ## status
 
-**early. theres no co-op in the game yet.** the plugin loads and the network side works against a local hub. dont install this expecting to play with friends.
+**early, not playable with friends yet.** a partner shows up in ur world as a body with their look, clothes, guns, anims, name, map pin and car, and u can help each other up, but all of it is only checked against a headless test client (`tools/probe`) and a local hub, never against a real windows NightCoop or a second mac. npcs, quests, doors, loot and the world handoff (a guest playing in the hosts world) are not there yet, so each player still plays their own save.
 
 | part | state |
 | --- | --- |
