@@ -5,6 +5,7 @@
 #include "net/GameMessages.hpp"
 #include "net/LookMessages.hpp"
 #include "net/RosterMessages.hpp"
+#include "net/VehicleMessages.hpp"
 #include "net/SessionMessages.hpp"
 
 #include <cstdio>
@@ -136,6 +137,41 @@ int main()
     auto badRoster = rosterBytes;
     badRoster[9] = 9;
     Check(!ReadSessionRoster(badRoster, parsedRoster), "roster with a host state over 5 is refused");
+
+    VehicleSpawn spawn;
+    spawn.NetId = (2u << 24) | 5;
+    spawn.HomePeer = 2;
+    spawn.Record = 0x1234567890ULL;
+    spawn.Doors[3] = 4;
+    spawn.Position[0] = -1091.5f;
+    const auto spawnBytes = WriteVehicleSpawn(spawn);
+    VehicleSpawn parsedSpawn;
+    Check(spawnBytes.size() == 5 + 68 && ReadVehicleSpawn(spawnBytes, parsedSpawn) && parsedSpawn.NetId == spawn.NetId && parsedSpawn.Record == spawn.Record &&
+              parsedSpawn.Doors[3] == 4 && parsedSpawn.Position[0] == -1091.5f && parsedSpawn.Orientation[3] == 1.0f,
+          "vehicle spawn is 68 bytes and round trips");
+    VehicleState carState;
+    carState.NetId = spawn.NetId;
+    carState.StampMs = 99999;
+    carState.Velocity[1] = 12.5f;
+    carState.Flags = kVehicleEngineOn | kVehicleSomeoneDrives;
+    carState.Steering = -100;
+    carState.Occupants.push_back({0xABCDEFULL, kOccupantPlayer, 2});
+    const auto carStateBytes = WriteVehicleState(carState);
+    VehicleState parsedCarState;
+    Check(carStateBytes.size() == 5 + 58 + 13 && ReadVehicleState(carStateBytes, parsedCarState) && parsedCarState.StampMs == 99999 &&
+              parsedCarState.Velocity[1] == 12.5f && parsedCarState.Steering == -100 && parsedCarState.Occupants.size() == 1 &&
+              parsedCarState.Occupants[0].Id == 2,
+          "vehicle state is 58 + 13 per occupant and round trips");
+    VehicleSeat seat;
+    seat.NetId = spawn.NetId;
+    seat.Slot = 0x55;
+    seat.Position[2] = 0.4f;
+    VehicleSeat parsedSeat;
+    Check(WriteVehicleSeat(seat).size() == 5 + 40 && ReadVehicleSeat(WriteVehicleSeat(seat), parsedSeat) && parsedSeat.Slot == 0x55, "vehicle seat round trip");
+    seat.Slot = 0;
+    Check(!ReadVehicleSeat(WriteVehicleSeat(seat), parsedSeat), "a seat in a car without a slot is refused");
+    VehicleDespawn despawn;
+    Check(ReadVehicleDespawn(WriteVehicleDespawn({spawn.NetId, 2}), despawn) && despawn.Reason == 2, "vehicle despawn round trip");
 
     const auto clock = WriteGameClock(123456);
     uint32_t gameSeconds = 0;
