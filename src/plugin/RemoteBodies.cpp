@@ -748,7 +748,7 @@ void RemoteBodies::Advance(uint32_t peerNumber, Puppet& puppet, const net::Playe
     destinationArgs.emplace_back(nullptr, &destination);
     game::CallMethod(puppet.MovePolicies.instance, m_setDestinationPosition, nullptr, destinationArgs);
 
-    const float yawRadians = state.Yaw * 0.017453292f;
+    const float yawRadians = (state.Yaw + state.AimYawOffset) * 0.017453292f;
     const float pitchRadians = state.CameraPitch * 0.017453292f;
     RED4ext::Vector4 lookPoint {state.PositionX - std::sin(yawRadians) * std::cos(pitchRadians) * 12.0f,
                                 state.PositionY + std::cos(yawRadians) * std::cos(pitchRadians) * 12.0f,

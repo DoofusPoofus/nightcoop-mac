@@ -17,10 +17,10 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | Hello / Welcome / Reject / PlayerState messages (protocol 143, NightCoop 0.1.2) | works between two mac probes |
 | Game envelope bus (game messages wrapped, host forwards them to one peer or evryone but the sender, sender check) | works between probes and the game |
 | partner anim streams (PlayerAnim / PlayerAnimWant / PlayerAnimSetup) decoded and played on their body thru the anim controller setters | works at the main menu with a probe stream |
-| our own anim stream for partners | not yet (needs native hooks, see docs/full_player_body.md) |
+| our own anim stream for partners (AnimTap: the anim controller setters plus the entity event queue the player state machine writes thru, unchanged values skipped) | works in a save, checked with a probe |
 | tested against a real windows NightCoop | not yet |
 | net code running inside the game (host / join from session.txt or the launcher) | works against a local hub |
-| our own position + yaw sent as PlayerState | works |
+| our own position + yaw sent as PlayerState, plus velocity, health, time dilation, camera pitch and aim yaw offset | works |
 | partner body in the world (spawn / teleport / cull / despawn like nightcoops puppets) | works in a loaded save and in the menu with a probe. bodies spawn from character records (`Character.TPP_Player_Cutscene_Male/Female`, and per gender clones of `Character.Player_Puppet_Base` for the PlayerPuppet body): a template path made codeware invent a record the bodys look parts crashed on |
 | partner body walks / runs / sprints with the games move policies, crouch / aim / reload stance (nightcoops npc body mode) | runs at the main menu (the menu world never moves npcs so it falls back to teleport there), not tried in the city yet |
 | our crouch and sprint sent in PlayerState flags | works |
@@ -29,7 +29,8 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | real PlayerPuppet partner body (`body player`): entity build hook keeps the 25 local player components off it, first person fixes, third person view, anim stream on the players own graph | spawns and plays a probe stream at the main menu (tested with `body player_without_scripts`), its script side needs redscript for mac and is not compile checked yet |
 | partner look (PlayerCustomization 33: their V's face, hair, body, arms) | works in a save with a probe sending a real look (logs only, not looked at on screen yet) |
 | partner clothes and arms (PlayerLook 31, nightcoops wardrobe: visible items incl transmog, arms cyberware, a third person head) | works in a save with a probe sending a real outfit (7 pieces put on, logs only) |
-| weapons on the partner body | not yet |
+| our weapons in PlayerState (right / left record, shot counts from magazine drops, psm weapon states, aim / shoot / reload / silenced flags) | works in a save (`test_weapon` draws a gun and fakes shots), checked with a probe |
+| partner weapons on their body (WeaponRight / WeaponLeft, npc weapon effects, Shoot anim event and muzzle flash per shot) | works in a save on both body kinds with a probe holding a gun (logs only). nightcoops native weapon sound is left out |
 | everything else (npcs quests vehicles dialog votes loot ...) | not yet |
 
 NightCoop is in beta and its protocol changes with its releases, so this has to keep up with it. it targets NightCoop 0.1.2 (protocol 143) rn.

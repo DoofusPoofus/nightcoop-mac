@@ -3,7 +3,7 @@
  one puppet per partner that sends PlayerStates. same rules as nightcoop:
    spawn a body once the partner is within 150 m of us, take it away when they get over 200 m
    let the npc walk there with its own locomotion: a movePolicies object on its movePoliciesComponent gets the partners
-   spot as destination and a point 12 m ahead along their look as strafing target, the gait comes from their speed
+   spot as destination and a point 12 m ahead along their look (yaw + aim offset, camera pitch) as strafing target, the gait comes from their speed
    (walk / run / sprint with nightcoops thresholds and hysteresis)
    if the body is over 8 m off or has no move policies it gets put there by the games teleport, and so does a body whose
    policy does nothing for 3 s while the partner is over 1 m away (the main menu world never moves npcs for example)
