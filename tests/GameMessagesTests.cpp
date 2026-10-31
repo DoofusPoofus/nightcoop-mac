@@ -1,6 +1,6 @@
 /*
  byte layout checks for the rebuilt game layer messages (Game envelope, PlayerAnim, PlayerAnimWant, PlayerAnimSetup,
- PlayerCustomization)
+ PlayerCustomization, NpcAnim and friends)
 */
 #include "net/GameMessages.hpp"
 #include "net/LookMessages.hpp"
@@ -104,6 +104,24 @@ int main()
 
     AnimWant want;
     Check(ReadAnimWant(WriteAnimWant({true, false}), want) && want.First && !want.Second, "anim want round trip");
+
+    AnimBatch npcBatch = withExtra;
+    npcBatch.Unknown00 = 0x01000007;
+    npcBatch.Unknown08 = 123456;
+    npcBatch.Unknown10 = 42;
+    const auto npcBytes = WriteNpcAnim(npcBatch);
+    AnimBatch npcParsed;
+    Check(npcBytes.size() == batchBytes.size() + npcBatch.Entries.size() - 1 && npcBytes[4] == 23, "npc anim is type 23 with the player batch layout");
+    Check(ReadNpcAnim(npcBytes, npcParsed) && npcParsed.Unknown00 == 0x01000007 && npcParsed.Unknown10 == 42 && npcParsed.Entries.size() == npcBatch.Entries.size() &&
+              npcParsed.Entries[0].Extra == 5,
+          "npc anim round trip");
+    Check(!ReadAnimBatch(npcBytes, npcParsed), "a npc batch is not a player batch");
+    npcBatch.Unknown00 = 0;
+    Check(!ReadNpcAnim(WriteNpcAnim(npcBatch), npcParsed), "a npc batch without net id is refused");
+    NpcAnimWant npcWant;
+    const auto npcWantBytes = WriteNpcAnimWant({0x02000009, true, false});
+    Check(npcWantBytes.size() == 11 && ReadNpcAnimWant(npcWantBytes, npcWant) && npcWant.NetId == 0x02000009 && npcWant.FullState && !npcWant.Reset,
+          "npc anim want round trip (6 bytes after the type)");
 
     PlayerPresence presence;
     presence.Name = "macbook";

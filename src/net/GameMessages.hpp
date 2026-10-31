@@ -10,6 +10,9 @@
           1 float, 7 wrapper weight (f32) | 2 int, 3 bool (i32) | 4 vector, 5 quaternion (4 x f32) | 6 event (nothing)
           8 attach, 9 detach (u64 not zero, u64)
  PlayerAnimWant (30): u8 | u8, a partner asks for our full anim state (sent to one peer, once a second at most)
+ NpcAnim (23) is the same batch for one of the owners shared npcs: the first word is its net id, the u64 the owners clock in ms,
+   the second u32 a per npc batch counter and the extra byte (flag bit1) how many ms old that input was when it went out
+ NpcAnimWant (35): u32 net id | u8 full state | u8 reset, a watcher asks the owner for that npcs full anim state
  PlayerAnimSetup (34): u64 rig | u16 sets (max 512) | per set u64 anim set path | u8 priority | u8 variables (max 32) |
    that many u64 variable names. reliable to evryone when it changes and evry 20 s
  the u32 / u64 / u32 batch header words are passed along as they came, wat they mean is not pinned down yet
@@ -84,6 +87,13 @@ struct AnimWant
     bool Second = true;
 };
 
+struct NpcAnimWant
+{
+    uint32_t NetId = 0;
+    bool FullState = true;
+    bool Reset = false;
+};
+
 struct AnimSetEntry
 {
     uint64_t AnimSet = 0;
@@ -105,6 +115,11 @@ bool ReadGameEnvelope(const std::vector<uint8_t>& message, GameEnvelope& envelop
 
 std::vector<uint8_t> WriteAnimBatch(const AnimBatch& batch);
 bool ReadAnimBatch(const std::vector<uint8_t>& message, AnimBatch& batch);
+
+std::vector<uint8_t> WriteNpcAnim(const AnimBatch& batch);
+bool ReadNpcAnim(const std::vector<uint8_t>& message, AnimBatch& batch);
+std::vector<uint8_t> WriteNpcAnimWant(const NpcAnimWant& want);
+bool ReadNpcAnimWant(const std::vector<uint8_t>& message, NpcAnimWant& want);
 
 std::vector<uint8_t> WriteAnimWant(const AnimWant& want);
 bool ReadAnimWant(const std::vector<uint8_t>& message, AnimWant& want);

@@ -7,7 +7,8 @@
  copies are skipped) within 150 m of such a partner, the nearest first, 64 at most. a shared npc gets a net id (our peer
  << 24 | counter) and goes out as NpcSpawn (record, appearance, entity id, place, yaw) evry 625 ms and NpcSnapshot 10 times a
  second (place, yaw, speed, health %), and NpcDespawn when it is past 180 m from them (reason 1), gone (2) or dead (3)
- not done yet: match keys, ai net states, attitudes, weapons, the npc anim stream (NpcAnim 23), handoffs, claims and orphans
+ each shared npcs anim controller and event queue go under the anim tap, which streams its graph writes as NpcAnim (23)
+ not done yet: match keys, ai net states, attitudes, weapons, handoffs, claims and orphans
 */
 #pragma once
 
@@ -52,12 +53,16 @@ private:
         float LastPosition[3] = {0, 0, 0};
         uint64_t LastSampleMs = 0;
         bool Seen = false;
+        RED4ext::Handle<RED4ext::IScriptable> Controller;
+        RED4ext::Handle<RED4ext::IScriptable> Body;
     };
 
     bool Resolve();
     void Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::RelaySession& session);
     void Send(uint64_t nowMs, uint64_t entityHash, Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc, net::RelaySession& session);
     void StopSharing(uint64_t entityHash, Source& source, uint8_t reason, net::RelaySession& session);
+    void WatchGraph(Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc);
+    void LetGoOfAll();
 
     LogFunction m_log;
     bool m_resolved = false;
@@ -73,6 +78,7 @@ private:
     RED4ext::CBaseFunction* m_isManaged = nullptr;
     RED4ext::CBaseFunction* m_getStatPoolsSystem = nullptr;
     RED4ext::CBaseFunction* m_getStatPoolValue = nullptr;
+    RED4ext::CBaseFunction* m_getAnimationController = nullptr;
     RED4ext::CClass* m_npcClass = nullptr;
     uint32_t m_healthPool = 0;
     std::map<uint64_t, Source> m_sources;
@@ -80,6 +86,7 @@ private:
     uint64_t m_nextScanMs = 0;
     uint64_t m_nextReportMs = 0;
     uint32_t m_sharesStarted = 0;
+    uint32_t m_graphsWatched = 0;
     uint32_t m_lastScanEntities = 0;
     uint32_t m_lastScanNpcs = 0;
     uint32_t m_lastScanManaged = 0;

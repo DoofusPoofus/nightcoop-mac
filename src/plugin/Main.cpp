@@ -444,6 +444,14 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             nightcoop_mac::anim_tap::SendFullState(message.FromPeer, *Session);
         }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::NpcAnimWant))
+        {
+            nightcoop_mac::net::NpcAnimWant want;
+            if (nightcoop_mac::net::ReadNpcAnimWant(message.Message, want))
+            {
+                nightcoop_mac::anim_tap::SendNpcFullState(want.NetId, message.FromPeer, nowMs, *Session);
+            }
+        }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PlayerPresence) ||
                  nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::SessionRoster))
         {
@@ -470,7 +478,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             nightcoop_mac::world_handoff::OnMessage(message.FromPeer, message.Message, *Session, Log);
         }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) >= static_cast<uint8_t>(nc::proto::MsgType::NpcSpawn) &&
-                 nightcoop_mac::net::MessageTypeOf(message.Message) <= static_cast<uint8_t>(nc::proto::MsgType::NpcDespawn))
+                 nightcoop_mac::net::MessageTypeOf(message.Message) <= static_cast<uint8_t>(nc::proto::MsgType::NpcAnim))
         {
             Npcs->OnMessage(message.FromPeer, message.Message, nowMs);
         }
@@ -482,7 +490,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     }
     nightcoop_mac::partner_roster::Tick(nowMs, inSave, Plan->Nickname, *Session, Log);
     Cars->Tick(nowMs, inSave, *Session, *Bodies);
-    Npcs->Tick(nowMs, inSave);
+    Npcs->Tick(nowMs, inSave, *Session);
     {
         const bool weAreHost = Session->GetStatus().MyPeerNumber == 0;
         std::vector<nightcoop_mac::NpcShare::Partner> npcPartners;

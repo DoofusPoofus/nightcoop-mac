@@ -15,7 +15,9 @@
  PROBE_VEHICLE=0x<tweakdbid> makes the joiner share a car of that record it drives along its walk (VehicleSpawn evry ~5 s,
  VehicleState and VehicleSeat evry step), and the joiner prints the hosts vehicle messages
  PROBE_NPC=0x<character record> makes the joiner share an npc of that record that walks 2 m beside it (NpcSpawn evry 625 ms,
- NpcSnapshot evry step) and lets it go at the end (NpcDespawn)
+ NpcSnapshot evry step) and lets it go at the end (NpcDespawn). its NpcAnim stream answers a NpcAnimWant with a full state and
+ sends a float and an event evry step after that. npcs the host shares get counted with their NpcAnim batches, the first one
+ gets a NpcAnimWant
  PROBE_LIFT=1 makes the joiner ask the host for a lift that does not exist (LiftSync kind 3) and print the answer
  PROBE_RIDE=1 makes the joiner sit in the front right seat of the car the host shares (VehicleSeat evry step)
  PROBE_DOWN=1 makes the joiner lie downed (flag 0x100) right next to the host (0.5 m) until a PlayerRevive comes
@@ -288,6 +290,13 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint32_t hostStatesSeen = 0;
     std::set<uint32_t> hostNpcs;
     uint32_t hostNpcsGone = 0;
+    uint32_t hostNpcAnimBatches = 0;
+    uint32_t hostNpcAnimInputs = 0;
+    uint32_t hostNpcAnimFullStates = 0;
+    std::set<uint32_t> hostNpcsAnimated;
+    bool hostNpcAnimAsked = false;
+    bool probeNpcWanted = false;
+    uint32_t probeNpcSequence = 0;
     uint32_t rosterRevision = 0xFFFFFFFF;
     uint32_t hostShots = 0;
     uint16_t hostWeaponFlags = 0;
@@ -400,6 +409,23 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             npcState.Speed = state.Speed;
             npcState.OwnerClockMs = session.SessionClockMs();
             session.SendGameMessage(nightcoop_mac::net::WriteNpcSnapshot(npcState), nightcoop_mac::net::kEveryPeer, false);
+            if (probeNpcWanted)
+            {
+                nightcoop_mac::net::AnimBatch npcAnim;
+                npcAnim.Unknown00 = npcNetId;
+                npcAnim.EntriesHaveExtra = true;
+                npcAnim.Unknown08 = session.SessionClockMs();
+                npcAnim.Unknown10 = ++probeNpcSequence;
+                nightcoop_mac::net::AnimEntry speedInput;
+                speedInput.Kind = nightcoop_mac::net::AnimKind::Float;
+                speedInput.Name = NameHash("speed");
+                speedInput.Values[0] = state.Speed;
+                nightcoop_mac::net::AnimEntry stepEvent;
+                stepEvent.Kind = nightcoop_mac::net::AnimKind::Event;
+                stepEvent.Name = NameHash("probe_step");
+                npcAnim.Entries = {speedInput, stepEvent};
+                session.SendGameMessage(nightcoop_mac::net::WriteNpcAnim(npcAnim));
+            }
             if (step == WalkSteps - 1)
             {
                 session.SendGameMessage(nightcoop_mac::net::WriteNpcDespawn({npcNetId, 1, 0xFFFFFFFF}));
@@ -507,6 +533,47 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                 ++hostNpcsGone;
                 continue;
             }
+            nightcoop_mac::net::AnimBatch npcAnim;
+            if (nightcoop_mac::net::ReadNpcAnim(message.Message, npcAnim))
+            {
+                ++hostNpcAnimBatches;
+                hostNpcAnimInputs += static_cast<uint32_t>(npcAnim.Entries.size());
+                hostNpcsAnimated.insert(npcAnim.Unknown00);
+                if (npcAnim.FullState)
+                {
+                    ++hostNpcAnimFullStates;
+                    std::printf("probe: full anim state of npc %#010x: %zu input(s), batch %u\n", npcAnim.Unknown00, npcAnim.Entries.size(), npcAnim.Unknown10);
+                }
+                if (!hostNpcAnimAsked && hostNpcs.count(npcAnim.Unknown00))
+                {
+                    hostNpcAnimAsked = true;
+                    session.SendGameMessage(nightcoop_mac::net::WriteNpcAnimWant({npcAnim.Unknown00, true, true}), static_cast<int32_t>(message.FromPeer));
+                }
+                continue;
+            }
+            nightcoop_mac::net::NpcAnimWant npcWant;
+            if (nightcoop_mac::net::ReadNpcAnimWant(message.Message, npcWant))
+            {
+                std::printf("probe: peer %u wants the full anim state of npc %#010x\n", message.FromPeer, npcWant.NetId);
+                if (!probeNpcWanted && std::getenv("PROBE_NPC"))
+                {
+                    probeNpcWanted = true;
+                    nightcoop_mac::net::AnimBatch fullState;
+                    fullState.Unknown00 = npcWant.NetId;
+                    fullState.FullState = true;
+                    fullState.EntriesHaveExtra = true;
+                    fullState.Unknown10 = ++probeNpcSequence;
+                    nightcoop_mac::net::AnimEntry speedInput;
+                    speedInput.Kind = nightcoop_mac::net::AnimKind::Float;
+                    speedInput.Name = NameHash("speed");
+                    nightcoop_mac::net::AnimEntry crouchInput;
+                    crouchInput.Kind = nightcoop_mac::net::AnimKind::Bool;
+                    crouchInput.Name = NameHash("crouch");
+                    fullState.Entries = {speedInput, crouchInput};
+                    session.SendGameMessage(nightcoop_mac::net::WriteNpcAnim(fullState), static_cast<int32_t>(message.FromPeer));
+                }
+                continue;
+            }
             nightcoop_mac::net::LiftSync lift;
             if (nightcoop_mac::net::ReadLiftSync(message.Message, lift))
             {
@@ -575,6 +642,8 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     if (!hostNpcs.empty() || hostNpcsGone)
     {
         std::printf("probe: the host shared %zu npc(s) with us, %u despawn(s)\n", hostNpcs.size(), hostNpcsGone);
+        std::printf("probe: npc anim from the host: %u batch(es), %u input(s), %u full state(s), %zu npc(s) animated\n", hostNpcAnimBatches,
+                    hostNpcAnimInputs, hostNpcAnimFullStates, hostNpcsAnimated.size());
     }
     return 0;
 }

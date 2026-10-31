@@ -69,9 +69,11 @@ bool ReadGameEnvelope(const std::vector<uint8_t>& message, GameEnvelope& envelop
     return reader.Ok() && !envelope.Inner.empty();
 }
 
-std::vector<uint8_t> WriteAnimBatch(const AnimBatch& batch)
+namespace
 {
-    nc::proto::Writer writer(nc::proto::MsgType::PlayerAnim);
+std::vector<uint8_t> WriteBatchAs(nc::proto::MsgType messageType, const AnimBatch& batch)
+{
+    nc::proto::Writer writer(messageType);
     writer.PutU32(batch.Unknown00);
     writer.PutU8(static_cast<uint8_t>((batch.FullState ? 1 : 0) | (batch.EntriesHaveExtra ? 2 : 0)));
     writer.PutU64(batch.Unknown08);
@@ -131,10 +133,10 @@ std::vector<uint8_t> WriteAnimBatch(const AnimBatch& batch)
     return writer.Data();
 }
 
-bool ReadAnimBatch(const std::vector<uint8_t>& message, AnimBatch& batch)
+bool ReadBatchAs(nc::proto::MsgType messageType, const std::vector<uint8_t>& message, AnimBatch& batch)
 {
     nc::proto::Reader reader(message.data(), message.size());
-    if (!OpenMessage(reader, nc::proto::MsgType::PlayerAnim))
+    if (!OpenMessage(reader, messageType))
     {
         return false;
     }
@@ -221,6 +223,49 @@ bool ReadAnimBatch(const std::vector<uint8_t>& message, AnimBatch& batch)
         batch.Entries.push_back(std::move(entry));
     }
     return true;
+}
+}
+
+std::vector<uint8_t> WriteAnimBatch(const AnimBatch& batch)
+{
+    return WriteBatchAs(nc::proto::MsgType::PlayerAnim, batch);
+}
+
+bool ReadAnimBatch(const std::vector<uint8_t>& message, AnimBatch& batch)
+{
+    return ReadBatchAs(nc::proto::MsgType::PlayerAnim, message, batch);
+}
+
+std::vector<uint8_t> WriteNpcAnim(const AnimBatch& batch)
+{
+    return WriteBatchAs(nc::proto::MsgType::NpcAnim, batch);
+}
+
+bool ReadNpcAnim(const std::vector<uint8_t>& message, AnimBatch& batch)
+{
+    return ReadBatchAs(nc::proto::MsgType::NpcAnim, message, batch) && batch.Unknown00 != 0;
+}
+
+std::vector<uint8_t> WriteNpcAnimWant(const NpcAnimWant& want)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::NpcAnimWant);
+    writer.PutU32(want.NetId);
+    writer.PutU8(want.FullState ? 1 : 0);
+    writer.PutU8(want.Reset ? 1 : 0);
+    return writer.Data();
+}
+
+bool ReadNpcAnimWant(const std::vector<uint8_t>& message, NpcAnimWant& want)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (!OpenMessage(reader, nc::proto::MsgType::NpcAnimWant))
+    {
+        return false;
+    }
+    want.NetId = reader.GetU32();
+    want.FullState = reader.GetU8() != 0;
+    want.Reset = reader.GetU8() != 0;
+    return reader.Ok() && want.NetId != 0;
 }
 
 std::vector<uint8_t> WriteAnimWant(const AnimWant& want)

@@ -16,6 +16,9 @@
  events always go. the main thread sends the queued writes as PlayerAnim (29) batches on slot 0 evry 50 ms, and a partners PlayerAnimWant gets a
  full state batch (the last value of evry input seen) sent to them alone. wrapper weights and graph attach / detach have no
  component setter here and are not recorded
+ npcs we share (NpcShare) get watched the same way: up to 64 controller / event queue pointers in a lock free table the hooks
+ look thru, each with its own queue. evry 50 ms each one with new writes goes out as NpcAnim (23) with its net id, our clock, a
+ per npc counter and the age of evry input in ms, an empty one after 1 s of quiet, and a NpcAnimWant gets that npcs full state
 */
 #pragma once
 
@@ -23,6 +26,7 @@
 
 #include <RED4ext/RED4ext.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -40,5 +44,9 @@ using LogFunction = std::function<void(const std::string&)>;
 bool Install(const RED4ext::v1::Sdk* sdk, RED4ext::v1::PluginHandle pluginHandle, LogFunction log);
 void Tick(uint64_t nowMs, net::RelaySession& session);
 void SendFullState(uint32_t peerNumber, net::RelaySession& session);
+bool WatchNpc(uint32_t netId, void* controller, void* entity);
+void StopWatchingNpc(uint32_t netId);
+bool SendNpcFullState(uint32_t netId, uint32_t peerNumber, uint64_t nowMs, net::RelaySession& session);
+size_t WatchedNpcCount();
 void Forget();
 }

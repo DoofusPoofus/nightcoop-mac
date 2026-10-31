@@ -2,6 +2,7 @@
 
 #include "net/NpcMessages.hpp"
 #include "net/RelaySession.hpp"
+#include "plugin/AnimTap.hpp"
 #include "plugin/GameCalls.hpp"
 
 #include <RED4ext/Scripting/Natives/Generated/game/StatsObjectID.hpp>
@@ -67,6 +68,7 @@ bool NpcShare::Resolve()
     m_isManaged = game::FindFunction("DynamicEntitySystem", "IsManaged");
     m_getStatPoolsSystem = game::FindFunction("ScriptGameInstance", "GetStatPoolsSystem");
     m_getStatPoolValue = game::FindFunction("gameStatPoolsSystem", "GetStatPoolValue");
+    m_getAnimationController = game::FindFunction("ScriptedPuppet", "GetAnimationControllerComponent");
     m_npcClass = rtti->GetClass("NPCPuppet");
     if (auto* pools = rtti->GetEnum("gamedataStatPoolType"))
     {
@@ -89,7 +91,34 @@ bool NpcShare::Resolve()
 
 void NpcShare::StopSharing(uint64_t entityHash, Source& source, uint8_t reason, net::RelaySession& session)
 {
+    anim_tap::StopWatchingNpc(source.NetId);
     session.SendGameMessage(net::WriteNpcDespawn({source.NetId, reason, 0xFFFFFFFF}));
+}
+
+void NpcShare::WatchGraph(Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc)
+{
+    RED4ext::StackArgs_t noArgs;
+    if (!m_getAnimationController || !game::ReturnIs(m_getAnimationController, "handle:entAnimationControllerComponent") ||
+        !game::CallMethod(npc.instance, m_getAnimationController, &source.Controller, noArgs) || !source.Controller)
+    {
+        return;
+    }
+    source.Body = npc;
+    if (anim_tap::WatchNpc(source.NetId, source.Controller.instance, npc.instance))
+    {
+        ++m_graphsWatched;
+    }
+}
+
+void NpcShare::LetGoOfAll()
+{
+    for (auto& [entityHash, source] : m_sources)
+    {
+        anim_tap::StopWatchingNpc(source.NetId);
+        new RED4ext::Handle<RED4ext::IScriptable>(std::move(source.Controller));
+        new RED4ext::Handle<RED4ext::IScriptable>(std::move(source.Body));
+    }
+    m_sources.clear();
 }
 
 void NpcShare::Send(uint64_t nowMs, uint64_t entityHash, Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc, net::RelaySession& session)
@@ -239,6 +268,7 @@ void NpcShare::Scan(uint64_t nowMs, const std::vector<Partner>& partners, net::R
             fresh.Appearance = appearance.hash;
             source = m_sources.emplace(entityHash, fresh).first;
             ++m_sharesStarted;
+            WatchGraph(source->second, npc);
         }
         source->second.Seen = true;
         if (dead)
@@ -267,7 +297,7 @@ void NpcShare::Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& par
     {
         if (!inSave)
         {
-            m_sources.clear();
+            LetGoOfAll();
         }
         return;
     }
@@ -299,7 +329,7 @@ void NpcShare::Tick(uint64_t nowMs, bool inSave, const std::vector<Partner>& par
     {
         m_nextReportMs = nowMs + ReportEveryMs;
         m_log("npcs: " + std::to_string(m_sources.size()) + " of our npc(s) shared now, " + std::to_string(m_sharesStarted) +
-              " started so far (last scan: " + std::to_string(m_lastScanEntities) + " entities, " + std::to_string(m_lastScanNpcs) + " npcs, " +
+              " started so far, " + std::to_string(anim_tap::WatchedNpcCount()) + " graph(s) streamed (last scan: " + std::to_string(m_lastScanEntities) + " entities, " + std::to_string(m_lastScanNpcs) + " npcs, " +
               std::to_string(m_lastScanManaged) + " ours, nearest " + std::to_string(static_cast<int>(m_lastScanNearest)) + " m from a partner)");
     }
 }

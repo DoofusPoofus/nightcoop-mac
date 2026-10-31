@@ -7,7 +7,9 @@
 
 #include <mach-o/dyld.h>
 
+#include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <map>
@@ -19,6 +21,10 @@ namespace
 {
 constexpr uint8_t PlayerGraphSlot = 0;
 constexpr size_t MostQueuedEntries = 4096;
+constexpr size_t MostQueuedNpcEntries = 512;
+constexpr size_t MostWatchedNpcs = 64;
+constexpr uint64_t NpcKeepaliveEveryMs = 1000;
+constexpr uint64_t NpcFullStateAtMostEveryMs = 1000;
 constexpr size_t MostFeatureFields = 48;
 constexpr uint32_t MostFieldBytes = 32;
 constexpr uint64_t SendEveryMs = 50;
@@ -74,17 +80,45 @@ RED4ext::CBaseFunction* GetControllerFunction = nullptr;
 RED4ext::CClass* ScriptedPuppetClass = nullptr;
 RED4ext::CClass* AnimFeatureClass = nullptr;
 
-std::mutex QueueLock;
-std::vector<net::AnimEntry> Queue;
-std::map<std::pair<uint8_t, uint64_t>, net::AnimEntry> LatestByInput;
-std::map<std::pair<uint8_t, uint64_t>, net::AnimEntry> LastQueuedByInput;
-uint32_t Dropped = 0;
-uint32_t RecordedSinceReport = 0;
-uint32_t UnchangedSinceReport = 0;
+struct Stream
+{
+    std::vector<net::AnimEntry> Queue;
+    std::vector<uint64_t> QueuedAtMs;
+    std::map<std::pair<uint8_t, uint64_t>, net::AnimEntry> LatestByInput;
+    std::map<std::pair<uint8_t, uint64_t>, net::AnimEntry> LastQueuedByInput;
+    uint32_t Dropped = 0;
+    uint32_t Recorded = 0;
+    uint32_t Unchanged = 0;
+    uint32_t Sequence = 0;
+    uint64_t LastSentMs = 0;
+    std::map<uint32_t, uint64_t> FullStateSentMsByPeer;
+};
+
+struct WatchedNpc
+{
+    std::atomic<void*> Controller {nullptr};
+    std::atomic<void*> EventQueue {nullptr};
+    std::atomic<uint32_t> NetId {0};
+};
+
+constexpr uint32_t PlayerStreamId = 0;
+
+std::mutex StreamLock;
+Stream PlayerStream;
+std::map<uint32_t, Stream> NpcStreams;
+WatchedNpc Watched[MostWatchedNpcs];
+std::atomic<size_t> WatchedSlotsInUse {0};
 uint32_t BatchesSinceReport = 0;
+uint32_t NpcBatchesSinceReport = 0;
 uint64_t NextSendMs = 0;
 uint64_t NextRefreshMs = 0;
 uint64_t NextReportMs = 0;
+
+uint64_t ClockMs()
+{
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
 
 bool SameValue(const net::AnimEntry& first, const net::AnimEntry& second)
 {
@@ -103,38 +137,95 @@ bool SameValue(const net::AnimEntry& first, const net::AnimEntry& second)
     return true;
 }
 
-void Keep(net::AnimEntry&& entry)
+void Keep(uint32_t streamId, net::AnimEntry&& entry)
 {
-    std::lock_guard guard(QueueLock);
+    std::lock_guard guard(StreamLock);
+    Stream* stream = &PlayerStream;
+    size_t mostQueued = MostQueuedEntries;
+    if (streamId != PlayerStreamId)
+    {
+        const auto found = NpcStreams.find(streamId);
+        if (found == NpcStreams.end())
+        {
+            return;
+        }
+        stream = &found->second;
+        mostQueued = MostQueuedNpcEntries;
+    }
     const std::pair<uint8_t, uint64_t> input {static_cast<uint8_t>(entry.Kind), entry.Name};
-    LatestByInput[input] = entry;
-    ++RecordedSinceReport;
+    stream->LatestByInput[input] = entry;
+    ++stream->Recorded;
     const bool isEvent = entry.Kind == net::AnimKind::Event;
     if (!isEvent)
     {
-        const auto lastQueued = LastQueuedByInput.find(input);
-        if (lastQueued != LastQueuedByInput.end() && SameValue(lastQueued->second, entry))
+        const auto lastQueued = stream->LastQueuedByInput.find(input);
+        if (lastQueued != stream->LastQueuedByInput.end() && SameValue(lastQueued->second, entry))
         {
-            ++UnchangedSinceReport;
+            ++stream->Unchanged;
             return;
         }
     }
-    if (Queue.size() >= MostQueuedEntries)
+    if (stream->Queue.size() >= mostQueued)
     {
-        ++Dropped;
-        LastQueuedByInput.erase(input);
+        ++stream->Dropped;
+        stream->LastQueuedByInput.erase(input);
         return;
     }
     if (!isEvent)
     {
-        LastQueuedByInput[input] = entry;
+        stream->LastQueuedByInput[input] = entry;
     }
-    Queue.push_back(std::move(entry));
+    stream->Queue.push_back(std::move(entry));
+    if (streamId != PlayerStreamId)
+    {
+        stream->QueuedAtMs.push_back(ClockMs());
+    }
 }
 
-bool IsOurs(void* component)
+bool StreamOfController(void* component, uint32_t& streamId)
 {
-    return component && component == PlayerController.load(std::memory_order_acquire);
+    if (!component)
+    {
+        return false;
+    }
+    if (component == PlayerController.load(std::memory_order_acquire))
+    {
+        streamId = PlayerStreamId;
+        return true;
+    }
+    const size_t slotsInUse = WatchedSlotsInUse.load(std::memory_order_acquire);
+    for (size_t slot = 0; slot < slotsInUse; ++slot)
+    {
+        if (Watched[slot].Controller.load(std::memory_order_acquire) == component)
+        {
+            streamId = Watched[slot].NetId.load(std::memory_order_acquire);
+            return streamId != 0;
+        }
+    }
+    return false;
+}
+
+bool StreamOfEventQueue(void* queue, uint32_t& streamId)
+{
+    if (!queue)
+    {
+        return false;
+    }
+    if (queue == PlayerEventQueue.load(std::memory_order_acquire))
+    {
+        streamId = PlayerStreamId;
+        return true;
+    }
+    const size_t slotsInUse = WatchedSlotsInUse.load(std::memory_order_acquire);
+    for (size_t slot = 0; slot < slotsInUse; ++slot)
+    {
+        if (Watched[slot].EventQueue.load(std::memory_order_acquire) == queue)
+        {
+            streamId = Watched[slot].NetId.load(std::memory_order_acquire);
+            return streamId != 0;
+        }
+    }
+    return false;
 }
 
 net::AnimEntry EntryFor(net::AnimKind kind, uint64_t name)
@@ -148,75 +239,81 @@ net::AnimEntry EntryFor(net::AnimKind kind, uint64_t name)
 
 uint64_t OnPushEvent(void* component, uint64_t name)
 {
-    if (IsOurs(component))
+    uint32_t streamId = 0;
+    if (StreamOfController(component, streamId))
     {
-        Keep(EntryFor(net::AnimKind::Event, name));
+        Keep(streamId, EntryFor(net::AnimKind::Event, name));
     }
     return OriginalPushEvent(component, name);
 }
 
 uint64_t OnSetFloat(void* component, uint64_t name, float value)
 {
-    if (IsOurs(component))
+    uint32_t streamId = 0;
+    if (StreamOfController(component, streamId))
     {
         auto entry = EntryFor(net::AnimKind::Float, name);
         entry.Values[0] = value;
-        Keep(std::move(entry));
+        Keep(streamId, std::move(entry));
     }
     return OriginalSetFloat(component, name, value);
 }
 
 uint64_t OnSetInt(void* component, uint64_t name, int32_t value)
 {
-    if (IsOurs(component))
+    uint32_t streamId = 0;
+    if (StreamOfController(component, streamId))
     {
         auto entry = EntryFor(net::AnimKind::Int, name);
         entry.IntValue = value;
-        Keep(std::move(entry));
+        Keep(streamId, std::move(entry));
     }
     return OriginalSetInt(component, name, value);
 }
 
 uint64_t OnSetBool(void* component, uint64_t name, bool value)
 {
-    if (IsOurs(component))
+    uint32_t streamId = 0;
+    if (StreamOfController(component, streamId))
     {
         auto entry = EntryFor(net::AnimKind::Bool, name);
         entry.IntValue = value ? 1 : 0;
-        Keep(std::move(entry));
+        Keep(streamId, std::move(entry));
     }
     return OriginalSetBool(component, name, value);
 }
 
-void KeepFourValues(net::AnimKind kind, uint64_t name, const float* values)
+void KeepFourValues(uint32_t streamId, net::AnimKind kind, uint64_t name, const float* values)
 {
     auto entry = EntryFor(kind, name);
     if (values)
     {
         std::memcpy(entry.Values, values, sizeof(entry.Values));
     }
-    Keep(std::move(entry));
+    Keep(streamId, std::move(entry));
 }
 
 uint64_t OnSetVector(void* component, uint64_t name, const float* values)
 {
-    if (IsOurs(component))
+    uint32_t streamId = 0;
+    if (StreamOfController(component, streamId))
     {
-        KeepFourValues(net::AnimKind::Vector, name, values);
+        KeepFourValues(streamId, net::AnimKind::Vector, name, values);
     }
     return OriginalSetVector(component, name, values);
 }
 
 uint64_t OnSetQuaternion(void* component, uint64_t name, const float* values)
 {
-    if (IsOurs(component))
+    uint32_t streamId = 0;
+    if (StreamOfController(component, streamId))
     {
-        KeepFourValues(net::AnimKind::Quaternion, name, values);
+        KeepFourValues(streamId, net::AnimKind::Quaternion, name, values);
     }
     return OriginalSetQuaternion(component, name, values);
 }
 
-void KeepFeature(uint64_t name, void* featureHandle)
+void KeepFeature(uint32_t streamId, uint64_t name, void* featureHandle)
 {
     auto* handle = static_cast<RED4ext::Handle<RED4ext::IScriptable>*>(featureHandle);
     if (!handle || !handle->instance || !AnimFeatureClass)
@@ -253,19 +350,20 @@ void KeepFeature(uint64_t name, void* featureHandle)
             entry.Fields.push_back(std::move(field));
         }
     }
-    Keep(std::move(entry));
+    Keep(streamId, std::move(entry));
 }
 
 uint64_t OnApplyFeature(void* component, uint64_t name, void* featureHandle)
 {
-    if (IsOurs(component))
+    uint32_t streamId = 0;
+    if (StreamOfController(component, streamId))
     {
-        KeepFeature(name, featureHandle);
+        KeepFeature(streamId, name, featureHandle);
     }
     return OriginalApplyFeature(component, name, featureHandle);
 }
 
-void KeepQueuedEvent(void* eventHandle)
+void KeepQueuedEvent(uint32_t streamId, void* eventHandle)
 {
     auto* handle = static_cast<RED4ext::Handle<RED4ext::IScriptable>*>(eventHandle);
     if (!handle || !handle->instance || !EventTypesReady.load(std::memory_order_acquire))
@@ -279,7 +377,7 @@ void KeepQueuedEvent(void* eventHandle)
     }
     if (ExternalEventClass && eventClass->IsA(ExternalEventClass))
     {
-        Keep(EntryFor(net::AnimKind::Event, ExternalEventName->GetValuePtr<RED4ext::CName>(handle->instance)->hash));
+        Keep(streamId, EntryFor(net::AnimKind::Event, ExternalEventName->GetValuePtr<RED4ext::CName>(handle->instance)->hash));
         return;
     }
     if (!InputSetterClass || !eventClass->IsA(InputSetterClass))
@@ -298,39 +396,40 @@ void KeepQueuedEvent(void* eventHandle)
     {
         auto entry = EntryFor(net::AnimKind::Float, name);
         std::memcpy(&entry.Values[0], valuePointer, sizeof(float));
-        Keep(std::move(entry));
+        Keep(streamId, std::move(entry));
     }
     else if (valueType == "Int32")
     {
         auto entry = EntryFor(net::AnimKind::Int, name);
         std::memcpy(&entry.IntValue, valuePointer, sizeof(int32_t));
-        Keep(std::move(entry));
+        Keep(streamId, std::move(entry));
     }
     else if (valueType == "Bool")
     {
         auto entry = EntryFor(net::AnimKind::Bool, name);
         entry.IntValue = *valuePointer ? 1 : 0;
-        Keep(std::move(entry));
+        Keep(streamId, std::move(entry));
     }
     else if (valueType == "Vector4")
     {
-        KeepFourValues(net::AnimKind::Vector, name, reinterpret_cast<const float*>(valuePointer));
+        KeepFourValues(streamId, net::AnimKind::Vector, name, reinterpret_cast<const float*>(valuePointer));
     }
     else if (valueType == "Quaternion")
     {
-        KeepFourValues(net::AnimKind::Quaternion, name, reinterpret_cast<const float*>(valuePointer));
+        KeepFourValues(streamId, net::AnimKind::Quaternion, name, reinterpret_cast<const float*>(valuePointer));
     }
     else if (valueType == "handle:animAnimFeature")
     {
-        KeepFeature(name, valuePointer);
+        KeepFeature(streamId, name, valuePointer);
     }
 }
 
 uint64_t OnQueuePush(void* queue, void* eventHandle)
 {
-    if (queue && queue == PlayerEventQueue.load(std::memory_order_acquire))
+    uint32_t streamId = 0;
+    if (StreamOfEventQueue(queue, streamId))
     {
-        KeepQueuedEvent(eventHandle);
+        KeepQueuedEvent(streamId, eventHandle);
     }
     return OriginalQueuePush(queue, eventHandle);
 }
@@ -404,10 +503,10 @@ void RefreshController()
         PlayerEventQueue.store(controller.instance && player.instance ? reinterpret_cast<uint8_t*>(player.instance) + EntityEventQueueOffset : nullptr,
                                std::memory_order_release);
         PlayerControllerHandle = controller;
-        std::lock_guard guard(QueueLock);
-        LatestByInput.clear();
-        LastQueuedByInput.clear();
-        Queue.clear();
+        std::lock_guard guard(StreamLock);
+        PlayerStream.LatestByInput.clear();
+        PlayerStream.LastQueuedByInput.clear();
+        PlayerStream.Queue.clear();
     }
 }
 }
@@ -448,6 +547,47 @@ bool Install(const RED4ext::v1::Sdk* sdk, RED4ext::v1::PluginHandle pluginHandle
     return hooked;
 }
 
+namespace
+{
+void SendNpcBatches(uint64_t nowMs, bool inSession, net::RelaySession& session)
+{
+    std::vector<net::AnimBatch> batches;
+    {
+        std::lock_guard guard(StreamLock);
+        for (auto& [netId, stream] : NpcStreams)
+        {
+            if (stream.Queue.empty() && nowMs - stream.LastSentMs < NpcKeepaliveEveryMs)
+            {
+                continue;
+            }
+            net::AnimBatch batch;
+            batch.Unknown00 = netId;
+            batch.EntriesHaveExtra = true;
+            batch.Unknown08 = nowMs;
+            batch.Unknown10 = ++stream.Sequence;
+            batch.Entries.swap(stream.Queue);
+            for (size_t index = 0; index < batch.Entries.size() && index < stream.QueuedAtMs.size(); ++index)
+            {
+                const uint64_t ageMs = nowMs > stream.QueuedAtMs[index] ? nowMs - stream.QueuedAtMs[index] : 0;
+                batch.Entries[index].Extra = static_cast<uint8_t>(std::min<uint64_t>(ageMs, 255));
+            }
+            stream.QueuedAtMs.clear();
+            stream.LastSentMs = nowMs;
+            batches.push_back(std::move(batch));
+        }
+    }
+    if (!inSession)
+    {
+        return;
+    }
+    for (const auto& batch : batches)
+    {
+        session.SendGameMessage(net::WriteNpcAnim(batch));
+        ++NpcBatchesSinceReport;
+    }
+}
+}
+
 void Tick(uint64_t nowMs, net::RelaySession& session)
 {
     if (!Installed)
@@ -466,8 +606,8 @@ void Tick(uint64_t nowMs, net::RelaySession& session)
     NextSendMs = nowMs + SendEveryMs;
     net::AnimBatch batch;
     {
-        std::lock_guard guard(QueueLock);
-        batch.Entries.swap(Queue);
+        std::lock_guard guard(StreamLock);
+        batch.Entries.swap(PlayerStream.Queue);
     }
     const auto status = session.GetStatus();
     if (!batch.Entries.empty() && status.InSession)
@@ -475,27 +615,46 @@ void Tick(uint64_t nowMs, net::RelaySession& session)
         session.SendGameMessage(net::WriteAnimBatch(batch));
         ++BatchesSinceReport;
     }
+    SendNpcBatches(nowMs, status.InSession, session);
     if (nowMs >= NextReportMs)
     {
         NextReportMs = nowMs + ReportEveryMs;
         uint32_t recorded = 0;
         uint32_t unchanged = 0;
         uint32_t dropped = 0;
+        uint32_t npcRecorded = 0;
+        uint32_t npcDropped = 0;
+        size_t npcStreams = 0;
         {
-            std::lock_guard guard(QueueLock);
-            recorded = RecordedSinceReport;
-            unchanged = UnchangedSinceReport;
-            dropped = Dropped;
-            RecordedSinceReport = 0;
-            UnchangedSinceReport = 0;
-            Dropped = 0;
+            std::lock_guard guard(StreamLock);
+            recorded = PlayerStream.Recorded;
+            unchanged = PlayerStream.Unchanged;
+            dropped = PlayerStream.Dropped;
+            PlayerStream.Recorded = 0;
+            PlayerStream.Unchanged = 0;
+            PlayerStream.Dropped = 0;
+            npcStreams = NpcStreams.size();
+            for (auto& [netId, stream] : NpcStreams)
+            {
+                npcRecorded += stream.Recorded;
+                npcDropped += stream.Dropped;
+                stream.Recorded = 0;
+                stream.Unchanged = 0;
+                stream.Dropped = 0;
+            }
         }
         if (recorded || BatchesSinceReport || status.InSession)
         {
             Log("anim tap: " + std::to_string(recorded) + " input(s) of our player recorded (" + std::to_string(unchanged) + " unchanged, not sent), " +
                 std::to_string(BatchesSinceReport) + " batch(es) sent, " + std::to_string(dropped) + " dropped in 10 s");
         }
+        if (npcStreams || NpcBatchesSinceReport)
+        {
+            Log("anim tap: " + std::to_string(npcStreams) + " npc graph(s) under the tap, " + std::to_string(npcRecorded) + " npc input(s) recorded, " +
+                std::to_string(NpcBatchesSinceReport) + " NpcAnim batch(es) sent, " + std::to_string(npcDropped) + " dropped in 10 s");
+        }
         BatchesSinceReport = 0;
+        NpcBatchesSinceReport = 0;
     }
 }
 
@@ -508,8 +667,8 @@ void SendFullState(uint32_t peerNumber, net::RelaySession& session)
     net::AnimBatch batch;
     batch.FullState = true;
     {
-        std::lock_guard guard(QueueLock);
-        for (const auto& [input, entry] : LatestByInput)
+        std::lock_guard guard(StreamLock);
+        for (const auto& [input, entry] : PlayerStream.LatestByInput)
         {
             if (entry.Kind != net::AnimKind::Event)
             {
@@ -521,13 +680,106 @@ void SendFullState(uint32_t peerNumber, net::RelaySession& session)
     Log("anim tap: sent partner " + std::to_string(peerNumber) + " our full anim state (" + std::to_string(batch.Entries.size()) + " input(s))");
 }
 
+bool WatchNpc(uint32_t netId, void* controller, void* entity)
+{
+    if (!Installed || netId == 0 || !controller)
+    {
+        return false;
+    }
+    StopWatchingNpc(netId);
+    for (size_t slot = 0; slot < MostWatchedNpcs; ++slot)
+    {
+        if (Watched[slot].NetId.load(std::memory_order_acquire) != 0)
+        {
+            continue;
+        }
+        {
+            std::lock_guard guard(StreamLock);
+            NpcStreams[netId] = Stream {};
+        }
+        Watched[slot].NetId.store(netId, std::memory_order_release);
+        Watched[slot].Controller.store(controller, std::memory_order_release);
+        Watched[slot].EventQueue.store(entity ? static_cast<uint8_t*>(entity) + EntityEventQueueOffset : nullptr, std::memory_order_release);
+        size_t slotsInUse = WatchedSlotsInUse.load(std::memory_order_acquire);
+        while (slotsInUse < slot + 1 && !WatchedSlotsInUse.compare_exchange_weak(slotsInUse, slot + 1, std::memory_order_acq_rel))
+        {
+        }
+        return true;
+    }
+    return false;
+}
+
+void StopWatchingNpc(uint32_t netId)
+{
+    if (netId == 0)
+    {
+        return;
+    }
+    for (size_t slot = 0; slot < MostWatchedNpcs; ++slot)
+    {
+        if (Watched[slot].NetId.load(std::memory_order_acquire) == netId)
+        {
+            Watched[slot].Controller.store(nullptr, std::memory_order_release);
+            Watched[slot].EventQueue.store(nullptr, std::memory_order_release);
+            Watched[slot].NetId.store(0, std::memory_order_release);
+        }
+    }
+    std::lock_guard guard(StreamLock);
+    NpcStreams.erase(netId);
+}
+
+bool SendNpcFullState(uint32_t netId, uint32_t peerNumber, uint64_t nowMs, net::RelaySession& session)
+{
+    net::AnimBatch batch;
+    batch.Unknown00 = netId;
+    batch.FullState = true;
+    batch.EntriesHaveExtra = true;
+    batch.Unknown08 = nowMs;
+    {
+        std::lock_guard guard(StreamLock);
+        const auto found = NpcStreams.find(netId);
+        if (found == NpcStreams.end())
+        {
+            return false;
+        }
+        auto& lastSentMs = found->second.FullStateSentMsByPeer[peerNumber];
+        if (lastSentMs != 0 && nowMs - lastSentMs < NpcFullStateAtMostEveryMs)
+        {
+            return true;
+        }
+        lastSentMs = nowMs;
+        batch.Unknown10 = ++found->second.Sequence;
+        for (const auto& [input, entry] : found->second.LatestByInput)
+        {
+            if (entry.Kind != net::AnimKind::Event)
+            {
+                batch.Entries.push_back(entry);
+            }
+        }
+    }
+    session.SendGameMessage(net::WriteNpcAnim(batch), static_cast<int32_t>(peerNumber));
+    return true;
+}
+
+size_t WatchedNpcCount()
+{
+    std::lock_guard guard(StreamLock);
+    return NpcStreams.size();
+}
+
 void Forget()
 {
     PlayerController.store(nullptr, std::memory_order_release);
     PlayerEventQueue.store(nullptr, std::memory_order_release);
     new RED4ext::Handle<RED4ext::IScriptable>(std::move(PlayerControllerHandle));
-    std::lock_guard guard(QueueLock);
-    Queue.clear();
-    LatestByInput.clear();
+    for (auto& watched : Watched)
+    {
+        watched.Controller.store(nullptr, std::memory_order_release);
+        watched.EventQueue.store(nullptr, std::memory_order_release);
+        watched.NetId.store(0, std::memory_order_release);
+    }
+    std::lock_guard guard(StreamLock);
+    PlayerStream = Stream {};
+    NpcStreams.clear();
 }
 }

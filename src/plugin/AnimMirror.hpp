@@ -13,6 +13,7 @@
 #pragma once
 
 #include "net/GameMessages.hpp"
+#include "plugin/AnimPlayer.hpp"
 
 #include <RED4ext/RED4ext.hpp>
 
@@ -70,22 +71,12 @@ private:
 
     bool Resolve();
     void Play(RED4ext::Handle<RED4ext::IScriptable>& controller, const net::AnimEntry& entry, PartnerStream& stream);
-    bool ApplyFeature(RED4ext::Handle<RED4ext::IScriptable>& controller, const net::AnimEntry& entry);
     void Report(uint32_t peerNumber, PartnerStream& stream, uint64_t nowMs);
 
     LogFunction m_log;
     bool m_resolved = false;
     bool m_available = false;
-    RED4ext::CBaseFunction* m_getAnimationController = nullptr;
-    RED4ext::CBaseFunction* m_pushEvent = nullptr;
-    RED4ext::CBaseFunction* m_setInputFloat = nullptr;
-    RED4ext::CBaseFunction* m_setInputInt = nullptr;
-    RED4ext::CBaseFunction* m_setInputBool = nullptr;
-    RED4ext::CBaseFunction* m_setInputVector = nullptr;
-    RED4ext::CBaseFunction* m_setInputQuaternion = nullptr;
-    RED4ext::CBaseFunction* m_applyFeature = nullptr;
-    RED4ext::CClass* m_scriptedPuppetClass = nullptr;
-    RED4ext::CClass* m_animFeatureClass = nullptr;
+    AnimPlayer m_player;
 
     std::map<uint32_t, PartnerStream> m_streams;
     std::set<uint32_t> m_wantLogged;

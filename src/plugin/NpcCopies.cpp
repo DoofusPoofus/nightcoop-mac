@@ -1,6 +1,7 @@
 #include "plugin/NpcCopies.hpp"
 
 #include "net/GameMessages.hpp"
+#include "net/RelaySession.hpp"
 #include "plugin/GameCalls.hpp"
 
 #include <ProtocolCore.hpp>
@@ -26,6 +27,9 @@ constexpr uint64_t CorpseStaysMs = 10000;
 constexpr float MoveAtLeastSquared = 0.02f * 0.02f;
 constexpr float TurnAtLeastDegrees = 0.5f;
 constexpr uint8_t DiedReason = 3;
+constexpr size_t MostPendingAnimBatches = 32;
+constexpr uint64_t AnimWantAtMostEveryMs = 1000;
+constexpr uint64_t ReportEveryMs = 10000;
 const char* CopyTag = "NightCoopNpcCopy";
 const char* ComponentsTurnedOff[] = {"AIHumanComponent",          "senseComponent", "ReactionManagerComponent", "StimBroadcasterComponent",
                                      "AITargetTrackerComponent", "moveComponent",  "moveMotionPlannerComponent"};
@@ -136,7 +140,34 @@ void NpcCopies::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message
     net::NpcSpawn spawn;
     net::NpcSnapshot snapshot;
     net::NpcDespawn despawn;
-    if (type == static_cast<uint8_t>(nc::proto::MsgType::NpcSpawn) && net::ReadNpcSpawn(message, spawn))
+    net::AnimBatch animBatch;
+    if (type == static_cast<uint8_t>(nc::proto::MsgType::NpcAnim) && net::ReadNpcAnim(message, animBatch))
+    {
+        auto copy = m_copies.find(animBatch.Unknown00);
+        if (copy == m_copies.end() || copy->second.OwnerPeer != fromPeer)
+        {
+            return;
+        }
+        ++m_animBatches;
+        if (animBatch.FullState)
+        {
+            ++m_animFullStates;
+            copy->second.GotFullAnimState = true;
+            copy->second.PendingAnim.clear();
+        }
+        else if (!copy->second.GotFullAnimState)
+        {
+            ++m_animWaited;
+            return;
+        }
+        if (copy->second.PendingAnim.size() >= MostPendingAnimBatches)
+        {
+            copy->second.PendingAnim.erase(copy->second.PendingAnim.begin());
+        }
+        copy->second.PendingAnim.push_back(std::move(animBatch));
+        copy->second.LastHeardMs = nowMs;
+    }
+    else if (type == static_cast<uint8_t>(nc::proto::MsgType::NpcSpawn) && net::ReadNpcSpawn(message, spawn))
     {
         auto existing = m_copies.find(spawn.NetId);
         if (existing != m_copies.end() && existing->second.Spawn.Record != spawn.Record)
@@ -333,6 +364,66 @@ void NpcCopies::Place(Copy& copy, RED4ext::Handle<RED4ext::IScriptable>& npc, ui
     }
 }
 
+void NpcCopies::PlayAnim(uint32_t netId, Copy& copy, RED4ext::Handle<RED4ext::IScriptable>& npc, uint64_t nowMs, net::RelaySession& session)
+{
+    if (!copy.GotFullAnimState)
+    {
+        if (nowMs - copy.LastAnimWantMs >= AnimWantAtMostEveryMs)
+        {
+            const bool firstAsk = copy.LastAnimWantMs == 0;
+            copy.LastAnimWantMs = nowMs;
+            session.SendGameMessage(net::WriteNpcAnimWant({netId, true, firstAsk}), static_cast<int32_t>(copy.OwnerPeer));
+            ++m_animWants;
+        }
+        return;
+    }
+    if (copy.PendingAnim.empty())
+    {
+        return;
+    }
+    RED4ext::Handle<RED4ext::IScriptable> controller;
+    const bool controllerFound = m_animPlayer.ControllerOf(npc, controller);
+    for (const auto& batch : copy.PendingAnim)
+    {
+        for (const auto& entry : batch.Entries)
+        {
+            if (!controllerFound)
+            {
+                ++m_animFailed;
+                continue;
+            }
+            switch (m_animPlayer.Play(controller, entry))
+            {
+            case AnimPlayer::Result::Applied: ++m_animPlayed; break;
+            case AnimPlayer::Result::Failed: ++m_animFailed; break;
+            case AnimPlayer::Result::NoSetter:
+            case AnimPlayer::Result::OtherSlot: ++m_animOther; break;
+            }
+        }
+    }
+    copy.PendingAnim.clear();
+}
+
+void NpcCopies::Report(uint64_t nowMs)
+{
+    if (nowMs < m_nextReportMs)
+    {
+        return;
+    }
+    m_nextReportMs = nowMs + ReportEveryMs;
+    if (m_copies.empty() && !m_animBatches)
+    {
+        return;
+    }
+    char line[300];
+    std::snprintf(line, sizeof(line),
+                  "npcs: %zu copy(s), npc anim in 10 s: %u batch(es), %u full state(s), %u waited for a full state, %u played, %u failed, %u no setter, "
+                  "%u ask(s) for a full state",
+                  m_copies.size(), m_animBatches, m_animFullStates, m_animWaited, m_animPlayed, m_animFailed, m_animOther, m_animWants);
+    m_log(line);
+    m_animBatches = m_animFullStates = m_animWaited = m_animPlayed = m_animFailed = m_animOther = m_animWants = 0;
+}
+
 void NpcCopies::Kill(RED4ext::Handle<RED4ext::IScriptable>& npc)
 {
     auto* npcClass = npc->GetType();
@@ -362,7 +453,7 @@ void NpcCopies::Remove(uint32_t netId, Copy& copy, const char* why)
     m_log("npcs: copy of " + NetIdText(netId) + " removed, " + why + " (" + std::to_string(copy.Placements) + " placement(s))");
 }
 
-void NpcCopies::Tick(uint64_t nowMs, bool inSave)
+void NpcCopies::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session)
 {
     if (!inSave)
     {
@@ -418,9 +509,11 @@ void NpcCopies::Tick(uint64_t nowMs, bool inSave)
                     TakeControl(netId, copy, npc);
                 }
                 Place(copy, npc, nowMs);
+                PlayAnim(netId, copy, npc, nowMs, session);
             }
         }
         ++copyEntry;
     }
+    Report(nowMs);
 }
 }
