@@ -8,7 +8,8 @@
 // partner bodies are marked too: an npc hit landing on one is kept as a body hit the plugin sends to that partner as
 // PlayerHit (bodies get the attitude group player and our npcs that fight near a body they hate get a threat on it so they
 // fight it too and kills or damage by a partner body give us no bounty or combat xp). a PlayerHit from a partner gets rebuilt here like nightcoop does (the attack from its record with our copy of the
-// attacker as instigator our place plus the hit offset the flags) and queued on our player so our own game deals the damage
+// attacker as instigator our place plus the hit offset the flags and the attackers weapon damage per hit) and queued on our
+// player so our own game deals the damage. when it never reaches our OnHit within 1.5 s that damage gets written straight
 
 public class NightCoopCombatClaim {
   public let target: EntityID;
@@ -34,6 +35,20 @@ public class NightCoopBodyHit {
   public let flags: array<Int32>;
 }
 
+public class NightCoopHitFallback extends DelayCallback {
+  public let combat: wref<NightCoopCombat>;
+  public let hitsBefore: Int32;
+  public let attacker: wref<GameObject>;
+  public let damage: Float;
+
+  public func Call() {
+    let combat = this.combat;
+    if IsDefined(combat) {
+      combat.FallBackIfMissed(this.hitsBefore, this.attacker, this.damage);
+    }
+  }
+}
+
 public class NightCoopCombat extends ScriptableService {
   private let m_bodies: array<EntityID>;
   private let m_bodyPeers: array<Int32>;
@@ -44,6 +59,8 @@ public class NightCoopCombat extends ScriptableService {
   private let m_copyOnHitsOnUs: Int32;
   private let m_copyDamageOnUs: Float;
   private let m_lastAppliedWeapon: Bool;
+  private let m_fallbackHits: Int32;
+  private let m_fallbackDamage: Float;
   private let m_copies: array<EntityID>;
   private let m_claims: array<ref<NightCoopCombatClaim>>;
   private let m_hitsOnCopies: Int32;
@@ -279,15 +296,47 @@ public class NightCoopCombat extends ScriptableService {
     for flag in flags {
       attackData.AddFlag(IntEnum<hitFlag>(flag), n"NightCoop");
     }
+    let damage = 0.0;
+    if IsDefined(weapon) {
+      damage = GameInstance.GetStatsSystem(game).GetStatValue(Cast<StatsObjectID>(weapon.GetEntityID()), gamedataStatType.EffectiveDamagePerHit);
+    }
     let hit = new gameHitEvent();
     hit.attackData = attackData;
     hit.target = player;
     let place = player.GetWorldPosition();
     hit.hitPosition = new Vector4(place.X + offset.X, place.Y + offset.Y, place.Z + offset.Z, 1.0);
     hit.hitDirection = direction;
+    if !IsDefined(hit.attackComputed) {
+      hit.attackComputed = new gameAttackComputed();
+    }
+    if damage > 0.0 {
+      hit.attackComputed.SetAttackValue(damage, gamedataDamageType.Physical);
+    }
     GameInstance.GetDamageSystem(game).QueueHitEvent(hit, player);
     this.m_hitsApplied += 1;
+    if damage > 0.0 {
+      let fallback = new NightCoopHitFallback();
+      fallback.combat = this;
+      fallback.hitsBefore = this.m_copyOnHitsOnUs;
+      fallback.attacker = attacker;
+      fallback.damage = damage;
+      GameInstance.GetDelaySystem(game).DelayCallback(fallback, 1.5, false);
+    }
     return true;
+  }
+
+  public func FallBackIfMissed(hitsBefore: Int32, attacker: wref<GameObject>, damage: Float) {
+    if this.m_copyOnHitsOnUs != hitsBefore || !IsDefined(attacker) || damage <= 0.0 {
+      return;
+    }
+    let player = GetPlayer(attacker.GetGame());
+    if !IsDefined(player) {
+      return;
+    }
+    GameInstance.GetStatPoolsSystem(player.GetGame()).RequestChangingStatPoolValue(Cast<StatsObjectID>(player.GetEntityID()), gamedataStatPoolType.Health,
+      -damage, attacker, false, false, false);
+    this.m_fallbackHits += 1;
+    this.m_fallbackDamage += damage;
   }
 
   public func TestClaimOnFirstCopy(percent: Float) {
