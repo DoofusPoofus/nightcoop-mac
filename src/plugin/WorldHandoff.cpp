@@ -29,6 +29,7 @@ constexpr uint32_t ChunksPerTick = 8;
 constexpr uint64_t ListRetryMs = 31000;
 constexpr uint32_t MostListTries = 3;
 constexpr uint64_t NewestFallbackMs = 10000;
+constexpr uint64_t CheckpointFallbackMs = 15000;
 constexpr int32_t LoadStarted = 2;
 
 enum class HostStage
@@ -97,6 +98,8 @@ uint64_t NextListMs = 0;
 bool LeftWorldWhileLoading = false;
 uint64_t LoadAskedMs = 0;
 bool NewestTried = false;
+uint64_t NewestAskedMs = 0;
+bool CheckpointTried = false;
 fs::path PluginFolder;
 
 bool Resolve(const LogFunction& log)
@@ -389,6 +392,8 @@ void TakeChunk(const net::WorldFile& chunk, net::RelaySession& session, const Lo
     LeftWorldWhileLoading = false;
     LoadAskedMs = 0;
     NewestTried = false;
+    NewestAskedMs = 0;
+    CheckpointTried = false;
 }
 }
 
@@ -437,9 +442,29 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
             auto service = game::ScriptService("NightCoopWorldHandoff");
             bool asked = false;
             RED4ext::StackArgs_t noArgs;
+            static auto* hasMenu = game::FindFunction("NightCoopWorldHandoff", "HasMenu");
+            bool menuThere = false;
+            if (service && hasMenu)
+            {
+                game::CallMethod(service.instance, hasMenu, &menuThere, noArgs);
+            }
             if (service && game::CallMethod(service.instance, loadNewest, &asked, noArgs) && asked)
             {
-                log("handoff: the save list did not answer, loading the newest save (" + WrittenFolder + ") instead");
+                NewestAskedMs = nowMs;
+                log("handoff: the save list did not answer, loading the newest save (" + WrittenFolder + ") instead" +
+                    (menuThere ? " with the in game menus quick load" : " with LoadLastCheckpoint (no in game menu)"));
+            }
+        }
+        static auto* loadCheckpoint = game::FindFunction("NightCoopWorldHandoff", "LoadCheckpoint");
+        if (!CheckpointTried && NewestAskedMs && nowMs - NewestAskedMs >= CheckpointFallbackMs && loadCheckpoint)
+        {
+            CheckpointTried = true;
+            auto service = game::ScriptService("NightCoopWorldHandoff");
+            bool asked = false;
+            RED4ext::StackArgs_t noArgs;
+            if (service && game::CallMethod(service.instance, loadCheckpoint, &asked, noArgs) && asked)
+            {
+                log("handoff: the quick load did nothing, trying LoadLastCheckpoint(false)");
             }
         }
         if (nowMs >= NextListMs && LoadState() != LoadStarted)
