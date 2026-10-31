@@ -14,6 +14,8 @@
    that many u64 variable names. reliable to evryone when it changes and evry 20 s
  the u32 / u64 / u32 batch header words are passed along as they came, wat they mean is not pinned down yet
  GameClock (46): u32 game seconds (the time systems GetGameTime). the host sends it to evryone evry 5 s, unreliable
+ PlayerRevive (47): u32 target peer | f32 x3 the helpers position, reliable to the downed partner once F was held 1 s
+ DownedNotice (48): u8 kind (1 evryone down, the host loads its last save / 2 evryone down, evryone passes out), host -> evryone
 */
 #pragma once
 
@@ -109,6 +111,17 @@ bool ReadAnimWant(const std::vector<uint8_t>& message, AnimWant& want);
 
 std::vector<uint8_t> WriteAnimSetup(const AnimSetup& setup);
 bool ReadAnimSetup(const std::vector<uint8_t>& message, AnimSetup& setup);
+
+struct PlayerRevive
+{
+    uint32_t TargetPeer = 0;
+    float HelperPosition[3] = {0, 0, 0};
+};
+
+std::vector<uint8_t> WritePlayerRevive(const PlayerRevive& revive);
+bool ReadPlayerRevive(const std::vector<uint8_t>& message, PlayerRevive& revive);
+std::vector<uint8_t> WriteDownedNotice(uint8_t kind);
+bool ReadDownedNotice(const std::vector<uint8_t>& message, uint8_t& kind);
 
 std::vector<uint8_t> WriteGameClock(uint32_t gameSeconds);
 bool ReadGameClock(const std::vector<uint8_t>& message, uint32_t& gameSeconds);

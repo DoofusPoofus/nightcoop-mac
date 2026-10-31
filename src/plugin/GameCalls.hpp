@@ -6,6 +6,7 @@
  object dies when ours does (thats what crashed the first player sampler)
  ParamsAre checks the type names of a functions params against what the port expects so a changed
  signature turns a feature off instead of crashing
+ ScriptService gets one of our ScriptableServices from codewares service container (nullptr when its not there)
 */
 #pragma once
 
@@ -22,4 +23,5 @@ bool ReturnIs(RED4ext::CBaseFunction* function, const char* typeName);
 bool CallStatic(RED4ext::CBaseFunction* function, void* out, RED4ext::StackArgs_t& args);
 bool CallMethod(void* instance, RED4ext::CBaseFunction* function, void* out, RED4ext::StackArgs_t& args);
 std::string Describe(RED4ext::CBaseFunction* function);
+RED4ext::Handle<RED4ext::IScriptable> ScriptService(const char* serviceName);
 }

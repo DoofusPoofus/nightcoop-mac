@@ -1,5 +1,7 @@
 #include "plugin/GameCalls.hpp"
 
+#include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
+
 namespace nightcoop_mac::game
 {
 namespace
@@ -89,5 +91,37 @@ std::string Describe(RED4ext::CBaseFunction* function)
         text += std::string(index ? ", " : "") + TypeName(function->params[index]->type);
     }
     return text + ") -> " + (function->returnType ? TypeName(function->returnType->type) : std::string("void"));
+}
+
+RED4ext::Handle<RED4ext::IScriptable> ScriptService(const char* serviceName)
+{
+    static auto* getContainer = FindFunction("ScriptGameInstance", "GetScriptableServiceContainer");
+    static auto* getService = FindFunction("ScriptableServiceContainer", "GetService");
+    RED4ext::Handle<RED4ext::IScriptable> container;
+    RED4ext::Handle<RED4ext::IScriptable> service;
+    if (!getContainer || !getService)
+    {
+        return service;
+    }
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::StackArgs_t containerArgs;
+    if (getContainer->params.Size() == 1)
+    {
+        containerArgs.emplace_back(nullptr, &gameInstance);
+    }
+    if (!CallStatic(getContainer, &container, containerArgs) || !container)
+    {
+        return service;
+    }
+    RED4ext::CName name(serviceName);
+    RED4ext::StackArgs_t serviceArgs;
+    serviceArgs.emplace_back(nullptr, &name);
+    auto* wanted = RED4ext::CRTTISystem::Get()->GetClass(name);
+    if (!CallMethod(container.instance, getService, &service, serviceArgs) || !service || !wanted || !service->GetType() ||
+        !service->GetType()->IsA(wanted))
+    {
+        service.Reset();
+    }
+    return service;
 }
 }

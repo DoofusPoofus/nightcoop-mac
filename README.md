@@ -35,6 +35,7 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | partner names (PlayerPresence 111 guest -> host, SessionRoster 112 host -> evryone, Hello nickname as fallback) | works, checked with a probe as guest |
 | partner pins on the minimap and world map (CPO_RemotePlayerVariant at their spot, look from `NightCoopPartnerMarkers.reds`) | works in a save with a probe (the minimap made the pins look, not looked at on screen yet) |
 | name plates over partner heads | not yet |
+| downed and revive (PlayerRevive 47, DownedNotice 48, flag 0x100): in co-op V falls at 1 % instead of dying (`NightCoopDowned.reds` takes over the death state like nightcoop), a partner holds F 1 s next to them to help them up, T 2 s passes out | helping a downed probe up works. the fall itself is not seen yet: the test copy pauses its world without window focus and the test V has Second Heart, where the game resurrects by itself like in nightcoop |
 | shared cars, first cut (VehicleSpawn / State / Despawn / Seat 60-63): the car we sit in goes out, a partners shows up as a codeware mirror on their track (teleported, not kinematic yet) with their body seated by the workspot system | works both ways in a save (`test_vehicle` mounts us in a car, the probe drives one), logs only. no handover, npc / crowd / quest cars, doors, damage yet |
 | everything else (npcs quests vehicles dialog votes loot ...) | not yet |
 

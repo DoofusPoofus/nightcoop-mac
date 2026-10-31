@@ -20,9 +20,11 @@
 #include "plugin/AnimSetup.hpp"
 #include "plugin/AnimTap.hpp"
 #include "plugin/CrashNotes.hpp"
+#include "plugin/Downed.hpp"
 #include "plugin/GameCalls.hpp"
 #include "plugin/GameClock.hpp"
 #include "plugin/GameVersion.hpp"
+#include "plugin/KeyWatch.hpp"
 #include "plugin/LookStates.hpp"
 #include "plugin/PartnerBodyBuilder.hpp"
 #include "plugin/PartnerLook.hpp"
@@ -99,6 +101,7 @@ uint64_t NextTestWeaponStepMs = 0;
 uint32_t TestWeaponSteps = 0;
 uint32_t TestWeaponShots = 0;
 uint64_t NextPinsReportMs = 0;
+bool TestHelpHolding = false;
 uint32_t PinsReported = 0;
 int32_t ProfilesReported = -1;
 uint32_t AnsweredSinceReport = 0;
@@ -442,6 +445,11 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             Cars->OnMessage(message.FromPeer, message.Message, nowMs);
         }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PlayerRevive) ||
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::DownedNotice))
+        {
+            nightcoop_mac::downed::OnMessage(message.FromPeer, message.Message, LocalStateValid ? &LastLocalState : nullptr, *Session, Log);
+        }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::GameClock))
         {
             nightcoop_mac::game_clock::OnMessage(message.FromPeer, message.Message, inSave, Session->GetStatus().MyPeerNumber == 0, Log);
@@ -466,10 +474,35 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         }
         if (LocalStateValid)
         {
+            if (nightcoop_mac::downed::WeAreDown())
+            {
+                localState.Flags |= nightcoop_mac::downed::DownFlag;
+            }
             LastLocalState = localState;
             Session->SetLocalPlayerState(localState);
         }
         const bool bodiesAllowed = Flow->BodiesAllowed(nowMs);
+        const auto peerViews = RemotePeerViews();
+        std::vector<nightcoop_mac::downed::Partner> downedPartners;
+        for (const auto& view : peerViews)
+        {
+            downedPartners.push_back({view.PeerNumber, view.State, nightcoop_mac::partner_roster::NameOf(view.PeerNumber, *Session)});
+        }
+        nightcoop_mac::downed::Tick(nowMs, bodiesAllowed && LocalStateValid, LocalStateValid ? &LastLocalState : nullptr, downedPartners, *Session, Log);
+        if (Plan->TestHelp && bodiesAllowed)
+        {
+            const uint64_t phase = nowMs % 8000;
+            const bool holdF = phase < 2000;
+            if (holdF != TestHelpHolding)
+            {
+                TestHelpHolding = holdF;
+                nightcoop_mac::PostKey(nightcoop_mac::KeyF, "f", holdF);
+            }
+        }
+        if (Plan->TestDowned && bodiesAllowed)
+        {
+            nightcoop_mac::downed::RunTest(nowMs, !peerViews.empty(), Log);
+        }
         if (Plan->TestMoves && bodiesAllowed)
         {
             if (!SaveSeenAtMs)
@@ -495,7 +528,6 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             Flow->AskForAutoContinue();
         }
-        const auto peerViews = RemotePeerViews();
         Bodies->Tick(nowMs, peerViews, LocalStateValid ? &LastLocalState : nullptr, bodiesAllowed || Plan->Bodies.InMenuForTesting);
         std::vector<nightcoop_mac::partner_pins::PartnerSpot> partnerSpots;
         for (const auto& view : peerViews)

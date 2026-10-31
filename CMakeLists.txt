@@ -50,7 +50,10 @@ add_library(NightCoopMac SHARED
   src/plugin/AnimTap.cpp
   src/plugin/BodyRecords.cpp
   src/plugin/CrashNotes.cpp
+  src/plugin/Downed.cpp
   src/plugin/GameVersion.cpp
+  src/plugin/Hud.cpp
+  src/plugin/KeyWatch.cpp
   src/plugin/Items.cpp
   src/plugin/LookStates.cpp
   src/plugin/GameCalls.cpp

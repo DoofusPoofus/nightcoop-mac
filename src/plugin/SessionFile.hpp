@@ -12,6 +12,8 @@
    bodies_in_menu        let bodies spawn in the main menu too (testing only, the session flow normally keeps them out)
    auto_continue         the main menu loads the newest save by itself (testing only)
    test_moves            in a save the plugin presses c (crouch) 8 times, 3 s apart (testing only)
+   test_help             in a save f gets held down for 2 s evry 8 s, to help a downed probe up (testing only)
+   test_downed           in a save our health drops to 1 % once a partner is there, so the fall and a revive can be checked (testing only)
    test_vehicle          in a save a car spawns next to our player and we get mounted at its wheel (testing only)
    test_weapon           in a save our player gets a Lexington drawn and once its in hand its magazine drops by one evry 2 s, 10 times,
                          so the weapon fields and shot counts can be checked with nobody at the keyboard (testing only)
@@ -40,6 +42,8 @@ struct SessionPlan
     bool TestMoves = false;
     bool TestWeapon = false;
     bool TestVehicle = false;
+    bool TestDowned = false;
+    bool TestHelp = false;
     BodySettings Bodies;
 };
 

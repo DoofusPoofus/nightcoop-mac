@@ -12,6 +12,8 @@
  PROBE_CLOCK=<game seconds> makes the host send that GameClock evry 5 s to its guests and stay up for 10 min
  PROBE_VEHICLE=0x<tweakdbid> makes the joiner share a car of that record it drives along its walk (VehicleSpawn evry ~5 s,
  VehicleState and VehicleSeat evry step), and the joiner prints the hosts vehicle messages
+ PROBE_DOWN=1 makes the joiner lie downed (flag 0x100) right next to the host (0.5 m) until a PlayerRevive comes
+ PROBE_REVIVE=1 makes the joiner stand still and help the host up (PlayerRevive) 3 s after the host is down (flag 0x100)
  PROBE_WEAPON=0x<tweakdbid> in the environment makes the joiner hold that weapon and fire a shot evry 2 s (aim + shoot flags),
  and the joiner prints the hosts weapon fields whenever they change (health, camera and velocity evry 100 states)
  HUB looks like 127.0.0.1:47900#FINGERPRINT
@@ -216,6 +218,14 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint32_t hostShots = 0;
     uint16_t hostWeaponFlags = 0;
     uint8_t hostWeaponState = 0;
+    const bool probeRevives = std::getenv("PROBE_REVIVE") != nullptr;
+    bool probeLiesDown = std::getenv("PROBE_DOWN") != nullptr;
+    bool hostPositionKnown = false;
+    float hostX = 0;
+    float hostY = 0;
+    float hostZ = 0;
+    int hostDownSinceStep = -1;
+    bool hostWasDown = false;
     uint64_t probeVehicle = 0;
     if (const char* vehicle = std::getenv("PROBE_VEHICLE"))
     {
@@ -232,12 +242,22 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     {
         nightcoop_mac::net::PlayerState state;
         const int stepInLeg = step % 300;
-        state.PositionX = WalkStartX + (stepInLeg < 150 ? stepInLeg : 300 - stepInLeg) * 0.05f;
+        state.PositionX = WalkStartX + (probeRevives ? 0.0f : (stepInLeg < 150 ? stepInLeg : 300 - stepInLeg) * 0.05f);
         state.PositionY = WalkStartY;
         state.PositionZ = WalkStartZ;
         state.Yaw = 90.0f;
         state.Speed = 5.0f;
         state.Flags = (step / 40) % 2 ? 1 : 0;
+        if (std::getenv("PROBE_DOWN"))
+        {
+            state.Flags = probeLiesDown ? 0x100 : 0;
+            if (hostPositionKnown)
+            {
+                state.PositionX = hostX + 0.5f;
+                state.PositionY = hostY;
+                state.PositionZ = hostZ;
+            }
+        }
         if (ProbeWeapon)
         {
             state.RightWeaponRecord = ProbeWeapon;
@@ -294,6 +314,29 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
         }
         for (const auto& hostState : session.TakeRemotePlayerStates())
         {
+            hostPositionKnown = true;
+            hostX = hostState.PositionX;
+            hostY = hostState.PositionY;
+            hostZ = hostState.PositionZ;
+            const bool hostDown = (hostState.Flags & 0x100) != 0;
+            if (hostDown != hostWasDown)
+            {
+                hostWasDown = hostDown;
+                hostDownSinceStep = hostDown ? step : -1;
+                std::printf("probe: peer %u is %s\n", hostState.PeerNumber, hostDown ? "down (flag 0x100)" : "up again");
+                std::fflush(stdout);
+            }
+            if (probeRevives && hostDown && hostDownSinceStep >= 0 && step - hostDownSinceStep >= 38)
+            {
+                nightcoop_mac::net::PlayerRevive revive;
+                revive.TargetPeer = hostState.PeerNumber;
+                revive.HelperPosition[0] = state.PositionX;
+                revive.HelperPosition[1] = state.PositionY;
+                revive.HelperPosition[2] = state.PositionZ;
+                session.SendGameMessage(nightcoop_mac::net::WritePlayerRevive(revive), static_cast<int32_t>(hostState.PeerNumber));
+                std::printf("probe: helping peer %u up\n", hostState.PeerNumber);
+                hostDownSinceStep = step + 1000;
+            }
             if (hostStatesSeen++ % 100 == 0)
             {
                 std::printf("probe: peer %u health %.2f time dilation %.2f camera pitch %.1f aim offset %.1f velocity %.2f %.2f %.2f\n",
@@ -319,6 +362,14 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::AnimWant want;
             nightcoop_mac::net::AnimBatch batch;
             uint32_t gameSeconds = 0;
+            nightcoop_mac::net::PlayerRevive revive;
+            if (nightcoop_mac::net::ReadPlayerRevive(message.Message, revive))
+            {
+                std::printf("probe: peer %u helps us up (from %.1f %.1f %.1f), getting up\n", message.FromPeer, revive.HelperPosition[0],
+                            revive.HelperPosition[1], revive.HelperPosition[2]);
+                probeLiesDown = false;
+                continue;
+            }
             nightcoop_mac::net::AnimSetup setup;
             nightcoop_mac::net::SessionRoster roster;
             nightcoop_mac::net::VehicleSpawn hostCar;

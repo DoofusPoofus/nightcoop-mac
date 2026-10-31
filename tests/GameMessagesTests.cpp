@@ -173,6 +173,18 @@ int main()
     VehicleDespawn despawn;
     Check(ReadVehicleDespawn(WriteVehicleDespawn({spawn.NetId, 2}), despawn) && despawn.Reason == 2, "vehicle despawn round trip");
 
+    PlayerRevive revive;
+    revive.TargetPeer = 1;
+    revive.HelperPosition[0] = -1090.0f;
+    PlayerRevive parsedRevive;
+    Check(WritePlayerRevive(revive).size() == 21 && ReadPlayerRevive(WritePlayerRevive(revive), parsedRevive) && parsedRevive.TargetPeer == 1 &&
+              parsedRevive.HelperPosition[0] == -1090.0f,
+          "player revive is 21 bytes and round trips");
+    uint8_t downedKind = 0;
+    Check(WriteDownedNotice(2).size() == 6 && ReadDownedNotice(WriteDownedNotice(2), downedKind) && downedKind == 2 &&
+              !ReadDownedNotice(WriteDownedNotice(3), downedKind),
+          "downed notice is 6 bytes, kind 1 or 2");
+
     const auto clock = WriteGameClock(123456);
     uint32_t gameSeconds = 0;
     Check(clock.size() == 9 && clock[4] == 46 && ReadGameClock(clock, gameSeconds) && gameSeconds == 123456, "game clock is magic | 46 | u32 seconds");

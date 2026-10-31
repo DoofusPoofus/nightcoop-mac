@@ -3,6 +3,7 @@
 #include <ProtocolCore.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace nightcoop_mac::net
@@ -312,5 +313,53 @@ bool ReadGameClock(const std::vector<uint8_t>& message, uint32_t& gameSeconds)
     }
     gameSeconds = reader.GetU32();
     return reader.Ok();
+}
+
+std::vector<uint8_t> WritePlayerRevive(const PlayerRevive& revive)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::PlayerRevive);
+    writer.PutU32(revive.TargetPeer);
+    for (float coordinate : revive.HelperPosition)
+    {
+        writer.PutF32(coordinate);
+    }
+    return writer.Data();
+}
+
+bool ReadPlayerRevive(const std::vector<uint8_t>& message, PlayerRevive& revive)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (!OpenMessage(reader, nc::proto::MsgType::PlayerRevive))
+    {
+        return false;
+    }
+    revive.TargetPeer = reader.GetU32();
+    for (float& coordinate : revive.HelperPosition)
+    {
+        coordinate = reader.GetF32();
+        if (!std::isfinite(coordinate))
+        {
+            return false;
+        }
+    }
+    return reader.Ok() && reader.Remaining() == 0;
+}
+
+std::vector<uint8_t> WriteDownedNotice(uint8_t kind)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::DownedNotice);
+    writer.PutU8(kind);
+    return writer.Data();
+}
+
+bool ReadDownedNotice(const std::vector<uint8_t>& message, uint8_t& kind)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (!OpenMessage(reader, nc::proto::MsgType::DownedNotice))
+    {
+        return false;
+    }
+    kind = reader.GetU8();
+    return reader.Ok() && reader.Remaining() == 0 && (kind == 1 || kind == 2);
 }
 }
