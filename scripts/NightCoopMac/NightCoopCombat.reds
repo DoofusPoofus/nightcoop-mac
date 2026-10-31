@@ -40,6 +40,10 @@ public class NightCoopCombat extends ScriptableService {
   private let m_bodyHits: array<ref<NightCoopBodyHit>>;
   private let m_hitsApplied: Int32;
   private let m_threatsShared: Int32;
+  private let m_copyHitsOnUs: Int32;
+  private let m_copyOnHitsOnUs: Int32;
+  private let m_copyDamageOnUs: Float;
+  private let m_lastAppliedWeapon: Bool;
   private let m_copies: array<EntityID>;
   private let m_claims: array<ref<NightCoopCombatClaim>>;
   private let m_hitsOnCopies: Int32;
@@ -212,6 +216,26 @@ public class NightCoopCombat extends ScriptableService {
     ArrayPush(this.m_bodyHits, bodyHit);
   }
 
+  public func NoteOnHitOnUs(hit: ref<gameHitEvent>) {
+    if IsDefined(hit) && IsDefined(hit.attackData) {
+      let instigator = hit.attackData.GetInstigator();
+      if IsDefined(instigator) && this.IsCopy(instigator.GetEntityID()) {
+        this.m_copyOnHitsOnUs += 1;
+      }
+    }
+  }
+
+  public func NoteHitOnUs(hit: ref<gameHitEvent>, damage: Float) {
+    if !IsDefined(hit) || !IsDefined(hit.attackData) {
+      return;
+    }
+    let instigator = hit.attackData.GetInstigator();
+    if IsDefined(instigator) && this.IsCopy(instigator.GetEntityID()) {
+      this.m_copyHitsOnUs += 1;
+      this.m_copyDamageOnUs += damage;
+    }
+  }
+
   public func TakeBodyHits() -> array<ref<NightCoopBodyHit>> {
     let taken = this.m_bodyHits;
     ArrayClear(this.m_bodyHits);
@@ -242,6 +266,7 @@ public class NightCoopCombat extends ScriptableService {
     attackData.SetAttackDefinition(attack);
     attackData.SetInstigator(attacker);
     attackData.SetSource(attacker);
+    this.m_lastAppliedWeapon = IsDefined(weapon);
     if IsDefined(weapon) {
       attackData.SetWeapon(weapon);
     }
@@ -283,7 +308,8 @@ public class NightCoopCombat extends ScriptableService {
   public func Describe() -> String {
     return "copies " + IntToString(ArraySize(this.m_copies)) + ", hits on copies " + IntToString(this.m_hitsOnCopies) + ", claims made " +
       IntToString(this.m_claimsMade) + ", bodies " + IntToString(ArraySize(this.m_bodies)) + ", partner hits on us " + IntToString(this.m_hitsApplied) +
-      ", threats on bodies " + IntToString(this.m_threatsShared);
+      ", threats on bodies " + IntToString(this.m_threatsShared) + ", copy hits in our OnHit " + IntToString(this.m_copyOnHitsOnUs) + ", copy hits that reached us " + IntToString(this.m_copyHitsOnUs) +
+      " with " + FloatToString(this.m_copyDamageOnUs) + " damage, last rebuilt hit had a weapon " + BoolToString(this.m_lastAppliedWeapon);
   }
 }
 
@@ -292,6 +318,9 @@ protected cb func OnDamageReceived(evt: ref<gameDamageReceivedEvent>) -> Bool {
   let combat = NightCoopCombat.Get();
   if IsDefined(combat) && combat.IsCopy(this.GetEntityID()) {
     combat.NoteHit(this, evt);
+  }
+  if IsDefined(combat) && this.IsPlayer() && combat.BodyPeer(this.GetEntityID()) < 0 {
+    combat.NoteHitOnUs(evt.hitEvent, evt.totalDamageReceived);
   }
   return wrappedMethod(evt);
 }
@@ -303,6 +332,8 @@ protected cb func OnHit(evt: ref<gameHitEvent>) -> Bool {
     let peer = combat.BodyPeer(this.GetEntityID());
     if peer >= 0 {
       combat.NoteBodyHit(this, peer, evt);
+    } else if this.IsPlayer() {
+      combat.NoteOnHitOnUs(evt);
     }
   }
   return wrappedMethod(evt);
