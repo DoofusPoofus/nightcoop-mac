@@ -8,7 +8,8 @@
  cpPlayerSystem wraps the raw system pointer in a new Handle and on mac that ends up destroying the system
  crouch comes from PlayerPuppet.inCrouch and sprint from speed (over 6.5 m/s), they go out in Flags and the
  locomotion state byte the same way nightcoops player bridge fills them from the state machine. weapons (records, shots,
- weapon states, aim / shoot / reload) come from the weapons module
+ weapon states, aim / shoot / reload) come from the weapons module. like nightcoop the state machine board adds flag 0x100 when
+ Vitals is Dead, 0x10 when Vehicle is 1 or more and 0x200 when TimeDilation is the sandevistan
  if a function cant be found it says so once and stays off
 */
 #pragma once

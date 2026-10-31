@@ -67,6 +67,7 @@ add_library(NightCoopMac SHARED
   src/plugin/RttiDump.cpp
   src/plugin/SessionFile.cpp
   src/plugin/SessionFlow.cpp
+  src/plugin/StateMachineBoard.cpp
   src/plugin/TestKeys.cpp
   src/plugin/Vehicles.cpp
   src/plugin/Wardrobe.cpp

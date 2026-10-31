@@ -1,5 +1,6 @@
 #include "plugin/PlayerSampler.hpp"
 
+#include "plugin/StateMachineBoard.hpp"
 #include "plugin/Weapons.hpp"
 
 #include "plugin/GameCalls.hpp"
@@ -22,6 +23,11 @@ constexpr float TeleportAboveMetersPerSecond = 200.0f;
 constexpr float DegreesPerRadian = 57.29578f;
 constexpr uint16_t CrouchFlag = 1;
 constexpr uint16_t SprintFlag = 2;
+constexpr uint16_t InVehicleFlag = 0x10;
+constexpr uint16_t DownFlag = 0x100;
+constexpr uint16_t SandevistanFlag = 0x200;
+constexpr int32_t VitalsDead = 1;
+constexpr int32_t TimeDilationSandevistan = 1;
 constexpr uint8_t PsmLocomotionDefault = 0;
 constexpr uint8_t PsmLocomotionCrouch = 1;
 constexpr uint8_t PsmLocomotionSprint = 2;
@@ -246,6 +252,21 @@ bool PlayerSampler::Sample(net::PlayerState& state, uint64_t nowMs)
     state.Flags = static_cast<uint16_t>((crouching ? CrouchFlag : 0) | (sprinting ? SprintFlag : 0));
     state.LocomotionState = crouching ? PsmLocomotionCrouch : (sprinting ? PsmLocomotionSprint : PsmLocomotionDefault);
     SampleExtras(player.instance, state, nowMs);
+    int32_t vitals = 0;
+    int32_t vehicle = 0;
+    int32_t timeDilation = 0;
+    if (state_machine_board::ReadInt(player, "Vitals", vitals) && vitals == VitalsDead)
+    {
+        state.Flags |= DownFlag;
+    }
+    if (state_machine_board::ReadInt(player, "Vehicle", vehicle) && vehicle >= 1)
+    {
+        state.Flags |= InVehicleFlag;
+    }
+    if (state_machine_board::ReadInt(player, "TimeDilation", timeDilation) && timeDilation == TimeDilationSandevistan)
+    {
+        state.Flags |= SandevistanFlag;
+    }
     weapons::OwnWeapons ownWeapons;
     if (weapons::ReadOwnWeapons(player, ownWeapons, m_log))
     {

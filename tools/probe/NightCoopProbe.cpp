@@ -344,7 +344,7 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                             hostState.VelocityX, hostState.VelocityY, hostState.VelocityZ);
                 std::fflush(stdout);
             }
-            const uint16_t weaponFlags = hostState.Flags & 0x80C4;
+            const uint16_t weaponFlags = hostState.Flags & 0x83D4;
             if (hostState.RightWeaponRecord != hostWeapon || hostState.RightShotCount != hostShots || weaponFlags != hostWeaponFlags ||
                 hostState.WeaponState != hostWeaponState)
             {

@@ -7,7 +7,8 @@
    forwards to evry other peer. fields with offset names are ones we havent pinned down yet but the bytes
    still go thru untouched so nothing breaks for windows peers
    Flags comes from the players state machine: bit0 crouch (locomotion Crouch / CrouchSprint / CrouchDodge),
-   bit1 sprint, bit2 aiming (upper body Aim), bit6 shooting (a hand in Shoot), bit7 reloading, bit15 silenced weapon.
+   bit1 sprint, bit2 aiming (upper body Aim), bit4 in a vehicle, bit6 shooting (a hand in Shoot), bit7 reloading, bit8 down
+   (Vitals Dead), bit9 sandevistan, bit15 silenced weapon.
    the three state bytes after it are the raw gamePSM locomotion / upper body / RightWeapon states
    weapons ride along: right shot count (cumulative, a partner plays the new ones) and right weapon record, then in the
    tail the left weapon record (dual wield only), its shot count and its gamePSM LeftWeapon state
