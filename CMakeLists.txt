@@ -34,7 +34,7 @@ target_include_directories(nightcoop_shared PUBLIC ${HUB_SOURCE}/src)
 target_link_libraries(nightcoop_shared PUBLIC enet monocypher)
 set_target_properties(nightcoop_shared PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-add_library(nightcoop_mac_net STATIC src/net/SessionMessages.cpp src/net/GameMessages.cpp src/net/LookMessages.cpp src/net/RosterMessages.cpp src/net/VehicleMessages.cpp src/net/WorldMessages.cpp src/net/NpcMessages.cpp src/net/RelaySession.cpp)
+add_library(nightcoop_mac_net STATIC src/net/SessionMessages.cpp src/net/GameMessages.cpp src/net/LookMessages.cpp src/net/RosterMessages.cpp src/net/VehicleMessages.cpp src/net/WorldMessages.cpp src/net/NpcMessages.cpp src/net/LootMessages.cpp src/net/RelaySession.cpp)
 target_include_directories(nightcoop_mac_net PUBLIC src)
 target_link_libraries(nightcoop_mac_net PUBLIC nightcoop_shared)
 target_compile_options(nightcoop_mac_net PRIVATE -Wall -Wextra -Wno-unused-parameter)
@@ -56,6 +56,8 @@ add_library(NightCoopMac SHARED
   src/plugin/Hud.cpp
   src/plugin/KeyWatch.cpp
   src/plugin/LiftSync.cpp
+  src/plugin/ItemGive.cpp
+  src/plugin/Loot.cpp
   src/plugin/NpcCopies.cpp
   src/plugin/NpcShare.cpp
   src/plugin/Items.cpp
@@ -77,7 +79,8 @@ add_library(NightCoopMac SHARED
   src/plugin/Vehicles.cpp
   src/plugin/Wardrobe.cpp
   src/plugin/Weapons.cpp
-  src/plugin/WorldHandoff.cpp)
+  src/plugin/WorldHandoff.cpp
+  src/plugin/WorldLoot.cpp)
 target_include_directories(NightCoopMac PRIVATE src)
 target_link_libraries(NightCoopMac PRIVATE nightcoop_mac_net RED4ext::SDK "-framework CoreFoundation" "-framework AppKit" objc)
 target_link_options(NightCoopMac PRIVATE -Wl,-dead_strip)

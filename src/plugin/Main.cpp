@@ -26,6 +26,7 @@
 #include "plugin/GameVersion.hpp"
 #include "plugin/KeyWatch.hpp"
 #include "plugin/LiftSync.hpp"
+#include "plugin/Loot.hpp"
 #include "plugin/NpcCopies.hpp"
 #include "plugin/NpcShare.hpp"
 #include "plugin/LookStates.hpp"
@@ -482,6 +483,11 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             Npcs->OnMessage(message.FromPeer, message.Message, nowMs);
         }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) >= static_cast<uint8_t>(nc::proto::MsgType::ItemTransferOffer) &&
+                 nightcoop_mac::net::MessageTypeOf(message.Message) <= static_cast<uint8_t>(nc::proto::MsgType::LootTakeResult))
+        {
+            nightcoop_mac::loot::OnMessage(message.FromPeer, message.Message, *Session, Log);
+        }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::GameClock))
         {
             nightcoop_mac::game_clock::OnMessage(message.FromPeer, message.Message, inSave, Session->GetStatus().MyPeerNumber == 0, Log);
@@ -505,6 +511,8 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     }
     nightcoop_mac::world_handoff::Tick(nowMs, inSave, Plan->WorldHandoff, *Session, PluginFolder, Log);
     nightcoop_mac::lift_sync::Tick(nowMs, inSave, !LatestRemoteStates.empty(), *Session, Log);
+    nightcoop_mac::loot::Tick(nowMs, inSave, LocalStateValid ? &LastLocalState : nullptr, Plan->TestLoot, Plan->TestLootRecord, Plan->TestLootQuantity,
+                              *Session, *Bodies, Log);
     if (inSave)
     {
         std::vector<nightcoop_mac::partner_plates::PartnerSpot> plateSpots;

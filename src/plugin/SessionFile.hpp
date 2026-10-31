@@ -18,6 +18,9 @@
    test_help             in a save f gets held down for 2 s evry 8 s, to help a downed probe up (testing only)
    test_downed           in a save our health drops to 1 % once a partner is there, so the fall and a revive can be checked (testing only)
    test_vehicle          in a save a car spawns next to our player and we get mounted at its wheel (testing only)
+   test_loot [REC [N]]   loot sharing on even outside the hosts world, and 10 s after a partner is there N x REC (default
+                         1 x Items.FirstAidWhiffV0) goes to them thru NightCoopGiveItem, 10 s later one gets dropped at our
+                         feet as a shared drop (testing only, it tops our own stock up first)
    test_weapon           in a save our player gets a Lexington drawn and once its in hand its magazine drops by one evry 2 s, 10 times,
                          so the weapon fields and shot counts can be checked with nobody at the keyboard (testing only)
    body_gender male|female  force the V body gender instead of taking it from the partners look
@@ -49,6 +52,9 @@ struct SessionPlan
     bool TestHelp = false;
     bool WorldHandoff = false;
     bool ShareNpcsAlways = false;
+    bool TestLoot = false;
+    std::string TestLootRecord = "Items.FirstAidWhiffV0";
+    int32_t TestLootQuantity = 1;
     BodySettings Bodies;
 };
 

@@ -8,7 +8,7 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 
 ## status
 
-**early, not playable with friends yet.** a partner shows up in ur world as a body with their look, clothes, guns, anims, name, map pin and car, and u can help each other up, but all of it is only checked against a headless test client (`tools/probe`) and a local hub, never against a real windows NightCoop or a second mac. npcs, quests, doors, loot and the world handoff (a guest playing in the hosts world) are not there yet, so each player still plays their own save.
+**early, not playable with friends yet.** a partner shows up in ur world as a body with their look, clothes, guns, anims, name, map pin and car, and u can help each other up, but all of it is only checked against a headless test client (`tools/probe`) and a local hub, never against a real windows NightCoop or a second mac. npcs, quests, doors, most of the loot and the world handoff (a guest playing in the hosts world) are not there yet, so each player still plays their own save.
 
 | part | state |
 | --- | --- |
@@ -41,7 +41,8 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | world handoff, first cut (WorldWant 80 / WorldFile 81 / WorldStatus 82, `handoff` in session.txt): the host makes a manual save and streams sav.dat + metadata, a guest writes it as a new ManualSave-N and loads it. for now the hosts save as it is, without the guests character spliced in like nightcoop does | ask, stream (5 MB in 32 KiB chunks), hash check and the written folder work with a probe as host. the load itself did not start in the test copy (its world pauses without window focus), needs a focused test |
 | partner npcs as stand ins (NpcSpawn / Snapshot / Despawn 20-22): codeware spawn from their record and look, ai components off like nightcoop, moved on their snapshot track, killed on a death, their NpcAnim stream (23) played on the copys graph after a full state (NpcAnimWant 35) | works with a probe sharing an npc with a fake anim stream (asked once, 240 inputs played per 10 s, logs only). no states or weapons yet |
 | our npcs going to partners in our world (only the host shares, like nightcoop; `share_npcs` forces it for tests): 64 nearest within 150 m, spawn evry 625 ms, snapshots at 10 Hz with health, their anim graph writes caught by the anim tap and sent as NpcAnim evry 50 ms | works with a probe (~60 npc graphs streamed in a test save, ~2000 batches per 10 s, nothing dropped). no match keys, states, weapons, handoffs yet |
-| everything else (quests dialog votes loot doors ...) | not yet |
+| loot, first cut (nightcoops lootsync + worldloot, 38-44, `test_loot` in session.txt): giving an item to a partner thru the hosts ledger (redscript `NightCoopGiveItem(record, quantity, peer)` like the windows native, worst case the item is lost never duped), our drops shared as LootState and partners drops mirrored here thru their body, a take asks the owner (LootTake / LootTakeResult) and a denied one gets rolled back | the messages round trip probe to probe (give both ways, a take granted, the bag shrinks), not tried in the game yet. no corpse loot of npc copies (npc net id, ProcessLoot redirect), world corpses, loot_personal, corpse marker or tiers yet |
+| everything else (quests dialog votes doors ...) | not yet |
 
 NightCoop is in beta and its protocol changes with its releases, so this has to keep up with it. it targets NightCoop 0.1.2 (protocol 143) rn.
 

@@ -24,10 +24,16 @@
  PROBE_REVIVE=1 makes the joiner stand still and help the host up (PlayerRevive) 3 s after the host is down (flag 0x100)
  PROBE_WEAPON=0x<tweakdbid> in the environment makes the joiner hold that weapon and fire a shot evry 2 s (aim + shoot flags),
  and the joiner prints the hosts weapon fields whenever they change (health, camera and velocity evry 100 states)
+ PROBE_LOOT=<item record name or 0x tdbid> (1 = Items.money) works as host and as joiner and prints evry loot message (38-44).
+ it answers debits and grants of item gives like a player with endless pockets (the host one keeps a small ledger), gives the
+ game 5 of the record after ~4 s, shares a bag drop with 3 of it 1 m next to the game player from ~5 s on (LootState evry 5 s,
+ a LootTake gets granted and the bag shrinks, PROBE_LOOT_DENY=1 denies them) and takes 1 of the first item of the first open
+ drop the game shares, printing the LootTakeResult. the host stays up 10 min with it
  HUB looks like 127.0.0.1:47900#FINGERPRINT
 */
 #include "net/GameMessages.hpp"
 #include "net/LookMessages.hpp"
+#include "net/LootMessages.hpp"
 #include "net/RelaySession.hpp"
 #include "net/RosterMessages.hpp"
 #include "net/VehicleMessages.hpp"
@@ -46,6 +52,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <set>
 #include <string>
 #include <thread>
@@ -63,6 +70,295 @@ float WalkStartY = 1200.0f;
 float WalkStartZ = 18.0f;
 constexpr auto ProbeTimeout = 30s;
 
+class LootProbe
+{
+public:
+    explicit LootProbe(nightcoop_mac::net::RelaySession& session)
+        : m_session(session)
+    {
+        const char* setting = std::getenv("PROBE_LOOT");
+        if (!setting)
+        {
+            return;
+        }
+        const std::string recordName = std::string(setting) == "1" ? "Items.money" : setting;
+        m_record = recordName.rfind("0x", 0) == 0 ? std::strtoull(recordName.c_str(), nullptr, 0) : nightcoop_mac::net::ItemRecordFromName(recordName);
+        m_denyTakes = std::getenv("PROBE_LOOT_DENY") != nullptr;
+        m_startedAt = std::chrono::steady_clock::now();
+        m_bagQuantity = 3;
+        std::printf("probe: loot with record %s (%#llx), takes get %s\n", recordName.c_str(), static_cast<unsigned long long>(m_record),
+                    m_denyTakes ? "denied" : "granted");
+    }
+
+    bool Enabled() const
+    {
+        return m_record != 0;
+    }
+
+    bool OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message)
+    {
+        using namespace nightcoop_mac::net;
+        const uint8_t type = MessageTypeOf(message);
+        if (!Enabled() || type < kItemTransferOffer || type > 44)
+        {
+            return false;
+        }
+        uint8_t transferType = 0;
+        ItemTransfer transfer;
+        ItemTransferAck ack;
+        LootState state;
+        LootTake take;
+        LootTakeResult result;
+        if (ReadItemTransfer(message, transferType, transfer))
+        {
+            TakeTransfer(fromPeer, transferType, transfer);
+        }
+        else if (ReadItemTransferAck(message, ack))
+        {
+            std::printf("probe: transfer %#llx ack phase %u ok %d from peer %u\n", static_cast<unsigned long long>(ack.TransferId), ack.Phase, ack.Ok,
+                        fromPeer);
+            TakeAck(ack);
+        }
+        else if (ReadLootState(message, state))
+        {
+            TakeState(fromPeer, state);
+        }
+        else if (ReadLootTake(message, take))
+        {
+            AnswerTake(fromPeer, take);
+        }
+        else if (ReadLootTakeResult(message, result))
+        {
+            std::printf("probe: peer %u answers take %u on container %#010llx: %s\n", fromPeer, result.TakeNumber,
+                        static_cast<unsigned long long>(result.ContainerId), result.Granted ? "granted" : "denied");
+        }
+        else
+        {
+            std::printf("probe: a loot message type %u from peer %u does not read\n", type, fromPeer);
+        }
+        std::fflush(stdout);
+        return true;
+    }
+
+    void Step(bool gamePlayerKnown, float x, float y, float z)
+    {
+        const auto now = std::chrono::steady_clock::now();
+        if (!Enabled() || !m_session.GetStatus().InSession || (WeAreHost() && m_session.PeerNicknames().empty()))
+        {
+            return;
+        }
+        if (!m_gaveOnce && now - m_startedAt >= 4s)
+        {
+            m_gaveOnce = true;
+            GiveToTheGame();
+        }
+        if (gamePlayerKnown && !m_dropPlaced)
+        {
+            m_dropPlaced = true;
+            m_dropX = x + 1.0f;
+            m_dropY = y;
+            m_dropZ = z;
+        }
+        if (m_dropPlaced && now - m_startedAt >= 5s && now >= m_nextStateAt)
+        {
+            m_nextStateAt = now + 5s;
+            SendOurBag();
+        }
+    }
+
+private:
+    struct LedgerLine
+    {
+        nightcoop_mac::net::ItemTransfer Transfer;
+        uint32_t Sender = 0;
+    };
+
+    bool WeAreHost() const
+    {
+        return m_session.GetStatus().MyPeerNumber == 0;
+    }
+
+    uint32_t MyPeer() const
+    {
+        return m_session.GetStatus().MyPeerNumber;
+    }
+
+    uint64_t OurContainer() const
+    {
+        return (static_cast<uint64_t>(MyPeer()) << 24) | 1;
+    }
+
+    void TakeTransfer(uint32_t fromPeer, uint8_t transferType, const nightcoop_mac::net::ItemTransfer& transfer)
+    {
+        using namespace nightcoop_mac::net;
+        std::printf("probe: item transfer type %u from peer %u: id %#llx %u x %#llx for peer %u\n", transferType, fromPeer,
+                    static_cast<unsigned long long>(transfer.TransferId), transfer.Quantity, static_cast<unsigned long long>(transfer.Item.Record),
+                    transfer.Recipient);
+        if (transferType == kItemTransferOffer && WeAreHost())
+        {
+            m_ledger[transfer.TransferId] = {transfer, fromPeer};
+            m_session.SendGameMessage(WriteItemTransfer(kItemTransferDebit, transfer), static_cast<int32_t>(fromPeer));
+        }
+        else if (transferType == kItemTransferDebit)
+        {
+            SendAck(transfer.TransferId, kTransferPhaseDebit, (transfer.TransferId >> 32) == MyPeer());
+        }
+        else if (transferType == kItemTransferGrant)
+        {
+            std::printf("probe: we got %u x %#llx from peer %u\n", transfer.Quantity, static_cast<unsigned long long>(transfer.Item.Record),
+                        static_cast<uint32_t>(transfer.TransferId >> 32));
+            SendAck(transfer.TransferId, kTransferPhaseGrant, true);
+        }
+    }
+
+    void TakeState(uint32_t fromPeer, const nightcoop_mac::net::LootState& state)
+    {
+        using namespace nightcoop_mac::net;
+        std::printf("probe: peer %u loot state kind %u container %#010llx rev %u state %u bag %d at %.1f %.1f %.1f with %zu entr(ies)", fromPeer, state.Kind,
+                    static_cast<unsigned long long>(state.ContainerId), state.Revision, state.State, state.Bag, state.Position[0], state.Position[1],
+                    state.Position[2], state.Entries.size());
+        for (const auto& entry : state.Entries)
+        {
+            std::printf(" [%u x %#llx seed %u q %u]", entry.Quantity, static_cast<unsigned long long>(entry.Item.Record), entry.Item.RngSeed, entry.Quality);
+        }
+        std::printf("\n");
+        if (m_tookOnce || state.State != kLootOpen || state.Entries.empty())
+        {
+            return;
+        }
+        m_tookOnce = true;
+        LootTake ourTake;
+        ourTake.Kind = state.Kind;
+        ourTake.ContainerId = state.ContainerId;
+        ourTake.TakeNumber = 1;
+        ourTake.Item = state.Entries[0];
+        ourTake.Item.Quantity = 1;
+        m_session.SendGameMessage(WriteLootTake(ourTake), static_cast<int32_t>(fromPeer));
+        std::printf("probe: taking 1 x %#llx from container %#010llx of peer %u\n", static_cast<unsigned long long>(ourTake.Item.Item.Record),
+                    static_cast<unsigned long long>(ourTake.ContainerId), fromPeer);
+    }
+
+    void AnswerTake(uint32_t fromPeer, const nightcoop_mac::net::LootTake& take)
+    {
+        using namespace nightcoop_mac::net;
+        const bool ours = take.ContainerId == OurContainer() && RecordWithoutOffset(take.Item.Item.Record) == RecordWithoutOffset(m_record);
+        const bool granted = ours && !m_denyTakes && take.Item.Quantity <= m_bagQuantity;
+        std::printf("probe: peer %u takes %u x %#llx from container %#010llx (take %u): %s\n", fromPeer, take.Item.Quantity,
+                    static_cast<unsigned long long>(take.Item.Item.Record), static_cast<unsigned long long>(take.ContainerId), take.TakeNumber,
+                    granted ? "granted" : "denied");
+        m_session.SendGameMessage(WriteLootTakeResult({take.Kind, take.ContainerId, take.TakeNumber, granted}), static_cast<int32_t>(fromPeer));
+        if (granted)
+        {
+            m_bagQuantity -= take.Item.Quantity;
+            ++m_revision;
+            m_nextStateAt = std::chrono::steady_clock::now();
+        }
+    }
+
+    void GiveToTheGame()
+    {
+        using namespace nightcoop_mac::net;
+        ItemTransfer gift;
+        gift.TransferId = (static_cast<uint64_t>(MyPeer()) << 32) | 0x51;
+        gift.Item.Record = m_record;
+        gift.Quantity = 5;
+        if (WeAreHost())
+        {
+            gift.Recipient = m_session.PeerNicknames().begin()->first;
+            m_ledger[gift.TransferId] = {gift, 0};
+            m_session.SendGameMessage(WriteItemTransfer(kItemTransferGrant, gift), static_cast<int32_t>(gift.Recipient));
+            std::printf("probe: granting 5 x %#llx to peer %u (we are the host, the debit is ours)\n", static_cast<unsigned long long>(m_record),
+                        gift.Recipient);
+            return;
+        }
+        gift.Recipient = 0;
+        m_session.SendGameMessage(WriteItemTransfer(kItemTransferOffer, gift), 0);
+        std::printf("probe: offering 5 x %#llx to the host\n", static_cast<unsigned long long>(m_record));
+    }
+
+    void SendOurBag()
+    {
+        using namespace nightcoop_mac::net;
+        LootState state;
+        state.Kind = kLootDrop;
+        state.ContainerId = OurContainer();
+        state.Revision = m_revision;
+        state.State = m_bagQuantity ? kLootOpen : kLootClosed;
+        state.Bag = true;
+        state.Position[0] = m_dropX;
+        state.Position[1] = m_dropY;
+        state.Position[2] = m_dropZ;
+        if (m_bagQuantity)
+        {
+            state.Entries.push_back({{m_record, 0, 0, 0, 0}, m_bagQuantity, kLootQualityUnknown});
+        }
+        m_session.SendGameMessage(WriteLootState(state));
+        if (m_revision != m_printedRevision)
+        {
+            m_printedRevision = m_revision;
+            std::printf("probe: our bag %#010llx rev %u holds %u at %.1f %.1f %.1f\n", static_cast<unsigned long long>(state.ContainerId), m_revision,
+                        m_bagQuantity, m_dropX, m_dropY, m_dropZ);
+            std::fflush(stdout);
+        }
+    }
+
+    void SendAck(uint64_t transferId, uint8_t phase, bool ok)
+    {
+        if (WeAreHost())
+        {
+            TakeAck({transferId, phase, ok});
+            return;
+        }
+        m_session.SendGameMessage(nightcoop_mac::net::WriteItemTransferAck({transferId, phase, ok}), 0);
+    }
+
+    void TakeAck(const nightcoop_mac::net::ItemTransferAck& ack)
+    {
+        using namespace nightcoop_mac::net;
+        const auto line = m_ledger.find(ack.TransferId);
+        if (!WeAreHost() || line == m_ledger.end())
+        {
+            return;
+        }
+        const auto& transfer = line->second.Transfer;
+        if (ack.Phase == kTransferPhaseDebit && ack.Ok && transfer.Recipient == 0)
+        {
+            std::printf("probe: host: transfer %#llx debited, we got %u x %#llx, complete\n", static_cast<unsigned long long>(ack.TransferId),
+                        transfer.Quantity, static_cast<unsigned long long>(transfer.Item.Record));
+        }
+        else if (ack.Phase == kTransferPhaseDebit && ack.Ok)
+        {
+            m_session.SendGameMessage(WriteItemTransfer(kItemTransferGrant, transfer), static_cast<int32_t>(transfer.Recipient));
+            return;
+        }
+        else if (ack.Phase == kTransferPhaseGrant)
+        {
+            std::printf("probe: host: transfer %#llx %s\n", static_cast<unsigned long long>(ack.TransferId), ack.Ok ? "complete" : "lost at the recipient");
+        }
+        else
+        {
+            std::printf("probe: host: transfer %#llx refused by its sender, nothing taken\n", static_cast<unsigned long long>(ack.TransferId));
+        }
+        m_ledger.erase(line);
+    }
+
+    nightcoop_mac::net::RelaySession& m_session;
+    uint64_t m_record = 0;
+    bool m_denyTakes = false;
+    std::chrono::steady_clock::time_point m_startedAt;
+    std::chrono::steady_clock::time_point m_nextStateAt;
+    std::map<uint64_t, LedgerLine> m_ledger;
+    bool m_gaveOnce = false;
+    bool m_tookOnce = false;
+    bool m_dropPlaced = false;
+    float m_dropX = 0;
+    float m_dropY = 0;
+    float m_dropZ = 0;
+    uint32_t m_bagQuantity = 0;
+    uint32_t m_revision = 1;
+    uint32_t m_printedRevision = 0;
+};
+
 int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
 {
     bool printedCode = false;
@@ -71,7 +367,13 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     const uint32_t clockSeconds = clock ? static_cast<uint32_t>(std::strtoul(clock, nullptr, 0)) : 0;
     auto nextClock = std::chrono::steady_clock::now();
     const char* hostSave = std::getenv("PROBE_HOST_SAVE");
-    auto deadline = std::chrono::steady_clock::now() + (clock || hostSave ? 600s : ProbeTimeout);
+    LootProbe loot(session);
+    bool guestKnown = false;
+    float guestX = 0;
+    float guestY = 0;
+    float guestZ = 0;
+    const bool staysUp = clock || hostSave || loot.Enabled();
+    auto deadline = std::chrono::steady_clock::now() + (staysUp ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
     std::vector<uint8_t> saveBytes;
     std::vector<uint8_t> metadataBytes;
@@ -93,6 +395,10 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
         {
             nightcoop_mac::net::WorldWant want;
             nightcoop_mac::net::WorldStatus worldStatus;
+            if (loot.OnMessage(message.FromPeer, message.Message))
+            {
+                continue;
+            }
             if (hostSave && nightcoop_mac::net::ReadWorldWant(message.Message, want))
             {
                 std::printf("probe: peer %u wants our world (reason %u), sending %s\n", message.FromPeer, want.Reason, hostSave);
@@ -153,9 +459,14 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             std::fflush(stdout);
             printedCode = true;
         }
+        loot.Step(guestKnown, guestX, guestY, guestZ);
         for (const auto& state : session.TakeRemotePlayerStates())
         {
-            if ((clock || hostSave) && statesSeen++ % 100 != 0)
+            guestKnown = true;
+            guestX = state.PositionX;
+            guestY = state.PositionY;
+            guestZ = state.PositionZ;
+            if (staysUp && statesSeen++ % 100 != 0)
             {
                 continue;
             }
@@ -163,7 +474,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
                         state.PositionX, state.PositionY, state.PositionZ, state.Yaw, state.Speed,
                         static_cast<unsigned long long>(state.SessionTimeMs));
             std::fflush(stdout);
-            if (!clock && !hostSave && ++statesSeen >= statesToWaitFor)
+            if (!staysUp && ++statesSeen >= statesToWaitFor)
             {
                 return 0;
             }
@@ -319,6 +630,7 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
         std::printf("probe: driving a car of record %#llx\n", static_cast<unsigned long long>(probeVehicle));
     }
     const uint32_t probeCarNetId = (session.GetStatus().MyPeerNumber << 24) | 1;
+    LootProbe loot(session);
     if (const char* weapon = std::getenv("PROBE_WEAPON"))
     {
         ProbeWeapon = std::strtoull(weapon, nullptr, 0);
@@ -459,6 +771,7 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
         {
             session.SendGameMessage(MakeTestAnimBatch(step));
         }
+        loot.Step(hostPositionKnown, hostX, hostY, hostZ);
         if (step % 25 == 0)
         {
             nightcoop_mac::net::PlayerPresence presence;
@@ -517,6 +830,10 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::AnimWant want;
             nightcoop_mac::net::AnimBatch batch;
             uint32_t gameSeconds = 0;
+            if (loot.OnMessage(message.FromPeer, message.Message))
+            {
+                continue;
+            }
             nightcoop_mac::net::NpcSpawn hostNpc;
             nightcoop_mac::net::NpcDespawn hostNpcGone;
             if (nightcoop_mac::net::ReadNpcSpawn(message.Message, hostNpc))

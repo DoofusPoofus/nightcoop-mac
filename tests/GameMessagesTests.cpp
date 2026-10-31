@@ -4,6 +4,7 @@
 */
 #include "net/GameMessages.hpp"
 #include "net/LookMessages.hpp"
+#include "net/LootMessages.hpp"
 #include "net/RosterMessages.hpp"
 #include "net/VehicleMessages.hpp"
 #include "net/WorldMessages.hpp"
@@ -274,6 +275,78 @@ int main()
     Check(WriteNpcDespawn({npcSpawn.NetId, 3, 1}).size() == 5 + 9 && ReadNpcDespawn(WriteNpcDespawn({npcSpawn.NetId, 3, 1}), npcDespawn) &&
               npcDespawn.Killer == 1,
           "npc despawn is 9 bytes");
+
+    ItemTransfer transfer;
+    transfer.TransferId = (2ull << 32) | 77;
+    transfer.Recipient = 0;
+    transfer.Item = {ItemRecordFromName("Items.money"), 0, 0, 0, 0};
+    transfer.Quantity = 250;
+    const auto offerBytes = WriteItemTransfer(kItemTransferOffer, transfer);
+    uint8_t transferType = 0;
+    ItemTransfer parsedTransfer;
+    Check(offerBytes.size() == 37 && offerBytes[4] == 38 && ReadItemTransfer(offerBytes, transferType, parsedTransfer) &&
+              transferType == kItemTransferOffer && parsedTransfer == transfer,
+          "item transfer offer is 37 bytes and round trips");
+    Check(transfer.Item.Record == 0x0BF5E188ECull, "record from name is crc32 | length << 32");
+    Check(offerBytes[5 + 0x0C] == 0xEC && offerBytes[5 + 0x1C] == 250 && offerBytes[5 + 0x08] == 0, "item transfer field offsets");
+    Check(ReadItemTransfer(WriteItemTransfer(kItemTransferGrant, transfer), transferType, parsedTransfer) && transferType == kItemTransferGrant,
+          "item transfer grant is type 40 with the same body");
+    transfer.Quantity = 10000;
+    Check(!ReadItemTransfer(WriteItemTransfer(kItemTransferDebit, transfer), transferType, parsedTransfer), "an item transfer over 9999 is refused");
+    transfer.Quantity = 1;
+    transfer.Recipient = 0xFFFFFFFF;
+    Check(!ReadItemTransfer(WriteItemTransfer(kItemTransferDebit, transfer), transferType, parsedTransfer), "an item transfer to nobody is refused");
+    ItemTransferAck transferAck;
+    const auto ackBytes = WriteItemTransferAck({transfer.TransferId, kTransferPhaseGrant, true});
+    Check(ackBytes.size() == 15 && ackBytes[4] == 41 && ReadItemTransferAck(ackBytes, transferAck) && transferAck.TransferId == transfer.TransferId &&
+              transferAck.Phase == kTransferPhaseGrant && transferAck.Ok,
+          "item transfer ack is 15 bytes and round trips");
+    Check(!ReadItemTransferAck(WriteItemTransferAck({transfer.TransferId, 3, true}), transferAck), "an ack phase over 2 is refused");
+
+    LootState lootState;
+    lootState.ContainerId = (1ull << 24) | 5;
+    lootState.Revision = 3;
+    lootState.Bag = true;
+    lootState.Position[0] = -1300.0f;
+    lootState.Orientation[2] = 0.5f;
+    lootState.Entries.push_back({{0x1519DBB192ull, 1234, 0, 1, 0}, 2, 0});
+    lootState.Entries.push_back({{0x0BF5E188ECull, 0, 0, 0, 0}, 500, kLootQualityUnknown});
+    const auto lootStateBytes = WriteLootState(lootState);
+    LootState parsedLootState;
+    Check(lootStateBytes.size() == 78 + 2 * 21 && lootStateBytes[4] == 42 && ReadLootState(lootStateBytes, parsedLootState) &&
+              parsedLootState.ContainerId == lootState.ContainerId && parsedLootState.Bag && parsedLootState.Entries == lootState.Entries &&
+              parsedLootState.Orientation[2] == 0.5f && parsedLootState.Orientation[3] == 1.0f,
+          "loot state is 78 + 21 per entry and round trips");
+    Check(lootStateBytes[5 + 0x47] == 2 && lootStateBytes[5 + 0x49 + 16] == 2 && lootStateBytes[5 + 0x49 + 21 + 20] == 0xFF, "loot state field offsets");
+    lootState.State = kLootClosed;
+    Check(WriteLootState(lootState).size() == 78 && ReadLootState(WriteLootState(lootState), parsedLootState) && parsedLootState.Entries.empty(),
+          "a closed loot state carries no entries");
+    lootState.State = kLootOpen;
+    lootState.Entries.assign(65, lootState.Entries[0]);
+    Check(WriteLootState(lootState).size() == 78 + 64 * 21, "a loot state is cut to 64 entries");
+    auto tooManyEntries = WriteLootState(lootState);
+    tooManyEntries[5 + 0x47] = 65;
+    Check(!ReadLootState(tooManyEntries, parsedLootState), "a loot state with 65 entries is refused");
+    lootState.Entries.resize(1);
+    lootState.Entries[0].Quality = 11;
+    Check(!ReadLootState(WriteLootState(lootState), parsedLootState), "a loot entry quality of 11 is refused");
+    lootState.Entries[0].Quality = 3;
+    lootState.ContainerId = 0;
+    Check(!ReadLootState(WriteLootState(lootState), parsedLootState), "a loot state without container id is refused");
+    LootTake take;
+    take.ContainerId = (1ull << 24) | 5;
+    take.TakeNumber = 9;
+    take.Item = {{0x1519DBB192ull, 1234, 0, 1, 0}, 1, 4};
+    LootTake parsedTake;
+    Check(WriteLootTake(take).size() == 39 && ReadLootTake(WriteLootTake(take), parsedTake) && parsedTake.TakeNumber == 9 && parsedTake.Item == take.Item,
+          "loot take is 39 bytes and round trips");
+    take.TakeNumber = 0;
+    Check(!ReadLootTake(WriteLootTake(take), parsedTake), "a loot take without take number is refused");
+    LootTakeResult takeResult;
+    Check(WriteLootTakeResult({kLootDrop, take.ContainerId, 9, true}).size() == 19 &&
+              ReadLootTakeResult(WriteLootTakeResult({kLootDrop, take.ContainerId, 9, true}), takeResult) && takeResult.Granted &&
+              !ReadLootTakeResult(WriteLootTakeResult({4, take.ContainerId, 9, true}), takeResult),
+          "loot take result is 19 bytes, kind 1..3");
 
     const auto clock = WriteGameClock(123456);
     uint32_t gameSeconds = 0;
