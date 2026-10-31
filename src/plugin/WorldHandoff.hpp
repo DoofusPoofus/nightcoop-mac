@@ -34,4 +34,5 @@ using LogFunction = std::function<void(const std::string&)>;
 void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& session, const std::filesystem::path& pluginFolder,
           const LogFunction& log);
 void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::RelaySession& session, const LogFunction& log);
+bool InHostWorld();
 }

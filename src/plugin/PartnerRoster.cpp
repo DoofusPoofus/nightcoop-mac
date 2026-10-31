@@ -3,6 +3,7 @@
 #include "net/GameMessages.hpp"
 #include "net/RelaySession.hpp"
 #include "net/RosterMessages.hpp"
+#include "plugin/WorldHandoff.hpp"
 
 #include <ProtocolCore.hpp>
 
@@ -45,7 +46,7 @@ void SendPresence(uint64_t nowMs, bool inWorld, const std::string& ourName, net:
     net::PlayerPresence presence;
     presence.Name = ourName;
     presence.Where = inWorld ? net::kWhereInWorld : net::kWhereMenu;
-    presence.Flags = inWorld ? net::kPresenceInHostWorld : 0;
+    presence.Flags = inWorld && world_handoff::InHostWorld() ? net::kPresenceInHostWorld : 0;
     const auto message = net::WritePlayerPresence(presence);
     if (message == LastSentPresence && nowMs < NextSendMs)
     {
@@ -193,6 +194,12 @@ bool InOurWorld(uint32_t peerNumber)
     }
     const auto presence = PresenceByPeer.find(peerNumber);
     return presence == PresenceByPeer.end() || presence->second.Where == net::kWhereInWorld || presence->second.Where == net::kWhereUnknown;
+}
+
+bool PeerInHostWorld(uint32_t peerNumber)
+{
+    const auto presence = PresenceByPeer.find(peerNumber);
+    return presence != PresenceByPeer.end() && (presence->second.Flags & net::kPresenceInHostWorld) != 0;
 }
 
 bool HostInItsWorld()

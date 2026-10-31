@@ -44,6 +44,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <set>
 #include <string>
 #include <thread>
 
@@ -285,6 +286,8 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint32_t fullStates = 0;
     uint64_t hostWeapon = 0;
     uint32_t hostStatesSeen = 0;
+    std::set<uint32_t> hostNpcs;
+    uint32_t hostNpcsGone = 0;
     uint32_t rosterRevision = 0xFFFFFFFF;
     uint32_t hostShots = 0;
     uint16_t hostWeaponFlags = 0;
@@ -488,6 +491,22 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::AnimWant want;
             nightcoop_mac::net::AnimBatch batch;
             uint32_t gameSeconds = 0;
+            nightcoop_mac::net::NpcSpawn hostNpc;
+            nightcoop_mac::net::NpcDespawn hostNpcGone;
+            if (nightcoop_mac::net::ReadNpcSpawn(message.Message, hostNpc))
+            {
+                if (hostNpcs.insert(hostNpc.NetId).second && hostNpcs.size() <= 5)
+                {
+                    std::printf("probe: peer %u shares npc %#010x record %#llx at %.1f %.1f %.1f\n", message.FromPeer, hostNpc.NetId,
+                                static_cast<unsigned long long>(hostNpc.Record), hostNpc.Position[0], hostNpc.Position[1], hostNpc.Position[2]);
+                }
+                continue;
+            }
+            if (nightcoop_mac::net::ReadNpcDespawn(message.Message, hostNpcGone))
+            {
+                ++hostNpcsGone;
+                continue;
+            }
             nightcoop_mac::net::LiftSync lift;
             if (nightcoop_mac::net::ReadLiftSync(message.Message, lift))
             {
@@ -553,6 +572,10 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     }
     std::printf("probe: walked %d steps, got %u anim batch(es) with %u input(s) from the host, %u full state(s)\n", WalkSteps, animBatches,
                 animInputs, fullStates);
+    if (!hostNpcs.empty() || hostNpcsGone)
+    {
+        std::printf("probe: the host shared %zu npc(s) with us, %u despawn(s)\n", hostNpcs.size(), hostNpcsGone);
+    }
     return 0;
 }
 }

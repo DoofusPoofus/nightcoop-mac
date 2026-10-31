@@ -27,6 +27,7 @@
 #include "plugin/KeyWatch.hpp"
 #include "plugin/LiftSync.hpp"
 #include "plugin/NpcCopies.hpp"
+#include "plugin/NpcShare.hpp"
 #include "plugin/LookStates.hpp"
 #include "plugin/PartnerBodyBuilder.hpp"
 #include "plugin/PartnerLook.hpp"
@@ -80,6 +81,7 @@ std::unique_ptr<nightcoop_mac::PlayerSampler> Sampler;
 std::unique_ptr<nightcoop_mac::RemoteBodies> Bodies;
 std::unique_ptr<nightcoop_mac::Vehicles> Cars;
 std::unique_ptr<nightcoop_mac::NpcCopies> Npcs;
+std::unique_ptr<nightcoop_mac::NpcShare> OurNpcs;
 std::unique_ptr<nightcoop_mac::AnimMirror> Mirror;
 std::unique_ptr<nightcoop_mac::SessionFlow> Flow;
 nightcoop_mac::net::PlayerState LastLocalState;
@@ -203,6 +205,7 @@ bool OnRunningEnter(RED4ext::CGameApplication*)
     Bodies = std::make_unique<nightcoop_mac::RemoteBodies>(Log, Plan->Bodies);
     Cars = std::make_unique<nightcoop_mac::Vehicles>(Log);
     Npcs = std::make_unique<nightcoop_mac::NpcCopies>(Log);
+    OurNpcs = std::make_unique<nightcoop_mac::NpcShare>(Log);
     Mirror = std::make_unique<nightcoop_mac::AnimMirror>(Log);
     Flow = std::make_unique<nightcoop_mac::SessionFlow>(Log);
     Session->Start(config);
@@ -480,6 +483,18 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     nightcoop_mac::partner_roster::Tick(nowMs, inSave, Plan->Nickname, *Session, Log);
     Cars->Tick(nowMs, inSave, *Session, *Bodies);
     Npcs->Tick(nowMs, inSave);
+    {
+        const bool weAreHost = Session->GetStatus().MyPeerNumber == 0;
+        std::vector<nightcoop_mac::NpcShare::Partner> npcPartners;
+        for (const auto& view : RemotePeerViews())
+        {
+            if (Plan->ShareNpcsAlways || (weAreHost && nightcoop_mac::partner_roster::PeerInHostWorld(view.PeerNumber)))
+            {
+                npcPartners.push_back({view.PeerNumber, {view.State.PositionX, view.State.PositionY, view.State.PositionZ}});
+            }
+        }
+        OurNpcs->Tick(nowMs, inSave, npcPartners, *Session);
+    }
     nightcoop_mac::world_handoff::Tick(nowMs, inSave, Plan->WorldHandoff, *Session, PluginFolder, Log);
     nightcoop_mac::lift_sync::Tick(nowMs, inSave, !LatestRemoteStates.empty(), *Session, Log);
     if (inSave)

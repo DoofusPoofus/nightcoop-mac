@@ -12,6 +12,7 @@
    bodies_in_menu        let bodies spawn in the main menu too (testing only, the session flow normally keeps them out)
    auto_continue         the main menu loads the newest save by itself (testing only)
    test_moves            in a save the plugin presses c (crouch) 8 times, 3 s apart (testing only)
+   share_npcs            share our npcs with evry partner even when they are not in our world (testing only, they see doubles)
    handoff               as a guest, ask for the hosts world once it is up and load the save it sends (nightcoops world
                          handoff, for now the hosts save as it is, without our own character spliced in)
    test_help             in a save f gets held down for 2 s evry 8 s, to help a downed probe up (testing only)
@@ -47,6 +48,7 @@ struct SessionPlan
     bool TestDowned = false;
     bool TestHelp = false;
     bool WorldHandoff = false;
+    bool ShareNpcsAlways = false;
     BodySettings Bodies;
 };
 

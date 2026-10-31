@@ -550,4 +550,9 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::Rela
         log("handoff: the host says " + std::to_string(worldStatus.Code) + (worldStatus.Text.empty() ? "" : " (" + worldStatus.Text + ")"));
     }
 }
+
+bool InHostWorld()
+{
+    return Phase == GuestPhase::InHostWorld;
+}
 }
