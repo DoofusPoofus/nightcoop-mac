@@ -28,6 +28,8 @@ struct Calls
     RED4ext::CBaseFunction* GetSystemsContainer = nullptr;
     RED4ext::CBaseFunction* GetSystem = nullptr;
     RED4ext::CBaseFunction* GetPlayerData = nullptr;
+    RED4ext::CBaseFunction* GetItemQuantity = nullptr;
+    RED4ext::CBaseFunction* RemoveItem = nullptr;
 };
 
 Calls Game;
@@ -72,6 +74,8 @@ bool Ready(const LogFunction& log)
     Game.GetSystemsContainer = game::FindFunction("ScriptGameInstance", "GetScriptableSystemsContainer");
     Game.GetSystem = game::FindFunction("gameScriptableSystemsContainer", "Get");
     Game.GetPlayerData = game::FindFunction("EquipmentSystem", "GetPlayerData");
+    Game.GetItemQuantity = game::FindFunction("gameTransactionSystem", "GetItemQuantity");
+    Game.RemoveItem = game::FindFunction("gameTransactionSystem", "RemoveItem");
     Game.Usable =
         game::ParamsAre(Game.GetTransactionSystem, {"ScriptGameInstance"}) && game::ParamsAre(Game.FromTdbid, {"TweakDBID"}) &&
         game::ParamsAre(Game.HasItem, {"handle:gameObject", "gameItemID"}) &&
@@ -153,9 +157,8 @@ bool Has(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RE
     return has;
 }
 
-bool Give(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RED4ext::IScriptable>& body, ItemId item)
+bool Give(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RED4ext::IScriptable>& body, ItemId item, int32_t amount)
 {
-    int32_t amount = 1;
     RED4ext::DynArray<RED4ext::CName> noTags;
     bool given = false;
     RED4ext::StackArgs_t args;
@@ -165,6 +168,33 @@ bool Give(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<R
     args.emplace_back(nullptr, &noTags);
     game::CallMethod(transactions.instance, Game.GiveItem, &given, args);
     return given;
+}
+
+bool CanCountAndRemove()
+{
+    return Game.Usable && game::ParamsAre(Game.GetItemQuantity, {"handle:gameObject", "gameItemID"}) && game::ReturnIs(Game.GetItemQuantity, "Int32") &&
+           game::ParamsAre(Game.RemoveItem, {"handle:gameObject", "gameItemID", "Int32"}) && game::ReturnIs(Game.RemoveItem, "Bool");
+}
+
+int32_t Quantity(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RED4ext::IScriptable>& body, ItemId item)
+{
+    int32_t quantity = 0;
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &body);
+    args.emplace_back(nullptr, &item);
+    game::CallMethod(transactions.instance, Game.GetItemQuantity, &quantity, args);
+    return quantity;
+}
+
+bool Remove(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RED4ext::IScriptable>& body, ItemId item, int32_t amount)
+{
+    bool removed = false;
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &body);
+    args.emplace_back(nullptr, &item);
+    args.emplace_back(nullptr, &amount);
+    game::CallMethod(transactions.instance, Game.RemoveItem, &removed, args);
+    return removed;
 }
 
 bool PutInSlot(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RED4ext::IScriptable>& body, uint64_t slot, ItemId item,

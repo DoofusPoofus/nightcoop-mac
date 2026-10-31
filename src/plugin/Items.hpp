@@ -4,6 +4,7 @@
  sits in a slot (GetItemInSlot -> the item objects GetItemID, GetActiveItemInSlot as the fallback since it only knows weapon
  slots) and read tweakdb flats like a records placementSlots. EquipmentData is a players EquipmentSystemPlayerData (thru the
  scriptable systems container). Ready says once if the calls look different than expected
+ Quantity and Remove count and take items off a body for the loot give, CanCountAndRemove says if those two calls are there
 */
 #pragma once
 
@@ -34,7 +35,10 @@ RED4ext::Handle<RED4ext::IScriptable> EquipmentData(RED4ext::Handle<RED4ext::ISc
 ItemId ItemFromRecord(uint64_t record);
 ItemId ItemOf(RED4ext::Handle<RED4ext::IScriptable>& itemObject);
 bool Has(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RED4ext::IScriptable>& body, ItemId item);
-bool Give(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RED4ext::IScriptable>& body, ItemId item);
+bool Give(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RED4ext::IScriptable>& body, ItemId item, int32_t amount = 1);
+bool CanCountAndRemove();
+int32_t Quantity(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RED4ext::IScriptable>& body, ItemId item);
+bool Remove(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RED4ext::IScriptable>& body, ItemId item, int32_t amount);
 bool PutInSlot(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RED4ext::IScriptable>& body, uint64_t slot, ItemId item,
                bool highPriority);
 void EmptySlot(RED4ext::Handle<RED4ext::IScriptable>& transactions, RED4ext::Handle<RED4ext::IScriptable>& body, uint64_t slot);

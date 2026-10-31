@@ -97,6 +97,20 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
         {
             plan.TestClaim = true;
         }
+        else if (keyword == "test_loot")
+        {
+            plan.TestLoot = true;
+            std::string record;
+            int32_t quantity = 0;
+            if (words >> record)
+            {
+                plan.TestLootRecord = record;
+            }
+            if (words >> quantity && quantity > 0)
+            {
+                plan.TestLootQuantity = quantity;
+            }
+        }
         else if (keyword == "test_vehicle")
         {
             plan.TestVehicle = true;

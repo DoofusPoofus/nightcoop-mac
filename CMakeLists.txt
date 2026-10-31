@@ -46,6 +46,7 @@ add_library(nightcoop_mac_net STATIC
   src/net/DoorMessages.cpp
   src/net/DialogMessages.cpp
   src/net/QuestMessages.cpp
+  src/net/LootMessages.cpp
   src/net/RelaySession.cpp
 )
 target_include_directories(nightcoop_mac_net PUBLIC src)
@@ -72,6 +73,8 @@ add_library(NightCoopMac SHARED
   src/plugin/Hud.cpp
   src/plugin/KeyWatch.cpp
   src/plugin/LiftSync.cpp
+  src/plugin/ItemGive.cpp
+  src/plugin/Loot.cpp
   src/plugin/NpcCopies.cpp
   src/plugin/NpcCombat.cpp
   src/plugin/NpcShare.cpp
@@ -96,7 +99,8 @@ add_library(NightCoopMac SHARED
   src/plugin/Vehicles.cpp
   src/plugin/Wardrobe.cpp
   src/plugin/Weapons.cpp
-  src/plugin/WorldHandoff.cpp)
+  src/plugin/WorldHandoff.cpp
+  src/plugin/WorldLoot.cpp)
 target_include_directories(NightCoopMac PRIVATE src)
 target_link_libraries(NightCoopMac PRIVATE nightcoop_mac_net RED4ext::SDK "-framework CoreFoundation" "-framework AppKit" objc)
 target_link_options(NightCoopMac PRIVATE -Wl,-dead_strip)
