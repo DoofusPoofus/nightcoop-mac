@@ -25,6 +25,7 @@
  if the builder hook or the script side (scripts/NightCoopMac, the NightCoopPartnerBodies class in rtti) is not there the
  cutscene V body is used: an unbuilt second player brings a second camera and hud, an unpatched one attaches as a local player.
  'body player_without_scripts' skips the script check, only for testing the builder at the main menu
+ once in the world a body gets the partners clothes (Wardrobe), PlayerPuppet bodies after their third person head is in.
  like nightcoop a body waits up to 5 s for the partners look before it spawns. body_record / body_template override it.
  bodies get character records like nightcoops: Character.TPP_Player_Cutscene_Male / _Female for the V body and
  Character.Player_Puppet_Base for the PlayerPuppet one. a template path alone makes codeware invent a SpawnableObject record
@@ -36,7 +37,9 @@
 */
 #pragma once
 
+#include "net/LookMessages.hpp"
 #include "net/SessionMessages.hpp"
+#include "plugin/Wardrobe.hpp"
 
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/ResourcePath.hpp>
@@ -44,6 +47,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -67,6 +71,8 @@ struct RemotePeerView
     bool LookKnown = false;
     bool IsMale = false;
     RED4ext::Handle<RED4ext::IScriptable> LookState;
+    std::shared_ptr<const net::PlayerClothes> Clothes;
+    uint64_t ClothesFingerprint = 0;
 };
 
 class RemoteBodies
@@ -108,6 +114,12 @@ private:
         uint32_t AppliedUpperBody = 0xFFFFFFFF;
         uint64_t UpperBodyChangedMs = 0;
         bool IsPlayerBody = false;
+        uint64_t InWorldMs = 0;
+        uint64_t DressedFingerprint = 0;
+        wardrobe::Worn Worn;
+        uint64_t NextThirdPersonPassMs = 0;
+        uint32_t ThirdPersonPasses = 0;
+        bool HeadWaitLogged = false;
     };
 
     bool ResolveApi();
@@ -127,6 +139,7 @@ private:
     void ResolvePlayerBodies();
     void ShowThirdPerson(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body);
     std::string PlayerBodyTemplate(bool male);
+    void DressIfNeeded(uint32_t peerNumber, Puppet& puppet, const RemotePeerView& peer, uint64_t nowMs);
     bool TagAsPartnerBody(RED4ext::IScriptable* spec);
 
     LogFunction m_log;

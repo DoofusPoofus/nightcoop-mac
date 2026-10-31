@@ -73,6 +73,18 @@ read back as 11 head, 5 body, 34 arms groups (3880 bytes) and a body bound to it
 not done: DetachUpdaters (our own look changes may still repaint partners), respawn on a look change, clothes (PlayerLook 31,
 the wardrobe module), the 4 extra scope hooks nightcoop has for items. tests can load a save alone with `auto_continue`.
 
+## partner clothes (done on mac, checked in a save with a probe)
+
+nightcoops wardrobe module, rebuilt: `src/net/LookMessages.cpp` has PlayerLook (31) (gender, up to 64 ItemIDs, arms, placement
+slots), `src/plugin/Wardrobe.cpp` reads our visible items per equipment area thru EquipmentSystemPlayerData (hidden slots
+skipped, transmog included, underwear by censorship) and dresses a body with GivePreviewItemByItemID + CreatePreviewItemID +
+AddItemToSlot on the scene plane, arms with GiveItem + AddItemToSlot, then &FPP -> &TPP on the tpp slots. no hooks, all rtti.
+on our PlayerPuppet body the tpp view event does not swap the first person head (`Items.PlayerFppHead`, faceless) in TppHead,
+so after the 8 s head wait the wardrobe takes it off and puts `Items.PlayerMaTppHead` / `PlayerWaTppHead` on, like nightcoop
+does for bodies without a tpp view. test: 6 pieces plus arms plus head, the head came up as
+`h0_000_pma__basehead__01_ca_pale_00_warm_ivory`. not done: arms cyberware weapons (arms off while one is drawn), EquipmentEx
+outfit slots, defaults for items with no local record, why the tpp view event does nothing on our body.
+
 ## 2. script callbacks of PlayerPuppet
 
 about 30 scripted callbacks are cut for remote bodies so they dont act like a second local player: `OnStatusEffectApplied`,

@@ -9,6 +9,8 @@ namespace
 constexpr uint8_t LookVersion = 1;
 constexpr uint16_t MostGroups = 128;
 constexpr uint8_t MostEntries = 255;
+constexpr uint16_t MostItems = 64;
+constexpr uint64_t RecordHashAndLength = 0xFFFFFFFFFFull;
 
 uint8_t Capped(size_t count)
 {
@@ -147,5 +149,79 @@ uint64_t LookFingerprint(const std::vector<uint8_t>& message)
         hash = (hash ^ byte) * 0x100000001b3;
     }
     return hash;
+}
+
+std::vector<uint8_t> WritePlayerClothes(const PlayerClothes& clothes)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::PlayerLook);
+    writer.PutU8(clothes.Female ? 1 : 0);
+    const uint16_t itemCount = static_cast<uint16_t>(clothes.Items.size() < MostItems ? clothes.Items.size() : MostItems);
+    writer.PutU16(itemCount);
+    for (uint16_t index = 0; index < itemCount; ++index)
+    {
+        const auto& item = clothes.Items[index];
+        writer.PutU64(item.Record);
+        writer.PutU32(item.RngSeed);
+        writer.PutU16(item.UniqueCounter);
+        writer.PutU8(item.Structure);
+        writer.PutU8(item.Flags);
+    }
+    writer.PutU64(clothes.Arms);
+    const bool slotsFit = clothes.Slots.size() == clothes.Items.size();
+    writer.PutU16(slotsFit ? itemCount : 0);
+    for (uint16_t index = 0; slotsFit && index < itemCount; ++index)
+    {
+        writer.PutU64(clothes.Slots[index]);
+    }
+    return writer.Data();
+}
+
+bool ReadPlayerClothes(const std::vector<uint8_t>& message, PlayerClothes& clothes)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::PlayerLook || !reader.Ok())
+    {
+        return false;
+    }
+    clothes = PlayerClothes {};
+    clothes.Female = reader.GetU8() != 0;
+    const uint16_t itemCount = reader.GetU16();
+    if (!reader.Ok() || itemCount > MostItems)
+    {
+        return false;
+    }
+    clothes.Items.resize(itemCount);
+    for (auto& item : clothes.Items)
+    {
+        item.Record = reader.GetU64();
+        item.RngSeed = reader.GetU32();
+        item.UniqueCounter = reader.GetU16();
+        item.Structure = reader.GetU8();
+        item.Flags = reader.GetU8();
+    }
+    clothes.Arms = reader.GetU64();
+    if (!reader.Ok())
+    {
+        return false;
+    }
+    if (reader.Remaining() >= 2)
+    {
+        const uint16_t slotCount = reader.GetU16();
+        std::vector<uint64_t> slots(slotCount);
+        for (auto& slot : slots)
+        {
+            slot = reader.GetU64();
+        }
+        if (reader.Ok() && slotCount == itemCount)
+        {
+            clothes.Slots = std::move(slots);
+        }
+    }
+    return true;
+}
+
+uint64_t RecordWithoutOffset(uint64_t record)
+{
+    return record & RecordHashAndLength;
 }
 }

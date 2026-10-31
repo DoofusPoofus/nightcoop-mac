@@ -8,7 +8,8 @@
  SessionFlow says when bodies may exist at all: only in a loaded save, never in the main menu or a session thats ending
  game messages from partners go to AnimMirror, which plays their anim streams on their bodies
  our look goes to partners as PlayerCustomization (33) when it changes (checked evry 2 s, sent again evry 20 s), a partners
- look becomes a state of its own (LookStates) that their body wears (PartnerLook)
+ look becomes a state of its own (LookStates) that their body wears (PartnerLook). our clothes go out as PlayerLook (31) the same
+ way (checked evry 250 ms, sent again evry 10 s) and a partners clothes get put on their body (Wardrobe)
  session-status.txt next to the plugin always says wats going on (the hosting code ends up there too)
  a crash in game code leaves crash-notes.txt there, naming the game objects the crashing thread had in its registers
 */
@@ -24,6 +25,7 @@
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/RttiDump.hpp"
 #include "plugin/SessionFlow.hpp"
+#include "plugin/Wardrobe.hpp"
 #include "plugin/SessionFile.hpp"
 
 #include <Log.hpp>
@@ -87,6 +89,17 @@ struct PeerLook
     RED4ext::Handle<RED4ext::IScriptable> State;
 };
 std::map<uint32_t, PeerLook> PeerLooks;
+constexpr uint64_t OwnClothesEveryMs = 250;
+constexpr uint64_t OwnClothesResendMs = 10000;
+uint64_t NextOwnClothesMs = 0;
+uint64_t OwnClothesSentMs = 0;
+uint64_t OwnClothesFingerprint = 0;
+struct PeerClothing
+{
+    uint64_t Fingerprint = 0;
+    std::shared_ptr<const nightcoop_mac::net::PlayerClothes> Clothes;
+};
+std::map<uint32_t, PeerClothing> PeerClothes;
 std::string LastStatusLine;
 
 uint64_t SteadyMs()
@@ -205,6 +218,55 @@ void ShareOwnLook(uint64_t nowMs)
     Session->SendGameMessage(message);
 }
 
+void ShareOwnClothes(uint64_t nowMs)
+{
+    if (nowMs < NextOwnClothesMs || !Session->GetStatus().InSession)
+    {
+        return;
+    }
+    NextOwnClothesMs = nowMs + OwnClothesEveryMs;
+    nightcoop_mac::net::PlayerClothes clothes;
+    if (!nightcoop_mac::wardrobe::ReadOwnClothes(clothes, Log))
+    {
+        return;
+    }
+    const auto message = nightcoop_mac::net::WritePlayerClothes(clothes);
+    const uint64_t fingerprint = nightcoop_mac::net::LookFingerprint(message);
+    if (fingerprint == OwnClothesFingerprint && nowMs - OwnClothesSentMs < OwnClothesResendMs)
+    {
+        return;
+    }
+    if (fingerprint != OwnClothesFingerprint)
+    {
+        Log("wardrobe: our clothes go to partners (" + std::to_string(clothes.Items.size()) + " piece(s), " + (clothes.Female ? "female" : "male") + ")");
+        std::ofstream(PluginFolder / "own-clothes.bin", std::ios::binary).write(reinterpret_cast<const char*>(message.data()), message.size());
+    }
+    OwnClothesFingerprint = fingerprint;
+    OwnClothesSentMs = nowMs;
+    Session->SendGameMessage(message);
+}
+
+void TakePeerClothes(uint32_t peerNumber, const std::vector<uint8_t>& message)
+{
+    const uint64_t fingerprint = nightcoop_mac::net::LookFingerprint(message);
+    auto& known = PeerClothes[peerNumber];
+    if (known.Fingerprint == fingerprint)
+    {
+        return;
+    }
+    auto clothes = std::make_shared<nightcoop_mac::net::PlayerClothes>();
+    if (!nightcoop_mac::net::ReadPlayerClothes(message, *clothes))
+    {
+        Log("wardrobe: peer " + std::to_string(peerNumber) + " sent clothes that do not read");
+        known.Fingerprint = fingerprint;
+        return;
+    }
+    known.Fingerprint = fingerprint;
+    known.Clothes = clothes;
+    Log("wardrobe: peer " + std::to_string(peerNumber) + " clothes came in (" + std::to_string(clothes->Items.size()) + " piece(s), " +
+        (clothes->Female ? "female" : "male") + ")");
+}
+
 void TakePeerLook(uint32_t peerNumber, const std::vector<uint8_t>& message)
 {
     const uint64_t fingerprint = nightcoop_mac::net::LookFingerprint(message);
@@ -236,8 +298,11 @@ std::vector<nightcoop_mac::RemotePeerView> RemotePeerViews()
     {
         const auto gender = genders.find(peerNumber);
         const auto look = PeerLooks.find(peerNumber);
+        const auto clothes = PeerClothes.find(peerNumber);
         views.push_back({peerNumber, sighting.State, gender != genders.end(), gender != genders.end() && gender->second,
-                         look != PeerLooks.end() ? look->second.State : RED4ext::Handle<RED4ext::IScriptable>()});
+                         look != PeerLooks.end() ? look->second.State : RED4ext::Handle<RED4ext::IScriptable>(),
+                         clothes != PeerClothes.end() ? clothes->second.Clothes : nullptr,
+                         clothes != PeerClothes.end() ? clothes->second.Fingerprint : 0});
     }
     return views;
 }
@@ -283,6 +348,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             TakePeerLook(message.FromPeer, message.Message);
         }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PlayerLook))
+        {
+            TakePeerClothes(message.FromPeer, message.Message);
+        }
         Mirror->OnGameMessage(message.FromPeer, message.Message, nowMs);
     }
     if (Plan->SamplePlayer && nowMs >= NextSampleMs)
@@ -310,6 +379,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     }
     ReportRemoteStates(nowMs);
     ShareOwnLook(nowMs);
+    ShareOwnClothes(nowMs);
     AnsweredSinceReport += nightcoop_mac::partner_look::TakeAnsweredCount();
     if (AnsweredSinceReport && nowMs >= NextAnsweredReportMs)
     {

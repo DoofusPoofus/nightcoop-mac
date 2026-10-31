@@ -28,7 +28,8 @@ not affiliated with NightCoop or CD PROJEKT RED. if u are on windows just use th
 | V body (cutscene template by the partners gender from PlayerCustomization) | spawns at the main menu |
 | real PlayerPuppet partner body (`body player`): entity build hook keeps the 25 local player components off it, first person fixes, third person view, anim stream on the players own graph | spawns and plays a probe stream at the main menu (tested with `body player_without_scripts`), its script side needs redscript for mac and is not compile checked yet |
 | partner look (PlayerCustomization 33: their V's face, hair, body, arms) | works in a save with a probe sending a real look (logs only, not looked at on screen yet) |
-| clothes, weapons on the partner body | not yet, see docs/full_player_body.md |
+| partner clothes and arms (PlayerLook 31, nightcoops wardrobe: visible items incl transmog, arms cyberware, a third person head) | works in a save with a probe sending a real outfit (7 pieces put on, logs only) |
+| weapons on the partner body | not yet |
 | everything else (npcs quests vehicles dialog votes loot ...) | not yet |
 
 NightCoop is in beta and its protocol changes with its releases, so this has to keep up with it. it targets NightCoop 0.1.2 (protocol 143) rn.

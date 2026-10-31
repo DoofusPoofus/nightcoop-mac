@@ -682,6 +682,7 @@ void RemoteBodies::Advance(uint32_t peerNumber, Puppet& puppet, const net::Playe
             return;
         }
         puppet.InWorld = true;
+        puppet.InWorldMs = nowMs;
         std::string classChain;
         for (auto* classType = bodyClass; classType; classType = classType->parent)
         {
@@ -846,9 +847,11 @@ void RemoteBodies::Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers
     }
 
     std::map<uint32_t, const net::PlayerState*> present;
+    std::map<uint32_t, const RemotePeerView*> views;
     for (const auto& peer : peers)
     {
         present[peer.PeerNumber] = &peer.State;
+        views[peer.PeerNumber] = &peer;
         m_firstSeenMs.try_emplace(peer.PeerNumber, nowMs);
     }
     std::erase_if(m_firstSeenMs, [&present](const auto& entry) { return !present.count(entry.first); });
@@ -878,6 +881,7 @@ void RemoteBodies::Tick(uint64_t nowMs, const std::vector<RemotePeerView>& peers
             continue;
         }
         Advance(peerNumber, puppet, *peer->second, nowMs);
+        DressIfNeeded(peerNumber, puppet, *views[peerNumber], nowMs);
         ++puppetEntry;
     }
 
@@ -916,6 +920,50 @@ bool RemoteBodies::GetBody(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScript
     RED4ext::StackArgs_t args;
     args.emplace_back(nullptr, &entityId);
     return game::CallMethod(m_dynamicEntitySystem.instance, m_getEntity, &body, args) && body;
+}
+
+void RemoteBodies::DressIfNeeded(uint32_t peerNumber, Puppet& puppet, const RemotePeerView& peer, uint64_t nowMs)
+{
+    if (!puppet.InWorld || !peer.Clothes)
+    {
+        return;
+    }
+    RED4ext::Handle<RED4ext::IScriptable> body;
+    if (!GetBody(peerNumber, body))
+    {
+        return;
+    }
+    if (puppet.DressedFingerprint != peer.ClothesFingerprint)
+    {
+        if (puppet.IsPlayerBody && !wardrobe::HeadIsThirdPerson(body) && nowMs - puppet.InWorldMs < 8000)
+        {
+            if (!puppet.HeadWaitLogged)
+            {
+                puppet.HeadWaitLogged = true;
+                m_log("bodies: peer " + std::to_string(peerNumber) + " clothes wait for the third person head (8 s at most)");
+            }
+            return;
+        }
+        if (puppet.HeadWaitLogged && puppet.DressedFingerprint == 0)
+        {
+            m_log("bodies: peer " + std::to_string(peerNumber) + " head wait over (" + wardrobe::DescribeHead(body) + ")");
+        }
+        const uint32_t placed = wardrobe::Dress(body, *peer.Clothes, puppet.Worn, m_log);
+        puppet.DressedFingerprint = peer.ClothesFingerprint;
+        puppet.ThirdPersonPasses = 0;
+        puppet.NextThirdPersonPassMs = nowMs + 500;
+        m_log("bodies: peer " + std::to_string(peerNumber) + " dressed: " + std::to_string(placed) + " piece(s) put on, " +
+              std::to_string(puppet.Worn.RecordBySlot.size()) + " worn" + (puppet.Worn.Arms ? " plus arms" : "") +
+              (puppet.Worn.Head ? " plus a third person head" : "") + " (" + wardrobe::DescribeHead(body) + ")");
+    }
+    if (puppet.ThirdPersonPasses < 3 && nowMs >= puppet.NextThirdPersonPassMs)
+    {
+        ++puppet.ThirdPersonPasses;
+        puppet.NextThirdPersonPassMs = nowMs + 1000;
+        const uint32_t turned = wardrobe::TurnToThirdPerson(body);
+        m_log("bodies: peer " + std::to_string(peerNumber) + " third person pass " + std::to_string(puppet.ThirdPersonPasses) + ": " +
+              std::to_string(turned) + " first person appearance(s) turned, " + wardrobe::DescribeHead(body));
+    }
 }
 
 void RemoteBodies::UseLook(uint32_t peerNumber, const RED4ext::Handle<RED4ext::IScriptable>& state, bool isMale)

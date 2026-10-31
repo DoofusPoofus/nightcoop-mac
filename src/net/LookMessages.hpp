@@ -9,6 +9,10 @@
    u8 perspective count (max 255) (+0xA0), each: u64 name | u64 fpp | u64 tpp
    u8 tag count (max 255) (+0xB0), each: u64 tag
  no clothes in here, those ride in PlayerLook (31). skin tone is part of a definition name
+ PlayerLook (31), the clothes, rebuilt from nightcoops wardrobe module (writer / reader of the 0.1.2 dll):
+   u8 female | u16 item count (max 64) | per item a 16 byte ItemID: u64 record (tdbid as sent, top 3 bytes are the senders tdb
+   offset) | u32 rng seed | u16 unique counter | u8 structure | u8 flags | u64 arms record | u16 slot count | per item its u64
+   placement slot (the tail is only read when its there, and dropped when the count is not the item count)
 */
 #pragma once
 
@@ -60,7 +64,27 @@ struct PlayerCustomization
     std::vector<uint64_t> Tags;
 };
 
+struct LookItem
+{
+    uint64_t Record = 0;
+    uint32_t RngSeed = 0;
+    uint16_t UniqueCounter = 0;
+    uint8_t Structure = 0;
+    uint8_t Flags = 0;
+};
+
+struct PlayerClothes
+{
+    bool Female = false;
+    std::vector<LookItem> Items;
+    uint64_t Arms = 0;
+    std::vector<uint64_t> Slots;
+};
+
 std::vector<uint8_t> WritePlayerCustomization(const PlayerCustomization& look);
 bool ReadPlayerCustomization(const std::vector<uint8_t>& message, PlayerCustomization& look);
 uint64_t LookFingerprint(const std::vector<uint8_t>& message);
+std::vector<uint8_t> WritePlayerClothes(const PlayerClothes& clothes);
+bool ReadPlayerClothes(const std::vector<uint8_t>& message, PlayerClothes& clothes);
+uint64_t RecordWithoutOffset(uint64_t record);
 }

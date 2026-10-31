@@ -134,6 +134,27 @@ int main()
     Check(!ReadPlayerCustomization(truncated, lookBack), "a cut look is refused");
     Check(LookFingerprint(lookBytes) != LookFingerprint(truncated), "look fingerprints differ");
 
+    PlayerClothes clothes;
+    clothes.Female = true;
+    clothes.Items.push_back({0x0A00000012345678ull, 7, 2, 1, 0});
+    clothes.Items.push_back({0x0000000522223333ull, 0, 0, 0, 1});
+    clothes.Arms = 0x0000000F14BB03F3ull;
+    clothes.Slots = {0x1111, 0x2222};
+    const auto clothesBytes = WritePlayerClothes(clothes);
+    Check(clothesBytes.size() == 5 + 1 + 2 + 2 * 16 + 8 + 2 + 2 * 8, "clothes size");
+    Check(clothesBytes[4] == 31, "clothes are message 31");
+    PlayerClothes clothesBack;
+    Check(ReadPlayerClothes(clothesBytes, clothesBack), "clothes read back");
+    Check(clothesBack.Female && clothesBack.Items.size() == 2 && clothesBack.Items[0].RngSeed == 7 && clothesBack.Items[0].UniqueCounter == 2 &&
+              clothesBack.Items[1].Flags == 1 && clothesBack.Arms == clothes.Arms && clothesBack.Slots.size() == 2 && clothesBack.Slots[1] == 0x2222,
+          "clothes fields");
+    Check(RecordWithoutOffset(clothesBack.Items[0].Record) == 0x12345678ull, "record offset is masked off");
+    auto noTail = clothesBytes;
+    noTail.resize(5 + 1 + 2 + 2 * 16 + 8);
+    Check(ReadPlayerClothes(noTail, clothesBack) && clothesBack.Slots.empty() && clothesBack.Items.size() == 2, "clothes without the slot tail");
+    clothes.Slots.pop_back();
+    Check(ReadPlayerClothes(WritePlayerClothes(clothes), clothesBack) && clothesBack.Slots.empty(), "mismatched slots are not sent");
+
     std::printf("%s\n", FailedChecks ? "some checks failed" : "all game message checks passed");
     return FailedChecks ? 1 : 0;
 }

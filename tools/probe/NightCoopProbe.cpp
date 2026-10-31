@@ -6,7 +6,8 @@
  150 steps of 80 ms or STEPS of them) crouching on and off, and sends PlayerAnim batches (a float, a bool, an event and a
  feature) in Game envelopes
  watch mode joins by code and prints the PlayerStates and game messages it gets for a while
- usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z [STEPS [LOOKFILE]]] | watch CODE HUB [seconds]
+ usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z [STEPS [LOOKFILE [CLOTHESFILE]]]] | watch CODE HUB [seconds]
+ CLOTHESFILE is a PlayerLook (31) as it is (the plugin writes own-clothes.bin), sent right after the look
  its look (PlayerCustomization 33) is LOOKFILE as it is (the plugin writes own-look.bin) or a male look with no parts
  HUB looks like 127.0.0.1:47900#FINGERPRINT
 */
@@ -33,6 +34,7 @@ using namespace std::chrono_literals;
 
 int WalkSteps = 150;
 std::string LookFile;
+std::string ClothesFile;
 float WalkStartX = -1300.0f;
 float WalkStartY = 1200.0f;
 float WalkStartZ = 18.0f;
@@ -172,6 +174,16 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     }
     std::printf("probe: sending a look of %zu bytes\n", look.size());
     session.SendGameMessage(look);
+    if (!ClothesFile.empty())
+    {
+        std::ifstream clothesFile(ClothesFile, std::ios::binary);
+        const std::vector<uint8_t> clothes((std::istreambuf_iterator<char>(clothesFile)), std::istreambuf_iterator<char>());
+        if (!clothes.empty())
+        {
+            std::printf("probe: sending clothes of %zu bytes\n", clothes.size());
+            session.SendGameMessage(clothes);
+        }
+    }
     for (int step = 0; step < WalkSteps; ++step)
     {
         nightcoop_mac::net::PlayerState state;
@@ -250,6 +262,10 @@ int main(int argc, char** argv)
         if (argc > 8)
         {
             LookFile = argv[8];
+        }
+        if (argc > 9)
+        {
+            ClothesFile = argv[9];
         }
         result = RunGuest(session);
     }
