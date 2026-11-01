@@ -445,7 +445,7 @@ std::vector<uint8_t> WithOurCharacter(const std::vector<uint8_t>& hostSave, cons
     }
     log("handoff: our V from " + ownFolder.filename().string() + " goes into the hosts world (" + std::to_string(swapped) + " of " +
         std::to_string(save_package::CharacterNodeNames().size()) + " character nodes" + (itemsTaken ? ", our items and stash" : "") +
-        "; level and perks stay the hosts for now)");
+        "; level attributes and perks follow once we are there)");
     return save_package::Write(host);
 }
 
