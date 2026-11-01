@@ -47,6 +47,7 @@
  PROBE_PHOTO=1 opens photo mode at step 100 and closes it at step 200 (PhotoTogether)
  PROBE_FX=<effect resource path hash> shows that effect at step 120 where the joiner stands (PlayerFx)
  PROBE_CARHIT=1 (with PROBE_VEHICLE) says at step 200 that our car hit the hosts player (VehicleHit 9 m/s)
+ PROBE_SCENE=1 on the host says one of its quest scenes is live next to the guest (QuestScene 1) and prints the guests scene words
  PROBE_TRACK=<journal entry hash> on the host wants guests to track that objective (TrackModeWord 1 + a QuestJournal word)
  PROBE_QTELE=1 on the host says the game moved it 100 m from the guest 10 s after it heard of it (QuestTeleport kind 1)
  PROBE_GATE=1 on the host says its scene waits at a gate 3 m from the guest 15 s after it heard of it and passes it 25 s later
@@ -651,7 +652,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto callStartedAt = std::chrono::steady_clock::time_point::max();
     int callPhaseSent = 0;
     uint32_t callCommits = 0;
-    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_QTELE") || std::getenv("PROBE_FACTWORD") || std::getenv("PROBE_TRACK") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
+    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_QTELE") || std::getenv("PROBE_FACTWORD") || std::getenv("PROBE_TRACK") || std::getenv("PROBE_SCENE") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
     auto deadline = std::chrono::steady_clock::now() + (staysUp ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
     auto nextReward = std::chrono::steady_clock::now() + 20s;
@@ -678,6 +679,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto questTeleportAt = std::chrono::steady_clock::time_point::max();
     bool questTeleportSent = false;
     bool trackSent = false;
+    bool sceneSent = false;
     uint8_t lastStoryState = 0xFF;
     while (std::chrono::steady_clock::now() < deadline)
     {
@@ -693,6 +695,21 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
                 session.SendGameMessage(journalMessage);
             }
             std::printf("probe: wants guests to track our objective %s (TrackModeWord 1 + QuestJournal)\n", trackText);
+        }
+        if (std::getenv("PROBE_SCENE") && guestKnown && !sceneSent)
+        {
+            sceneSent = true;
+            nc::proto::Writer scene(nc::proto::MsgType::QuestScene);
+            scene.PutU8(1);
+            scene.PutU64(0x5CE4E00000000007ULL);
+            scene.PutU8(4);
+            scene.PutF32(guestX + 2.0f);
+            scene.PutF32(guestY);
+            scene.PutF32(guestZ);
+            scene.PutU64(0);
+            scene.PutU8(1);
+            session.SendGameMessage(scene.Data());
+            std::printf("probe: our scene 0x5ce4e00000000007 is live next to the guest (QuestScene 1)\n");
         }
         if (std::getenv("PROBE_QTELE") && guestKnown && !questTeleportSent)
         {
@@ -968,6 +985,11 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             if (nightcoop_mac::net::ReadNpcDespawn(message.Message, guestNpcGone) && guestNpcGone.Reason == 3)
             {
                 std::printf("probe: npc %#010x of peer %u died (killer %#x)\n", guestNpcGone.NetId, message.FromPeer, guestNpcGone.Killer);
+                continue;
+            }
+            if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::QuestScene))
+            {
+                std::printf("probe: peer %u says QuestScene kind %u\n", message.FromPeer, message.Message.size() > 5 ? message.Message[5] : 255);
                 continue;
             }
             if (nightcoop_mac::net::MessageTypeOf(message.Message) == 187)

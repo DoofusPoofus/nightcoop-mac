@@ -2,8 +2,17 @@
 
 #include "plugin/GameCalls.hpp"
 #include "plugin/RemoteBodies.hpp"
+#include "net/RelaySession.hpp"
+#include "net/SessionMessages.hpp"
+
+#include <ProtocolCore.hpp>
 
 #include <RED4ext/RED4ext.hpp>
+
+#include <cmath>
+#include <cstdio>
+#include <map>
+#include <set>
 
 namespace nightcoop_mac::cutscene_bodies
 {
@@ -14,6 +23,103 @@ constexpr uint64_t LookEveryMs = 500;
 uint64_t NextLookMs = 0;
 uint64_t InSaveSinceMs = 0;
 bool Hidden = false;
+bool InScene = false;
+
+struct LiveScene
+{
+    uint8_t Category = 0;
+    float Entry[3] = {0, 0, 0};
+};
+
+std::map<uint64_t, LiveScene> HostScenes;
+std::set<uint64_t> ScenesWePlay;
+
+std::vector<uint8_t> WriteScene(uint8_t kind, uint64_t scene, uint8_t category, const float* place)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::QuestScene);
+    writer.PutU8(kind);
+    writer.PutU64(scene);
+    writer.PutU8(category);
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        writer.PutF32(place[axis]);
+    }
+    writer.PutU64(0);
+    writer.PutU8(kind == 3 ? 1 : 0);
+    return writer.Data();
+}
+}
+
+bool HandlesScenes(uint8_t messageType)
+{
+    return messageType == static_cast<uint8_t>(nc::proto::MsgType::QuestScene);
+}
+
+void OnSceneMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, bool weAreHost, const LogFunction& log)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (weAreHost || fromPeer != 0 || reader.ReadHeader() != nc::proto::MsgType::QuestScene)
+    {
+        return;
+    }
+    const uint8_t kind = reader.GetU8();
+    const uint64_t scene = reader.GetU64();
+    const uint8_t category = reader.GetU8();
+    float entry[3];
+    for (float& axis : entry)
+    {
+        axis = reader.GetF32();
+    }
+    reader.GetU64();
+    reader.GetU8();
+    if (!reader.Ok() || reader.Remaining() != 0 || scene == 0 || !std::isfinite(entry[0]) || !std::isfinite(entry[1]) || !std::isfinite(entry[2]))
+    {
+        return;
+    }
+    if (kind == 1 || kind == 6)
+    {
+        auto& live = HostScenes[scene];
+        live.Category = category;
+        std::copy(entry, entry + 3, live.Entry);
+    }
+    else if (kind == 2)
+    {
+        HostScenes.erase(scene);
+        ScenesWePlay.erase(scene);
+    }
+}
+
+void TellHostScenes(bool inHostWorld, const net::PlayerState* ourPlayer, net::RelaySession& session, const LogFunction& log)
+{
+    if (!inHostWorld || !ourPlayer || session.GetStatus().MyPeerNumber == 0)
+    {
+        ScenesWePlay.clear();
+        return;
+    }
+    const float place[3] = {ourPlayer->PositionX, ourPlayer->PositionY, ourPlayer->PositionZ};
+    if (InScene)
+    {
+        for (const auto& [scene, live] : HostScenes)
+        {
+            const float x = live.Entry[0] - place[0];
+            const float y = live.Entry[1] - place[1];
+            const float z = live.Entry[2] - place[2];
+            if (std::sqrt(x * x + y * y + z * z) <= 30.0f && ScenesWePlay.insert(scene).second)
+            {
+                session.SendGameMessage(WriteScene(3, scene, live.Category, place), 0);
+                char line[96];
+                std::snprintf(line, sizeof(line), "cutscenes: we play the hosts scene %#llx too", static_cast<unsigned long long>(scene));
+                log(line);
+            }
+        }
+        return;
+    }
+    for (const uint64_t scene : ScenesWePlay)
+    {
+        const auto live = HostScenes.find(scene);
+        session.SendGameMessage(WriteScene(4, scene, live != HostScenes.end() ? live->second.Category : 0, place), 0);
+    }
+    ScenesWePlay.clear();
 }
 
 void Tick(uint64_t nowMs, bool inSave, bool testHide, const std::vector<uint32_t>& peers, RemoteBodies& bodies, const LogFunction& log)
@@ -22,6 +128,8 @@ void Tick(uint64_t nowMs, bool inSave, bool testHide, const std::vector<uint32_t
     {
         InSaveSinceMs = 0;
         Hidden = false;
+        InScene = false;
+        HostScenes.clear();
         return;
     }
     if (!InSaveSinceMs)
@@ -45,6 +153,7 @@ void Tick(uint64_t nowMs, bool inSave, bool testHide, const std::vector<uint32_t
     game::CallMethod(service.instance, inCutscene, &hide, noArgs);
     const uint64_t intoSave = nowMs - InSaveSinceMs;
     hide = hide || (testHide && intoSave >= 20000 && intoSave < 40000);
+    InScene = hide;
     if (!hide && !Hidden)
     {
         return;
