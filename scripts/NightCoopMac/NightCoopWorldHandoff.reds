@@ -3,7 +3,8 @@
 // (HasFreeSaveSlot + ManualSave like nightcoops RequestManualSave) a guest loads the folder the plugin wrote: the save list
 // gets asked for (RequestSavesForLoad) the folder is looked up by name in it and loaded by its index (LoadSavedGame)
 // when the list does not answer the plugin loads the newest save instead (LoadNewest: the in game menus own quick load
-// DelayedHandleQuickLoad or LoadLastCheckpoint(false) without that menu) and as the last try LoadCheckpoint
+// DelayedHandleQuickLoad or LoadLastCheckpoint(false) without that menu) then LoadIndex(0) (the save list may be filled even
+// when our callback never comes and our save is the newest) and as the last try LoadCheckpoint
 // loadState: 0 nothing 1 the list was asked for 2 the load started 3 the folder was not in the list
 
 public class NightCoopWorldHandoff extends ScriptableService {
@@ -66,6 +67,16 @@ public class NightCoopWorldHandoff extends ScriptableService {
     } else {
       handler.LoadLastCheckpoint(false);
     }
+    return true;
+  }
+
+  public func LoadIndex(index: Int32) -> Bool {
+    let handler = this.m_handler;
+    if !IsDefined(handler) {
+      return false;
+    }
+    this.m_loadState = 2;
+    handler.LoadSavedGame(index);
     return true;
   }
 

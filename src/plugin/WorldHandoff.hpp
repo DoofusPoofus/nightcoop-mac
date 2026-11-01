@@ -11,6 +11,10 @@
  (LoadSavedGame by its index) or as the newest save (LoadLastCheckpoint(false)) when the list does not answer in 10 s.
  WorldStatus 6 when the load starts
  7 once our world is up again 8 with the reason when it fails
+ when no in game load works (the save list callback the menus quick load LoadSavedGame(0) and LoadLastCheckpoint all stay
+ quiet on mac) the game restarts straight into the written save: handoff/arriving.txt gets the folder a detached relauncher
+ waits for the game to close and starts launch_red4ext.sh -save=<folder> and the game closes itself. on the next start the
+ marker plus that -save argument mean we arrived (WorldStatus 7). handoff_restart off in session.txt turns this off
  not done yet: splicing our own character into the hosts save (nightcoops savepkg) saving locks reloads of the host
  (WorldReload 95) sync saves and the return to our own world
 */
@@ -34,5 +38,6 @@ using LogFunction = std::function<void(const std::string&)>;
 void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& session, const std::filesystem::path& pluginFolder,
           const LogFunction& log);
 void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::RelaySession& session, const LogFunction& log);
+void AllowRestart(bool allowed);
 bool InHostWorld();
 }

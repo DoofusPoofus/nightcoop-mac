@@ -19,11 +19,13 @@ works in a save with the probe:
 - carried bodies n team build checks
 - lifts n time of day
 
-first cut but not tried in the game yet: doors devices dialog votes n the world handoff load
+first cut but not tried in the game yet: doors devices n dialog votes
+
+world handoff: a guest gets the hosts save n since no in game load works on mac the game restarts straight into it (`handoff_restart off` stops that)
 
 npc hits on u only do damage thru a fallback (the game drops the rebuilt hit so the attackers weapon damage gets written straight)
 
-not there yet: the handoff load n splicing ur own character in braindance photo mode police
+not there yet: splicing ur own character into the hosts save braindance photo mode police
 
 ## what u need
 

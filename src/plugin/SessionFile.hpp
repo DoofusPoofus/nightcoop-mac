@@ -20,6 +20,7 @@
    quests off|any_world  quest sharing (nightcoops mirror mode on by default): off turns it off any_world makes a guest
                          take the hosts facts and journal even when it did not come in thru the handoff (testing only they
                          land in our own save)
+   handoff_restart off   never restart the game to get into the hosts world when no in game load works
    test_help             in a save f gets held down for 2 s evry 8 s to help a downed probe up (testing only)
    test_downed           in a save our health drops to 1 % once a partner is there so the fall and a revive can be checked (testing only)
    phone any_world       take the hosts calls (guest) or send ours (host) in any world not only the hosts (testing only)
@@ -65,6 +66,7 @@ struct SessionPlan
     bool PhoneAnyWorld = false;
     bool TestHelp = false;
     bool WorldHandoff = false;
+    bool HandoffRestart = true;
     bool ShareNpcsAlways = false;
     bool ShareDoors = false;
     bool QuestSync = true;

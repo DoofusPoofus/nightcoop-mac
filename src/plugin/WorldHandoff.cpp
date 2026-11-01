@@ -11,6 +11,9 @@
 #include <RED4ext/RED4ext.hpp>
 
 #include <algorithm>
+#include <crt_externs.h>
+#include <spawn.h>
+#include <unistd.h>
 #include <chrono>
 #include <ctime>
 #include <cstdlib>
@@ -24,6 +27,8 @@ namespace
 namespace fs = std::filesystem;
 
 constexpr uint64_t SaveWaitMs = 60000;
+constexpr uint64_t RestartFallbackMs = 15000;
+constexpr uint64_t QuitAfterRestartAskMs = 3000;
 constexpr uint64_t SaveRetryMs = 2000;
 constexpr uint32_t ChunksPerTick = 8;
 constexpr uint64_t ListRetryMs = 31000;
@@ -100,7 +105,13 @@ uint64_t LoadAskedMs = 0;
 bool NewestTried = false;
 uint64_t NewestAskedMs = 0;
 bool CheckpointTried = false;
+bool IndexTried = false;
+uint64_t IndexAskedMs = 0;
+uint64_t CheckpointAskedMs = 0;
+uint64_t QuitAtMs = 0;
+bool ArrivalChecked = false;
 fs::path PluginFolder;
+bool RestartAllowed = true;
 
 bool Resolve(const LogFunction& log)
 {
@@ -394,7 +405,83 @@ void TakeChunk(const net::WorldFile& chunk, net::RelaySession& session, const Lo
     NewestTried = false;
     NewestAskedMs = 0;
     CheckpointTried = false;
+    IndexTried = false;
+    IndexAskedMs = 0;
+    CheckpointAskedMs = 0;
 }
+}
+
+std::string SaveFolderFromArguments()
+{
+    char** arguments = *_NSGetArgv();
+    const int count = *_NSGetArgc();
+    for (int index = 0; index < count; ++index)
+    {
+        const std::string argument = arguments[index] ? arguments[index] : "";
+        if (argument.rfind("-save=", 0) == 0)
+        {
+            return argument.substr(6);
+        }
+    }
+    return {};
+}
+
+bool RestartInto(const std::string& folder, uint32_t transferId, const LogFunction& log)
+{
+    const fs::path gameFolder = PluginFolder.parent_path().parent_path().parent_path();
+    std::error_code error;
+    if (!fs::exists(gameFolder / "launch_red4ext.sh", error))
+    {
+        log("handoff: no launch_red4ext.sh in " + gameFolder.string() + ", cant restart into the hosts world");
+        return false;
+    }
+    std::ofstream(PluginFolder / "handoff" / "arriving.txt") << folder << " " << transferId << "\n";
+    const std::string command = "sleep 3; while /usr/bin/pgrep -x Cyberpunk2077 >/dev/null; do sleep 1; done; cd '" + gameFolder.string() +
+                                "' && ./launch_red4ext.sh -save=" + folder + " -skipStartScreen >/dev/null 2>&1";
+    posix_spawnattr_t attributes;
+    posix_spawnattr_init(&attributes);
+    posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETSID);
+    const char* shellArguments[] = {"/bin/sh", "-c", command.c_str(), nullptr};
+    pid_t relauncher = 0;
+    const int result = posix_spawn(&relauncher, "/bin/sh", nullptr, &attributes, const_cast<char* const*>(shellArguments), *_NSGetEnviron());
+    posix_spawnattr_destroy(&attributes);
+    if (result != 0)
+    {
+        log("handoff: could not start the relauncher (" + std::to_string(result) + ")");
+        return false;
+    }
+    log("handoff: the game restarts straight into " + folder + " (relauncher " + std::to_string(relauncher) + ")");
+    return true;
+}
+
+void CheckArrival(bool inSave, net::RelaySession& session, const LogFunction& log)
+{
+    std::error_code error;
+    const fs::path marker = PluginFolder / "handoff" / "arriving.txt";
+    if (!fs::exists(marker, error))
+    {
+        ArrivalChecked = true;
+        return;
+    }
+    if (!inSave)
+    {
+        return;
+    }
+    ArrivalChecked = true;
+    std::string folder;
+    uint32_t transferId = 0;
+    std::ifstream(marker) >> folder >> transferId;
+    fs::remove(marker, error);
+    if (folder.empty() || folder != SaveFolderFromArguments())
+    {
+        log("handoff: an old restart marker for " + folder + " was left, this start is not it");
+        return;
+    }
+    WrittenFolder = folder;
+    Phase = GuestPhase::InHostWorld;
+    SendStatus(session, 7, transferId, "", 0);
+    log("handoff: we are in the hosts world now (" + folder + ", after a restart)");
+    hud::Show("You are in the host's world", 5.0f);
 }
 
 void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& session, const fs::path& pluginFolder, const LogFunction& log)
@@ -413,6 +500,19 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
     if (!joinHostWorld)
     {
         return;
+    }
+    if (!ArrivalChecked)
+    {
+        CheckArrival(inSave, session, log);
+        if (!ArrivalChecked || Phase == GuestPhase::InHostWorld)
+        {
+            return;
+        }
+    }
+    if (QuitAtMs && nowMs >= QuitAtMs)
+    {
+        log("handoff: closing the game for the restart");
+        _exit(0);
     }
     if (Phase == GuestPhase::Idle && inSave && partner_roster::HostInItsWorld())
     {
@@ -455,8 +555,23 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
                     (menuThere ? " with the in game menus quick load" : " with LoadLastCheckpoint (no in game menu)"));
             }
         }
+        static auto* loadIndex = game::FindFunction("NightCoopWorldHandoff", "LoadIndex");
+        if (!IndexTried && NewestAskedMs && nowMs - NewestAskedMs >= CheckpointFallbackMs && loadIndex)
+        {
+            IndexTried = true;
+            IndexAskedMs = nowMs;
+            auto service = game::ScriptService("NightCoopWorldHandoff");
+            int32_t newestIndex = 0;
+            bool asked = false;
+            RED4ext::StackArgs_t indexArgs;
+            indexArgs.emplace_back(nullptr, &newestIndex);
+            if (service && game::CallMethod(service.instance, loadIndex, &asked, indexArgs) && asked)
+            {
+                log("handoff: the quick load did nothing, loading the first save of the list (ours is the newest)");
+            }
+        }
         static auto* loadCheckpoint = game::FindFunction("NightCoopWorldHandoff", "LoadCheckpoint");
-        if (!CheckpointTried && NewestAskedMs && nowMs - NewestAskedMs >= CheckpointFallbackMs && loadCheckpoint)
+        if (!CheckpointTried && IndexAskedMs && nowMs - IndexAskedMs >= CheckpointFallbackMs && loadCheckpoint)
         {
             CheckpointTried = true;
             auto service = game::ScriptService("NightCoopWorldHandoff");
@@ -464,7 +579,20 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
             RED4ext::StackArgs_t noArgs;
             if (service && game::CallMethod(service.instance, loadCheckpoint, &asked, noArgs) && asked)
             {
-                log("handoff: the quick load did nothing, trying LoadLastCheckpoint(false)");
+                log("handoff: loading by index did nothing, trying LoadLastCheckpoint(false)");
+            }
+            CheckpointAskedMs = nowMs;
+        }
+        if (RestartAllowed && CheckpointAskedMs && !QuitAtMs && nowMs - CheckpointAskedMs >= RestartFallbackMs)
+        {
+            if (RestartInto(WrittenFolder, Arriving.TransferId, log))
+            {
+                hud::Show("Restarting into the host's world", 3.0f);
+                QuitAtMs = nowMs + QuitAfterRestartAskMs;
+            }
+            else
+            {
+                CheckpointAskedMs = 0;
             }
         }
         if (nowMs >= NextListMs && LoadState() != LoadStarted)
@@ -574,6 +702,11 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::Rela
         }
         log("handoff: the host says " + std::to_string(worldStatus.Code) + (worldStatus.Text.empty() ? "" : " (" + worldStatus.Text + ")"));
     }
+}
+
+void AllowRestart(bool allowed)
+{
+    RestartAllowed = allowed;
 }
 
 bool InHostWorld()
