@@ -15,6 +15,8 @@
    owner -> the defeating peer) | u64 reward record (kind 1 not 0) | u32 serial | u32 npc net id (kind 2 not 0)
  PlayerHit (32) the world an npc hit a partners body in -> that partner reliable: u32 hit number | u32 attacker npc net id (0
    unknown) | u64 senders session clock ms | HitDetails (evry flag but 0 9 10 11 12 13 23 31 34 45 49)
+ PoliceFight (176) npc owner -> the partner whose body its police fights reliable 16 bytes: u32 net id of the police unit |
+   f32 x3 where the unit stands
 */
 #pragma once
 
@@ -120,4 +122,12 @@ std::vector<uint8_t> WriteRewardWord(const RewardWord& word);
 bool ReadRewardWord(const std::vector<uint8_t>& message, RewardWord& word);
 std::vector<uint8_t> WritePlayerHit(const PlayerHit& hit);
 bool ReadPlayerHit(const std::vector<uint8_t>& message, PlayerHit& hit);
+struct PoliceFight
+{
+    uint32_t NetId = 0;
+    float Position[3] = {0, 0, 0};
+};
+
+std::vector<uint8_t> WritePoliceFight(const PoliceFight& fight);
+bool ReadPoliceFight(const std::vector<uint8_t>& message, PoliceFight& fight);
 }

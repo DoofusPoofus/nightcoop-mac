@@ -75,6 +75,8 @@ uint32_t NextHackSerial = 1;
 uint32_t HacksSent = 0;
 uint32_t HacksApplied = 0;
 bool TroubleLogged = false;
+std::vector<std::pair<uint32_t, net::PoliceFight>> PoliceFightsToSend;
+std::map<std::pair<uint32_t, uint32_t>, uint64_t> LastPoliceFightMs;
 uint64_t NextTestClaimMs = 0;
 constexpr uint64_t TestClaimEveryMs = 5000;
 
@@ -551,6 +553,30 @@ void ShareThreat(RED4ext::Handle<RED4ext::IScriptable>& npc, RED4ext::Handle<RED
     game::CallMethod(service.instance, Script.ShareThreat, nullptr, args);
 }
 
+void NotePoliceOnBody(uint64_t nowMs, uint32_t peerNumber, uint32_t netId, const float* position, RED4ext::Handle<RED4ext::IScriptable>& npc)
+{
+    static auto* isPolice = game::FindFunction("NightCoopCombat", "IsPolice");
+    auto service = game::ScriptService("NightCoopCombat");
+    uint64_t& lastMs = LastPoliceFightMs[{peerNumber, netId}];
+    if (!isPolice || !service || (lastMs && nowMs - lastMs < 10000))
+    {
+        return;
+    }
+    bool police = false;
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &npc);
+    game::CallMethod(service.instance, isPolice, &police, args);
+    if (!police)
+    {
+        return;
+    }
+    lastMs = nowMs;
+    net::PoliceFight fight;
+    fight.NetId = netId;
+    std::copy(position, position + 3, fight.Position);
+    PoliceFightsToSend.push_back({peerNumber, fight});
+}
+
 void Tick(uint64_t nowMs, bool inSave, bool testClaims, NpcCopies& copies, NpcShare& ourNpcs, net::RelaySession& session, const LogFunction& log)
 {
     if (!inSave)
@@ -585,6 +611,14 @@ void Tick(uint64_t nowMs, bool inSave, bool testClaims, NpcCopies& copies, NpcSh
             game::CallMethod(service.instance, testHack, nullptr, noArgs);
         }
     }
+    for (const auto& [peer, fight] : PoliceFightsToSend)
+    {
+        session.SendGameMessage(net::WritePoliceFight(fight), static_cast<int32_t>(peer));
+        char line[128];
+        std::snprintf(line, sizeof(line), "combat: our police unit %#010x fights peer %u's body, their game starts its police fight", fight.NetId, peer);
+        log(line);
+    }
+    PoliceFightsToSend.clear();
     SendClaims(nowMs, copies, session, log);
     SendBodyHits(copies, ourNpcs, session);
     SendHackStages(copies, session, log);
@@ -595,6 +629,30 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t 
                net::RelaySession& session, const LogFunction& log)
 {
     const uint8_t type = net::MessageTypeOf(message);
+    if (type == static_cast<uint8_t>(nc::proto::MsgType::PoliceFight))
+    {
+        net::PoliceFight fight;
+        static auto* policeFightUs = game::FindFunction("NightCoopCombat", "PoliceFightUs");
+        auto service = game::ScriptService("NightCoopCombat");
+        if (!net::ReadPoliceFight(message, fight) || !policeFightUs || !service)
+        {
+            return;
+        }
+        const uint64_t copyEntity = copies.EntityOfNetId(fight.NetId);
+        auto unit = copyEntity ? EntityById(copyEntity) : RED4ext::Handle<RED4ext::IScriptable>();
+        bool started = false;
+        RED4ext::StackArgs_t args;
+        args.emplace_back(nullptr, &unit);
+        args.emplace_back(nullptr, &fight.Position[0]);
+        args.emplace_back(nullptr, &fight.Position[1]);
+        args.emplace_back(nullptr, &fight.Position[2]);
+        game::CallMethod(service.instance, policeFightUs, &started, args);
+        char line[160];
+        std::snprintf(line, sizeof(line), "combat: peer %u's police unit %#010x fights our body, %s", fromPeer, fight.NetId,
+                      !started ? "our prevention system did not take it" : unit ? "its copy here asks our police to fight" : "no copy here, our player asks");
+        log(line);
+        return;
+    }
     if (type == static_cast<uint8_t>(nc::proto::MsgType::HackSync))
     {
         net::HackSync hack;

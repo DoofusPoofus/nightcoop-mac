@@ -25,6 +25,7 @@ works in a save with the probe:
 - effects a windows partner draws (PlayerFx: rockets explosive rounds slams) show up here, sending ours isnt there
 - a partner opening photo mode in ur world shows a hint (PhotoTogether) n ours goes out
 - tagging an npc (scanner tag) shows the tag for partners too (NpcTag)
+- police shooting at a partners body starts that partners own police fight (PoliceFight). the shared wanted level n police units arent there yet
 
 dialog votes: the message side works with a probe (votes decided at a shared time n subtitles) but pressing a choice needs a real dialog on screen
 
@@ -36,7 +37,7 @@ npc hits on u only do damage thru a fallback (the game drops the rebuilt hit so 
 
 the quality plus upgrade n iconic stats of ur equipped items get checked after a handoff n put back if they differ (they came along fine so far)
 
-not there yet: the other player systems from ur own save (crafting recipes n co) visual grenade copies braindance photo mode police
+not there yet: the other player systems from ur own save (crafting recipes n co) visual grenade copies braindance photo poses shared police units scene gates (they need native hooks)
 
 ## what u need
 

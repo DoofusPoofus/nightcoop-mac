@@ -177,6 +177,23 @@ public class NightCoopCombat extends ScriptableService {
     return after;
   }
 
+  public func IsPolice(npc: ref<ScriptedPuppet>) -> Bool {
+    return IsDefined(npc) && npc.IsPrevention();
+  }
+
+  public func PoliceFightUs(unit: ref<GameObject>, x: Float, y: Float, z: Float) -> Bool {
+    let prevention = GameInstance.GetScriptableSystemsContainer(GetGameInstance()).Get(n"PreventionSystem") as PreventionSystem;
+    let player = GetPlayer(GetGameInstance());
+    if !IsDefined(prevention) || !IsDefined(player) {
+      return false;
+    }
+    let request = new PreventionCombatStartedRequest();
+    request.requester = IsDefined(unit) ? unit : player;
+    request.requesterPosition = new Vector4(x, y, z, 1.0);
+    prevention.QueueRequest(request);
+    return true;
+  }
+
   public func KillForDeathTable(npc: ref<NPCPuppet>) -> String {
     if !IsDefined(npc) {
       return "no npc";

@@ -359,6 +359,7 @@ void NpcShare::FillStates(uint64_t nowMs, Source& source, RED4ext::Handle<RED4ex
             nextThreatMs = nowMs + ThreatEveryMs;
             auto body = partners[index].Body;
             npc_combat::ShareThreat(npc, body);
+            npc_combat::NotePoliceOnBody(nowMs, partners[index].PeerNumber, source.NetId, snapshot.Position, npc);
         }
     }
     if (nowMs >= source.NextHandsMs)

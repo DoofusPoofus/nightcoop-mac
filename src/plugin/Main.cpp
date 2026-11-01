@@ -561,7 +561,8 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::HitClaim) ||
                  nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::HitResult) ||
                  nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PlayerHit) ||
-                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::HackSync))
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::HackSync) ||
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PoliceFight))
         {
             nightcoop_mac::npc_combat::OnMessage(message.FromPeer, message.Message, nowMs, *Npcs, *OurNpcs, *Bodies, *Session, Log);
         }

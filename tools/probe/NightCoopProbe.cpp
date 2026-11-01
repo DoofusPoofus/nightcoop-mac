@@ -33,6 +33,7 @@
  then the new save goes out like a join
  PROBE_DEFEAT=<n> tells the host n of its shared npcs (with health above 0) died here (NpcDefeat) the joiner prints NpcDead tables and npc deaths
  PROBE_PUSH=1 says at step 110 that our grenade went off where the joiner stands (PlayerBlast radius 6)
+ PROBE_POLICE=1 says at step 130 that a police unit of ours fights the hosts body (PoliceFight)
  PROBE_TAG=1 tags the first npc the host shares at step 150 and untags it at step 250 (NpcTag)
  PROBE_PHOTO=1 opens photo mode at step 100 and closes it at step 200 (PhotoTogether)
  PROBE_FX=<effect resource path hash> shows that effect at step 120 where the joiner stands (PlayerFx)
@@ -1258,6 +1259,12 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::PlayerEffect effect {1, std::strtoull(effectText, nullptr, 0), {state.PositionX, state.PositionY, state.PositionZ + 1.0f}, {0, 0, 0, 1}, 0};
             session.SendGameMessage(nightcoop_mac::net::WritePlayerFx({effect}));
             std::printf("probe: shows effect %#llx where the joiner stands (PlayerFx)\n", static_cast<unsigned long long>(effect.Resource));
+        }
+        if (std::getenv("PROBE_POLICE") && step == 130)
+        {
+            nightcoop_mac::net::PoliceFight fight {0x7F000001, {state.PositionX + 4.0f, state.PositionY, state.PositionZ}};
+            session.SendGameMessage(nightcoop_mac::net::WritePoliceFight(fight), 0);
+            std::printf("probe: our police unit %#010x fights the hosts body (PoliceFight)\n", fight.NetId);
         }
         if (std::getenv("PROBE_TAG") && firstHostNpc && (step == 150 || step == 250))
         {

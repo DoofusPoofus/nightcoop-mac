@@ -260,4 +260,31 @@ bool ReadPlayerHit(const std::vector<uint8_t>& message, PlayerHit& hit)
     hit.SessionTimeMs = reader.GetU64();
     return reader.Ok() && GetDetails(reader, hit.Details) && reader.Remaining() == 0;
 }
+
+std::vector<uint8_t> WritePoliceFight(const PoliceFight& fight)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::PoliceFight);
+    writer.PutU32(fight.NetId);
+    for (float part : fight.Position)
+    {
+        writer.PutF32(part);
+    }
+    return writer.Data();
+}
+
+bool ReadPoliceFight(const std::vector<uint8_t>& message, PoliceFight& fight)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::PoliceFight)
+    {
+        return false;
+    }
+    fight.NetId = reader.GetU32();
+    for (float& part : fight.Position)
+    {
+        part = reader.GetF32();
+    }
+    const bool placeOk = std::all_of(fight.Position, fight.Position + 3, [](float value) { return std::isfinite(value) && std::fabs(value) <= 100000.0f; });
+    return reader.Ok() && reader.Remaining() == 0 && fight.NetId != 0 && placeOk;
+}
 }
