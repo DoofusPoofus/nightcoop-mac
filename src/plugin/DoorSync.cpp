@@ -367,6 +367,63 @@ void Configure(const RED4ext::Handle<RED4ext::IScriptable>& service, bool shared
     game::CallMethod(service.instance, Game.Configure, nullptr, args);
 }
 
+void OpenDoorsForPartners(uint64_t nowMs, const std::vector<RemotePeerView>& partners, const LogFunction& log)
+{
+    static uint64_t nextLookMs = 0;
+    if (nowMs < nextLookMs || partners.empty())
+    {
+        return;
+    }
+    nextLookMs = nowMs + 500;
+    static auto* getEntityList = game::FindFunction("ScriptGameInstance", "GetEntityList");
+    static auto* getWorldPosition = game::FindFunction("entEntity", "GetWorldPosition");
+    static auto* openForPartner = game::FindFunction("Door", "NightCoopOpenForPartner");
+    static auto* doorClass = RED4ext::CRTTISystem::Get()->GetClass("Door");
+    if (!getEntityList || !getWorldPosition || !openForPartner || !doorClass)
+    {
+        return;
+    }
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::DynArray<RED4ext::Handle<RED4ext::IScriptable>> entities;
+    RED4ext::StackArgs_t listArgs;
+    listArgs.emplace_back(nullptr, &gameInstance);
+    if (!game::CallStatic(getEntityList, &entities, listArgs))
+    {
+        return;
+    }
+    RED4ext::StackArgs_t noArgs;
+    for (auto& entity : entities)
+    {
+        auto* entityClass = entity ? entity->GetType() : nullptr;
+        if (!entityClass || !entityClass->IsA(doorClass))
+        {
+            continue;
+        }
+        RED4ext::Vector4 place {};
+        game::CallMethod(entity.instance, getWorldPosition, &place, noArgs);
+        for (const auto& partner : partners)
+        {
+            if (WeAreHost && !PeersInOurWorld.count(partner.PeerNumber))
+            {
+                continue;
+            }
+            const float deltaX = place.X - partner.State.PositionX;
+            const float deltaY = place.Y - partner.State.PositionY;
+            if (deltaX * deltaX + deltaY * deltaY > 6.25f || std::fabs(place.Z - partner.State.PositionZ) > 3.0f)
+            {
+                continue;
+            }
+            bool opened = false;
+            game::CallMethod(entity.instance, openForPartner, &opened, noArgs);
+            if (opened)
+            {
+                log("doors: an automatic door opens for peer " + std::to_string(partner.PeerNumber) + "s body");
+            }
+            break;
+        }
+    }
+}
+
 void HandPartnersOver(const RED4ext::Handle<RED4ext::IScriptable>& service, const std::vector<RemotePeerView>& partners)
 {
     CallPlain(service, Game.ClearPartners);
@@ -763,6 +820,7 @@ void Tick(uint64_t nowMs, bool inSave, bool shareAlways, const net::PlayerState*
     }
     Configure(service, true);
     HandPartnersOver(service, partners);
+    OpenDoorsForPartners(nowMs, partners, log);
     TakeSeenDoors(service, nowMs, log);
     CallPlain(service, Game.ServeHeld);
     ReportHeld(service, nowMs, log);

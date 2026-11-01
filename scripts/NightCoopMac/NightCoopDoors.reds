@@ -266,6 +266,15 @@ public class NightCoopDoorSync extends ScriptableService {
 }
 
 @addMethod(Door)
+public func NightCoopOpenForPartner() -> Bool {
+  let state = this.GetDevicePS();
+  if state.IsLiftDoor() || state.IsBusy() || state.IsOpen() || state.IsLocked() || state.IsSealed() || NotEquals(state.GetDoorType(), EDoorType.AUTOMATIC) {
+    return false;
+  }
+  return this.NightCoopMoveTo(1, false) >= 0;
+}
+
+@addMethod(Door)
 public func NightCoopMoveTo(wanted: Int32, evenWhenBusy: Bool) -> Int32 {
   let state = this.GetDevicePS();
   if state.IsLiftDoor() {

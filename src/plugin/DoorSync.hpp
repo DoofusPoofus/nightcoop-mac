@@ -12,7 +12,8 @@
  newer version (or the answer to our ask) becomes the shared state and our door gets moved to it with the quest force
  actions and OpenDoor / CloseDoor (waits up to 3 s while the door is busy / 6 tries)
  auto close guard: partner spots go to the script evry tick so a door does not close by itself in a partners face
- lift doors are skipped. not done yet: the quest catch up holds (doors_open_behind / doors_shut_behind / doors_ahead_undone /
+ lift doors are skipped. a closed automatic door (not locked or sealed) within 2.5 m of a partner body opens for it (partner
+ bodies carry no trigger activator so the doors own area never sees them). not done yet: the quest catch up holds (doors_open_behind / doors_shut_behind / doors_ahead_undone /
  doors_own_shut) / doors opening for partner bodies (doors_bodies) / acts from other modules (doors_act_other)
  test_doors in session.txt toggles the nearest door (not a lift door within 100 m) evry 12 s from script so the sync can be
  checked with nobody at the keyboard
