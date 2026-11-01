@@ -1,5 +1,5 @@
 // world handoff the script half of the plugins WorldHandoff (nightcoops sessionflow world parts): the systems request
-// handler gets taken from the onscreen message controller once the hud is up. the host asks for a manual save with it
+// handler gets taken from the onscreen message controller or the in game menu (or codewares GetSystemRequestsHandler). the host asks for a manual save with it
 // (HasFreeSaveSlot + ManualSave like nightcoops RequestManualSave with the folder name the plugin picked. the game still
 // writes into ManualSave-0 so the plugin guards that slot. a game started straight into a save has no save list so
 // HasFreeSaveSlot says no: the list gets asked for once and the third try saves anyway) a guest loads the folder the plugin wrote: the save list
@@ -33,12 +33,19 @@ public class NightCoopWorldHandoff extends ScriptableService {
     this.m_menu = menu;
   }
 
+  private func Handler() -> wref<inkISystemRequestsHandler> {
+    if !IsDefined(this.m_handler) {
+      this.m_handler = GameInstance.GetSystemRequestsHandler();
+    }
+    return this.m_handler;
+  }
+
   public func HasHandler() -> Bool {
-    return IsDefined(this.m_handler);
+    return IsDefined(this.Handler());
   }
 
   public func MakeSave(folder: String) -> Bool {
-    let handler = this.m_handler;
+    let handler = this.Handler();
     if !IsDefined(handler) || StrLen(folder) == 0 {
       return false;
     }
@@ -58,7 +65,7 @@ public class NightCoopWorldHandoff extends ScriptableService {
   }
 
   public func LoadFolder(folder: String) -> Bool {
-    let handler = this.m_handler;
+    let handler = this.Handler();
     if !IsDefined(handler) {
       return false;
     }
@@ -70,7 +77,7 @@ public class NightCoopWorldHandoff extends ScriptableService {
   }
 
   public func LoadNewest() -> Bool {
-    let handler = this.m_handler;
+    let handler = this.Handler();
     if !IsDefined(handler) {
       return false;
     }
@@ -86,7 +93,7 @@ public class NightCoopWorldHandoff extends ScriptableService {
   }
 
   public func LoadIndex(index: Int32) -> Bool {
-    let handler = this.m_handler;
+    let handler = this.Handler();
     if !IsDefined(handler) {
       return false;
     }
@@ -96,7 +103,7 @@ public class NightCoopWorldHandoff extends ScriptableService {
   }
 
   public func LoadCheckpoint() -> Bool {
-    let handler = this.m_handler;
+    let handler = this.Handler();
     if !IsDefined(handler) {
       return false;
     }
@@ -114,7 +121,7 @@ public class NightCoopWorldHandoff extends ScriptableService {
   }
 
   public func SaveBlockReason(folder: String) -> String {
-    let handler = this.m_handler;
+    let handler = this.Handler();
     if !IsDefined(handler) {
       return "no save handler yet";
     }
@@ -146,7 +153,7 @@ public class NightCoopWorldHandoff extends ScriptableService {
   }
 
   protected cb func OnNightCoopSavesListed(saves: array<String>) -> Bool {
-    let handler = this.m_handler;
+    let handler = this.Handler();
     if !IsDefined(handler) || this.m_loadState != 1 {
       return false;
     }
