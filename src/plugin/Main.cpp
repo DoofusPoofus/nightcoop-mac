@@ -47,6 +47,7 @@
 #include "plugin/NpcDeaths.hpp"
 #include "plugin/Grenades.hpp"
 #include "plugin/PlayerEffects.hpp"
+#include "plugin/PhotoTogether.hpp"
 #include "net/NpcMessages.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/Rewards.hpp"
@@ -531,6 +532,15 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             nightcoop_mac::grenades::OnMessage(message.FromPeer, message.Message, sameWorld, Log);
             nightcoop_mac::player_effects::OnMessage(message.FromPeer, message.Message, sameWorld, Log);
         }
+        else if (nightcoop_mac::photo_together::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
+        {
+            const auto nicknames = Session->PeerNicknames();
+            const auto nickname = nicknames.find(message.FromPeer);
+            nightcoop_mac::photo_together::OnMessage(message.FromPeer, nickname == nicknames.end() ? std::string() : nickname->second, message.Message,
+                                                     nightcoop_mac::world_handoff::InHostWorld() ||
+                                                         (Session->GetStatus().MyPeerNumber == 0 && nightcoop_mac::partner_roster::PeerInHostWorld(message.FromPeer)),
+                                                     Log);
+        }
         else if (nightcoop_mac::npc_deaths::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {
             nightcoop_mac::npc_deaths::OnMessage(message.FromPeer, message.Message, Session->GetStatus().MyPeerNumber == 0,
@@ -592,6 +602,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
                 peersInOurWorld.push_back(view.PeerNumber);
             }
         }
+        nightcoop_mac::photo_together::Tick(nowMs, inSave, !peersInOurWorld.empty() || nightcoop_mac::world_handoff::InHostWorld(), *Session, Log);
         nightcoop_mac::grenades::Tick(nowMs, inSave,
                                       Plan->BlastsAnyWorld ? !RemotePeerViews().empty() : !peersInOurWorld.empty() || nightcoop_mac::world_handoff::InHostWorld(),
                                       *Session, Log);

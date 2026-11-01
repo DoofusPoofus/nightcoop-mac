@@ -33,6 +33,7 @@
  then the new save goes out like a join
  PROBE_DEFEAT=<n> tells the host n of its shared npcs (with health above 0) died here (NpcDefeat) the joiner prints NpcDead tables and npc deaths
  PROBE_PUSH=1 says at step 110 that our grenade went off where the joiner stands (PlayerBlast radius 6)
+ PROBE_PHOTO=1 opens photo mode at step 100 and closes it at step 200 (PhotoTogether)
  PROBE_FX=<effect resource path hash> shows that effect at step 120 where the joiner stands (PlayerFx)
  PROBE_CARHIT=1 (with PROBE_VEHICLE) says at step 200 that our car hit the hosts player (VehicleHit 9 m/s)
  PROBE_DEAD=1 on the host says the first npc a guest shares 40 s on died in our world (NpcDead) and prints NpcDefeat
@@ -1256,6 +1257,13 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::PlayerEffect effect {1, std::strtoull(effectText, nullptr, 0), {state.PositionX, state.PositionY, state.PositionZ + 1.0f}, {0, 0, 0, 1}, 0};
             session.SendGameMessage(nightcoop_mac::net::WritePlayerFx({effect}));
             std::printf("probe: shows effect %#llx where the joiner stands (PlayerFx)\n", static_cast<unsigned long long>(effect.Resource));
+        }
+        if (std::getenv("PROBE_PHOTO") && (step == 100 || step == 200))
+        {
+            nc::proto::Writer photo(nc::proto::MsgType::PhotoTogether);
+            photo.PutU8(step == 100 ? 1 : 0);
+            session.SendGameMessage(photo.Data());
+            std::printf("probe: %s photo mode (PhotoTogether)\n", step == 100 ? "opened" : "closed");
         }
         if (std::getenv("PROBE_PUSH") && step == 110)
         {

@@ -23,6 +23,7 @@ works in a save with the probe:
 - grenade blasts push loose stuff around at the partners (no damage)
 - a partners car hitting u (VehicleHit) plays the games own car hit on ur player (first cut, the knockdown isnt checked yet)
 - effects a windows partner draws (PlayerFx: rockets explosive rounds slams) show up here, sending ours isnt there
+- a partner opening photo mode in ur world shows a hint (PhotoTogether) n ours goes out
 
 dialog votes: the message side works with a probe (votes decided at a shared time n subtitles) but pressing a choice needs a real dialog on screen
 
