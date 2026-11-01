@@ -19,6 +19,8 @@ uint32_t TransitionNumber = 0;
 uint32_t WorldNumber = 0;
 uint64_t TransitionStartedMs = 0;
 uint64_t NextRefreshMs = 0;
+uint8_t StoryState = 0xFF;
+uint64_t NextStoryMs = 0;
 
 std::vector<uint8_t> WriteOurState(uint32_t ourPeer, bool inTransition, uint64_t nowMs)
 {
@@ -39,12 +41,36 @@ std::vector<uint8_t> WriteOurState(uint32_t ourPeer, bool inTransition, uint64_t
 
 bool Handles(uint8_t messageType)
 {
-    return messageType == static_cast<uint8_t>(nc::proto::MsgType::WorldLoad) || messageType == static_cast<uint8_t>(nc::proto::MsgType::LobbyStart);
+    return messageType == static_cast<uint8_t>(nc::proto::MsgType::WorldLoad) || messageType == static_cast<uint8_t>(nc::proto::MsgType::LobbyStart) ||
+           messageType == static_cast<uint8_t>(nc::proto::MsgType::StoryHold);
 }
 
-void Tick(uint64_t nowMs, bool inSave, net::RelaySession& session, const LogFunction& log)
+void Tick(uint64_t nowMs, bool inSave, bool inHostWorld, net::RelaySession& session, const LogFunction& log)
 {
     const auto status = session.GetStatus();
+    if (status.InSession && status.MyPeerNumber != 0)
+    {
+        const uint8_t storyState = !inSave ? 1 : inHostWorld ? 3 : 0;
+        if (storyState != StoryState || nowMs >= NextStoryMs)
+        {
+            if (storyState != StoryState)
+            {
+                log(std::string("story hold: we tell the host we are ") + (storyState == 1 ? "coming" : storyState == 3 ? "ready" : "idle"));
+            }
+            StoryState = storyState;
+            NextStoryMs = nowMs + 5000;
+            nc::proto::Writer story(nc::proto::MsgType::StoryHold);
+            story.PutU32(status.MyPeerNumber);
+            story.PutU8(1);
+            story.PutU8(storyState);
+            story.PutU8(0);
+            story.PutU32(WorldNumber);
+            story.PutU32(0);
+            story.PutU64(0);
+            story.PutU8(0);
+            session.SendGameMessage(story.Data(), 0);
+        }
+    }
     const bool changed = !StateKnown || inSave != WasInSave;
     if (changed)
     {
@@ -87,6 +113,19 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, bool weAr
         }
         log("world load: the host started " + (newGame ? std::string("a new game") : "its save " + name) + " from its lobby");
         hud::Show(newGame ? "The host started a new game (not on mac yet, we join its world once it is up)" : "The host started, we join once its world is up", 5.0f);
+        return;
+    }
+    if (type == nc::proto::MsgType::StoryHold && fromPeer == 0 && !weAreHost)
+    {
+        reader.GetU32();
+        const uint8_t kind = reader.GetU8();
+        reader.GetU8();
+        const uint8_t mode = reader.GetU8();
+        const uint32_t hold = reader.GetU32();
+        if (reader.Ok() && kind == 2)
+        {
+            log("story hold: the host holds its story (#" + std::to_string(hold) + (mode == 2 ? ", a full pause)" : ", the story stands)"));
+        }
         return;
     }
     if (type == nc::proto::MsgType::WorldLoad && fromPeer == 0 && !weAreHost)

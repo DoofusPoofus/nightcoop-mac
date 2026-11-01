@@ -25,7 +25,7 @@ works in a save with the probe:
 - effects a windows partner draws (PlayerFx: rockets explosive rounds slams) show up here, sending ours isnt there
 - a partner opening photo mode in ur world shows a hint (PhotoTogether) n ours goes out
 - tagging an npc (scanner tag) shows the tag for partners too (NpcTag)
-- we tell the host our loading state so its loading holds dont wait on us (WorldLoad) n a host starting from its lobby shows a hint (LobbyStart)
+- we tell the host our loading n story state so its loading n story holds dont wait on us (WorldLoad StoryHold) n a host starting from its lobby shows a hint (LobbyStart)
 - police shooting at a partners body starts that partners own police fight (PoliceFight). the shared wanted level n police units arent there yet
 
 dialog votes: the message side works with a probe (votes decided at a shared time n subtitles) but pressing a choice needs a real dialog on screen

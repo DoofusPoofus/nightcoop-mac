@@ -662,6 +662,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto reloadAt = std::chrono::steady_clock::time_point::max();
     uint32_t reloadPeer = 0;
     bool lobbySent = false;
+    uint8_t lastStoryState = 0xFF;
     while (std::chrono::steady_clock::now() < deadline)
     {
         if (std::getenv("PROBE_LOBBY") && !lobbySent && session.GetStatus().ConnectedPeers > 0)
@@ -872,6 +873,20 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             if (nightcoop_mac::net::ReadNpcDespawn(message.Message, guestNpcGone) && guestNpcGone.Reason == 3)
             {
                 std::printf("probe: npc %#010x of peer %u died (killer %#x)\n", guestNpcGone.NetId, message.FromPeer, guestNpcGone.Killer);
+                continue;
+            }
+            if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::StoryHold))
+            {
+                nc::proto::Reader story(message.Message.data(), message.Message.size());
+                story.ReadHeader();
+                story.GetU32();
+                const uint8_t storyKind = story.GetU8();
+                const uint8_t storyState = story.GetU8();
+                if (story.Ok() && storyKind == 1 && storyState != lastStoryState)
+                {
+                    lastStoryState = storyState;
+                    std::printf("probe: peer %u story state %u (StoryHold)\n", message.FromPeer, storyState);
+                }
                 continue;
             }
             if (nightcoop_mac::net::ReadNpcDefeat(message.Message, guestClock, guestDead))

@@ -632,7 +632,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             }
         }
         nightcoop_mac::npc_tags::Tick(nowMs, inSave, tagPeers, *OurNpcs, *Npcs, *Session, Log);
-        nightcoop_mac::world_load::Tick(nowMs, inSave, *Session, Log);
+        nightcoop_mac::world_load::Tick(nowMs, inSave, nightcoop_mac::world_handoff::InHostWorld(), *Session, Log);
         nightcoop_mac::sms_replies::Tick(nowMs, inSave, Session->GetStatus().MyPeerNumber == 0, partnerInOurWorld,
                                          nightcoop_mac::world_handoff::InHostWorld(), *Session, Log);
         nightcoop_mac::photo_together::Tick(nowMs, inSave, !peersInOurWorld.empty() || nightcoop_mac::world_handoff::InHostWorld(), *Session, Log);
