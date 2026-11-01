@@ -7,6 +7,7 @@
 #include <RED4ext/RED4ext.hpp>
 
 #include <algorithm>
+#include <cstring>
 
 namespace nightcoop_mac::scene_skip
 {
@@ -121,11 +122,16 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, bool same
     nc::proto::Reader reader(message.data(), message.size());
     if (session.GetStatus().MyPeerNumber == 0 && fromPeer != 0 && static_cast<uint8_t>(MessageTypeOfRaw(message)) == LineSkipType)
     {
+        auto relayed = message;
+        if (relayed.size() >= 9)
+        {
+            std::memcpy(relayed.data() + 5, &fromPeer, sizeof(fromPeer));
+        }
         for (const auto& [peer, nickname] : session.PeerNicknames())
         {
             if (peer != 0 && peer != fromPeer)
             {
-                session.SendGameMessage(message, static_cast<int32_t>(peer));
+                session.SendGameMessage(relayed, static_cast<int32_t>(peer));
             }
         }
     }
