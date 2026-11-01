@@ -92,6 +92,7 @@ add_library(NightCoopMac SHARED
   src/plugin/PhotoTogether.cpp
   src/plugin/NpcTags.cpp
   src/plugin/SmsReplies.cpp
+  src/plugin/WorldLoad.cpp
   src/plugin/NpcShare.cpp
   src/plugin/NpcStates.cpp
   src/plugin/Items.cpp

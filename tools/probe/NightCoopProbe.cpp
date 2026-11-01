@@ -43,6 +43,7 @@
  PROBE_PHOTO=1 opens photo mode at step 100 and closes it at step 200 (PhotoTogether)
  PROBE_FX=<effect resource path hash> shows that effect at step 120 where the joiner stands (PlayerFx)
  PROBE_CARHIT=1 (with PROBE_VEHICLE) says at step 200 that our car hit the hosts player (VehicleHit 9 m/s)
+ PROBE_LOBBY=1 on the host says it started a save from its lobby once a guest is there (LobbyStart)
  PROBE_DEAD=1 on the host says the first npc a guest shares 40 s on died in our world (NpcDead) and prints NpcDefeat
  PROBE_TAKE=1 takes the first npc the host hands over (NpcHandoffAck + NpcClaim 3), owns it for 100 steps and lets it go,
  without it evry offer gets refused
@@ -643,7 +644,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto callStartedAt = std::chrono::steady_clock::time_point::max();
     int callPhaseSent = 0;
     uint32_t callCommits = 0;
-    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
+    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
     auto deadline = std::chrono::steady_clock::now() + (staysUp ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
     auto nextReward = std::chrono::steady_clock::now() + 20s;
@@ -660,8 +661,19 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     bool deadSent = false;
     auto reloadAt = std::chrono::steady_clock::time_point::max();
     uint32_t reloadPeer = 0;
+    bool lobbySent = false;
     while (std::chrono::steady_clock::now() < deadline)
     {
+        if (std::getenv("PROBE_LOBBY") && !lobbySent && session.GetStatus().ConnectedPeers > 0)
+        {
+            lobbySent = true;
+            nc::proto::Writer lobby(nc::proto::MsgType::LobbyStart);
+            lobby.PutU32(1);
+            lobby.PutString("ManualSave-46");
+            lobby.PutU8(0);
+            session.SendGameMessage(lobby.Data());
+            std::printf("probe: started ManualSave-46 from our lobby (LobbyStart)\n");
+        }
         if (reloadSave && reloadPeer && std::chrono::steady_clock::now() >= reloadAt)
         {
             reloadAt = std::chrono::steady_clock::time_point::max();
