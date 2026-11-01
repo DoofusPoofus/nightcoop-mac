@@ -18,7 +18,7 @@
  netId (reason 1). the old owner turns its real car into a mirror of ours. an owner still at the wheel refuses (reason 3) and
  a handover to us of a mirror we have adopts it as ours. a real car that became a mirror is never deleted
  dents (VehicleDamage 132): a partners car damage grid (2 layers of 15) and flat tire go onto our mirror. the first damage we put
- on a mirror tells us where the grid lives (a pointer in the car object whose +0x100 holds those 30 floats, read with
+ on a mirror tells us where the grid lives (a pointer in the car object whose +0x100 holds those 30 floats read with
  vm_read_overwrite so a wrong guess never crashes) and from then on our own cars grid goes out evry 500 ms on change (5 s
  refresh while damaged). on mac 2.5.0 the grid is known to sit at [car + 0x538] + 0x100 so ours goes out from the start
  scene cars (VehicleSceneSeat 123): a car a scene holds us in (an npc drives and our player or the car is in a scene) is not

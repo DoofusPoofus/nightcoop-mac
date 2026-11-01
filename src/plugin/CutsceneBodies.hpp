@@ -5,7 +5,7 @@
  them from 20 s to 40 s into a save (testing only). a partner body standing inside our player (within 0.5 m) gets hidden too and
  comes back past 1 m (one spawn point for both)
  QuestScene 72: a guest keeps the hosts live scenes (kinds 1 and 6 up 2 down). while a scene holds our player in the hosts world
- evry live scene whose entry is within 30 m of us gets a kind 3 (we play it too, so the host hides our body) and kind 4 once
+ evry live scene whose entry is within 30 m of us gets a kind 3 (we play it too so the host hides our body) and kind 4 once
  the scene let go of us
 */
 #pragma once

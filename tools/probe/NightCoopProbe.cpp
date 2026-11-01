@@ -22,9 +22,9 @@
  PROBE_NPC_WEAPON=0x<record> then. HitClaims on it get answered like an owner (HitResult NpcDespawn 3 with the killer at 0 %)
  PROBE_CLAIM claims 35 % of the first npc the host shares evry 2 s
  PROBE_HACK=1 quickhacks the first npc the host shares with QuickHack.BlindLvl1Hack evry 4 s (HackSync completion)
- PROBE_REWARD=<reward record name> on the host sends it as a quest reward (RewardWord kind 1) evry 10 s, the joiner prints
+ PROBE_REWARD=<reward record name> on the host sends it as a quest reward (RewardWord kind 1) evry 10 s. the joiner prints
  the hosts rewards
- PROBE_CALL=<contact> on the host rings that contact 25 s after the guest is there, starts the call 6 s later and ends it
+ PROBE_CALL=<contact> on the host rings that contact 25 s after the guest is there starts the call 6 s later and ends it
  20 s after the ring (PhoneSync commits)
  PROBE_BLAST=0x<device key> [PROBE_BLAST_X/Y/Z] says at step 100 that our player blew up that barrel (DeviceBlast)
  PROBE_DEVICE_ECHO=1 sends evry device action the host shares back to it as our own request 40 steps later
@@ -62,7 +62,7 @@
  PROBE_KICK=1 on the host kicks its guests 15 s after it heard of one (Kick)
  PROBE_LOBBY=1 on the host says it started a save from its lobby once a guest is there (LobbyStart)
  PROBE_DEAD=1 on the host says the first npc a guest shares 40 s on died in our world (NpcDead) and prints NpcDefeat
- PROBE_TAKE=1 takes the first npc the host hands over (NpcHandoffAck + NpcClaim 3), owns it for 100 steps and lets it go,
+ PROBE_TAKE=1 takes the first npc the host hands over (NpcHandoffAck + NpcClaim 3), owns it for 100 steps and lets it go
  without it evry offer gets refused
  PROBE_OFFER=1 (with PROBE_NPC) hands its npc to the host at step 120 and stops driving it
  PROBE_MIRROR shares one of the hosts own npcs back to it as our npc (same record entity id keys and spot) for 120 steps
