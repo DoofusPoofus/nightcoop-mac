@@ -23,6 +23,7 @@ works in a save with the probe:
 - grenade blasts push loose stuff around at the partners (no damage)
 - a shared npcs corpse loot is the owners: the partners copy drops none of its own n the owners list shows as a bag (first cut, the bag needs a running world to check)
 - car dents n flat tires go both ways (VehicleDamage. the grid sits at [car + 0x538] + 0x100 on mac 2.5.0 n gets checked against the first partner dents)
+- running over a partners npc gives ur own game the police heat (NpcCarHit)
 - a partners car hitting u (VehicleHit) plays the games own car hit on ur player (first cut, the knockdown isnt checked yet)
 - effects a windows partner draws (PlayerFx: rockets explosive rounds slams) show up here, sending ours isnt there
 - a partner opening photo mode in ur world shows a hint (PhotoTogether) n ours goes out

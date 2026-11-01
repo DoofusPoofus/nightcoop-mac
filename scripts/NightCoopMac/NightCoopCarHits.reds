@@ -1,9 +1,12 @@
 // car hits the script half of the plugins car hits (nightcoops VehicleHit 65): when the car our player drives hits a partner
 // body the hit gets queued as a line (peer direction xyz impulse xyz speed) for TakeHits. CarHitUs plays a
-// partners car hitting us as the games own OnCarHitPlayer event on our player (knockdown push and damage like any car)
+// partners car hitting us as the games own OnCarHitPlayer event on our player (knockdown push and damage like any car).
+// any npc of ours (not a copy) hit by a car gets queued too (TakeNpcHits: entity place car and prey velocities crowd / police
+// flags) so the plugin can tell the owner of a partner car and PoliceSeesOurCarHit hands such a hit to our prevention system
 
 public class NightCoopCarHits extends ScriptableService {
   private let m_hitLines: String;
+  private let m_npcHitLines: String;
 
   public static func Get() -> ref<NightCoopCarHits> {
     return GameInstance.GetScriptableServiceContainer().GetService(n"NightCoopCarHits") as NightCoopCarHits;
@@ -17,6 +20,15 @@ public class NightCoopCarHits extends ScriptableService {
     }
     let peer = combat.BodyPeer(target.GetEntityID());
     let car = player.GetMountedVehicle();
+    let npc = target as ScriptedPuppet;
+    if peer < 0 && IsDefined(npc) && !combat.IsCopy(target.GetEntityID()) {
+      let place = target.GetWorldPosition();
+      this.m_npcHitLines += EntityID.ToDebugStringDecimal(target.GetEntityID()) + " " + FloatToString(place.X) + " " + FloatToString(place.Y) + " " +
+        FloatToString(place.Z) + " " + FloatToString(evt.vehicleVelocity.X) + " " + FloatToString(evt.vehicleVelocity.Y) + " " + FloatToString(evt.vehicleVelocity.Z) +
+        " " + FloatToString(evt.preyVelocity.X) + " " + FloatToString(evt.preyVelocity.Y) + " " + FloatToString(evt.preyVelocity.Z) + " " +
+        IntToString((npc.IsCrowd() ? 4 : 0) + (npc.IsPrevention() ? 8 : 0)) + "\n";
+      return;
+    }
     if peer < 0 || !IsDefined(car) || Vector4.Distance(car.GetWorldPosition(), target.GetWorldPosition()) > 8.0 {
       return;
     }
@@ -26,6 +38,30 @@ public class NightCoopCarHits extends ScriptableService {
     this.m_hitLines += IntToString(peer) + " " + FloatToString(direction.X) + " " +
       FloatToString(direction.Y) + " " + FloatToString(direction.Z) + " " + FloatToString(impulse.X) + " " + FloatToString(impulse.Y) + " " +
       FloatToString(impulse.Z) + " " + FloatToString(Vector4.Length(evt.vehicleVelocity)) + "\n";
+  }
+
+  public func TakeNpcHits() -> String {
+    let lines = this.m_npcHitLines;
+    this.m_npcHitLines = "";
+    return lines;
+  }
+
+  public func PoliceSeesOurCarHit(npc: ref<GameObject>, x: Float, y: Float, z: Float, fraction: Float, killed: Bool, police: Bool) -> Bool {
+    let prevention = GameInstance.GetScriptableSystemsContainer(GetGameInstance()).Get(n"PreventionSystem") as PreventionSystem;
+    if !IsDefined(prevention) {
+      return false;
+    }
+    let request = new PreventionDamageRequest();
+    if IsDefined(npc) {
+      request.targetID = npc.GetEntityID();
+    }
+    request.targetPosition = new Vector4(x, y, z, 1.0);
+    request.damageDealtPercentValue = fraction * 100.0;
+    request.isTargetKilled = killed;
+    request.isTargetPrevention = police;
+    request.isTargetVehicle = false;
+    prevention.QueueRequest(request);
+    return true;
   }
 
   public func TakeHits() -> String {

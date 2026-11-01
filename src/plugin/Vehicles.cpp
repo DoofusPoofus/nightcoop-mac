@@ -334,6 +334,44 @@ void Vehicles::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message,
             mirror->second.LastHeardMs = 1;
         }
     }
+    else if (type == static_cast<uint8_t>(nc::proto::MsgType::NpcCarHit))
+    {
+        net::NpcCarHit hit;
+        if (!net::ReadNpcCarHit(message, hit) || hit.CarNetId != m_share.NetId || !m_share.NetId)
+        {
+            return;
+        }
+        const bool lethal = (hit.Flags & 1) != 0;
+        uint64_t& lastMs = m_policeCarHitMs[hit.NpcNetId];
+        if (lethal && lastMs && nowMs - lastMs < 60000)
+        {
+            return;
+        }
+        lastMs = nowMs;
+        static auto* policeSees = game::FindFunction("NightCoopCarHits", "PoliceSeesOurCarHit");
+        auto service = game::ScriptService("NightCoopCarHits");
+        if (!policeSees || !service)
+        {
+            return;
+        }
+        auto copy = m_copyOfNetId ? EntityOf(m_copyOfNetId(hit.NpcNetId)) : RED4ext::Handle<RED4ext::IScriptable>();
+        float fraction = hit.DamageFraction;
+        bool police = (hit.Flags & 8) != 0;
+        bool queued = false;
+        RED4ext::StackArgs_t args;
+        args.emplace_back(nullptr, &copy);
+        args.emplace_back(nullptr, &hit.ImpulsePlace[0]);
+        args.emplace_back(nullptr, &hit.ImpulsePlace[1]);
+        args.emplace_back(nullptr, &hit.ImpulsePlace[2]);
+        args.emplace_back(nullptr, &fraction);
+        args.emplace_back(nullptr, const_cast<bool*>(&lethal));
+        args.emplace_back(nullptr, &police);
+        game::CallMethod(service.instance, policeSees, &queued, args);
+        char line[128];
+        std::snprintf(line, sizeof(line), "vehicles: our car hit peer %u's npc %#010x (%s), our police %s", fromPeer, hit.NpcNetId, lethal ? "lethal" : "hurt",
+                      queued ? "hears of it" : "did not take it");
+        m_log(line);
+    }
     else if (type == static_cast<uint8_t>(nc::proto::MsgType::VehicleSceneSeat))
     {
         net::VehicleSceneSeat seat;
@@ -1190,6 +1228,71 @@ void Vehicles::SeatSceneSeats(uint64_t nowMs, RemoteBodies& bodies)
     }
 }
 
+void Vehicles::SendNpcCarHits(uint64_t nowMs, net::RelaySession& session)
+{
+    static auto* takeNpcHits = game::FindFunction("NightCoopCarHits", "TakeNpcHits");
+    auto service = game::ScriptService("NightCoopCarHits");
+    if (!takeNpcHits || !service)
+    {
+        return;
+    }
+    RED4ext::CString lines;
+    RED4ext::StackArgs_t noArgs;
+    game::CallMethod(service.instance, takeNpcHits, &lines, noArgs);
+    std::istringstream input(lines.c_str());
+    uint64_t npcHash = 0;
+    net::NpcCarHit hit;
+    uint32_t flags = 0;
+    while (input >> npcHash >> hit.ImpulsePlace[0] >> hit.ImpulsePlace[1] >> hit.ImpulsePlace[2] >> hit.CarVelocity[0] >> hit.CarVelocity[1] >> hit.CarVelocity[2] >>
+           hit.PreyVelocity[0] >> hit.PreyVelocity[1] >> hit.PreyVelocity[2] >> flags)
+    {
+        hit.NpcNetId = m_netIdOfOurNpc ? m_netIdOfOurNpc(npcHash) : 0;
+        if (!hit.NpcNetId || nowMs - m_npcCarHitMs[hit.NpcNetId] < 1000)
+        {
+            continue;
+        }
+        uint32_t carNetId = 0;
+        uint32_t carOwner = 0;
+        float nearest = 8.0f;
+        for (const auto& [netId, mirror] : m_mirrors)
+        {
+            if (!mirror.InWorld || mirror.Snapshots.empty())
+            {
+                continue;
+            }
+            const auto& place = mirror.Snapshots.back().Position;
+            const float x = place[0] - hit.ImpulsePlace[0];
+            const float y = place[1] - hit.ImpulsePlace[1];
+            const float z = place[2] - hit.ImpulsePlace[2];
+            const float meters = std::sqrt(x * x + y * y + z * z);
+            if (meters < nearest)
+            {
+                nearest = meters;
+                carNetId = netId;
+                carOwner = mirror.OwnerPeer;
+            }
+        }
+        if (!carNetId)
+        {
+            continue;
+        }
+        m_npcCarHitMs[hit.NpcNetId] = nowMs;
+        const float x = hit.CarVelocity[0] - hit.PreyVelocity[0];
+        const float y = hit.CarVelocity[1] - hit.PreyVelocity[1];
+        const float z = hit.CarVelocity[2] - hit.PreyVelocity[2];
+        const float speed = std::sqrt(x * x + y * y + z * z);
+        hit.CarNetId = carNetId;
+        hit.ClockMs = session.SessionClockMs();
+        hit.DamageFraction = std::min(speed / 20.0f, 1.5f);
+        hit.Flags = static_cast<uint8_t>((flags & 0x0C) | (hit.DamageFraction >= 1.0f ? 1 : 0));
+        std::copy(hit.CarVelocity, hit.CarVelocity + 3, hit.Impulse);
+        session.SendGameMessage(net::WriteNpcCarHit(hit), static_cast<int32_t>(carOwner));
+        char line[128];
+        std::snprintf(line, sizeof(line), "vehicles: peer %u's car hit our npc %#010x at %.1f m/s, their police hears of it", carOwner, hit.NpcNetId, speed);
+        m_log(line);
+    }
+}
+
 bool Vehicles::ReadRadio(RED4ext::Handle<RED4ext::IScriptable>& vehicle, net::CarRadio& radio)
 {
     static auto* isActive = game::FindFunction("vehicleBaseObject", "IsRadioReceiverActive");
@@ -1585,6 +1688,7 @@ void Vehicles::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session, Rem
     SendCarHits(nowMs, session);
     ShareRadio(nowMs, session);
     SeatSceneSeats(nowMs, bodies);
+    SendNpcCarHits(nowMs, session);
     if (m_gridSearchAtMs && nowMs >= m_gridSearchAtMs)
     {
         m_gridSearchAtMs = 0;

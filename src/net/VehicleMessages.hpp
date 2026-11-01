@@ -20,6 +20,9 @@
    unreliable evry 200 ms a zero record when it got out 65 bytes: u64 its entity id | u64 car record | u64 seat slot | f32 x3 our
    place in the cars axes (|v| <= 10) | f32 x4 orientation there | f32 x3 the cars world place | u8 flags (bit0 av bit1 a quest
    ride bit2 seated by a scene)
+ NpcCarHit (213) npc owner -> the car owner reliable 69 bytes: u32 car netId | u32 npc netId | u64 shared clock ms | f32 x3 car
+   velocity | f32 x3 prey velocity | f32 x3 impulse place | f32 x3 impulse | f32 damage fraction (0..1.5) | u8 flags (1 lethal 2 died
+   after 4 crowd 8 police 0x10 mechanical)
  CarsWord (181) radio kinds 0 / 1 reliable to one peer 30 bytes: u8 kind (0 owner -> a passenger: the radio state 1 passenger ->
    owner: set this station) | u32 netId | u8 radio on | u32 station index (< 0x10000) | u32 spare | u64 station name | u64 track name
  VehicleHit (65) car owner -> the peer whose body its car hit reliable 44 bytes: u32 netId | u32 hit peer | u64 shared clock ms |
@@ -77,6 +80,19 @@ struct VehicleSceneSeat
     float Offset[3] = {0, 0, 0};
     float Orientation[4] = {0, 0, 0, 1};
     float CarPosition[3] = {0, 0, 0};
+    uint8_t Flags = 0;
+};
+
+struct NpcCarHit
+{
+    uint32_t CarNetId = 0;
+    uint32_t NpcNetId = 0;
+    uint64_t ClockMs = 0;
+    float CarVelocity[3] = {0, 0, 0};
+    float PreyVelocity[3] = {0, 0, 0};
+    float ImpulsePlace[3] = {0, 0, 0};
+    float Impulse[3] = {0, 0, 0};
+    float DamageFraction = 0;
     uint8_t Flags = 0;
 };
 
@@ -151,6 +167,8 @@ std::vector<uint8_t> WriteVehicleHit(const VehicleHit& hit);
 std::vector<uint8_t> WriteVehicleHandover(const VehicleHandover& handover);
 std::vector<uint8_t> WriteVehicleDamage(const VehicleDamage& damage);
 std::vector<uint8_t> WriteCarRadio(const CarRadio& radio);
+std::vector<uint8_t> WriteNpcCarHit(const NpcCarHit& hit);
+bool ReadNpcCarHit(const std::vector<uint8_t>& message, NpcCarHit& hit);
 std::vector<uint8_t> WriteVehicleSceneSeat(const VehicleSceneSeat& seat);
 bool ReadVehicleSceneSeat(const std::vector<uint8_t>& message, VehicleSceneSeat& seat);
 bool ReadCarRadio(const std::vector<uint8_t>& message, CarRadio& radio);

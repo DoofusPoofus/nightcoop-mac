@@ -238,6 +238,8 @@ bool OnRunningEnter(RED4ext::CGameApplication*)
         nightcoop_mac::world_loot::NoteCorpse(OurNpcs->NetIdOfEntity(person.Entity), person.Entity);
     });
     nightcoop_mac::world_loot::SetCopyLookup([](uint32_t netId) { return Npcs ? Npcs->EntityOfNetId(netId) : 0; });
+    Cars->SetNpcLookups([](uint64_t entityHash) { return OurNpcs ? OurNpcs->NetIdOfEntity(entityHash) : 0; },
+                        [](uint32_t netId) { return Npcs ? Npcs->EntityOfNetId(netId) : 0; });
     Mirror = std::make_unique<nightcoop_mac::AnimMirror>(Log);
     Flow = std::make_unique<nightcoop_mac::SessionFlow>(Log);
     Session->Start(config);
@@ -496,6 +498,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::VehicleDamage) ||
                  nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::VehicleSceneSeat) ||
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::NpcCarHit) ||
                  (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::CarsWord) && message.Message.size() > 5 &&
                   message.Message[5] < 2))
         {

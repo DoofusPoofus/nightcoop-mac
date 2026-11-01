@@ -1020,6 +1020,16 @@ int main()
         Check(sceneSeatBytes.size() == 5 + 65 && sceneSeatBytes[4] == 123 && ReadVehicleSceneSeat(sceneSeatBytes, sceneSeatBack) && sceneSeatBack.Slot == 0x99 &&
                   sceneSeatBack.CarPosition[0] == 100.0f && sceneSeatBack.Flags == 6,
               "vehicle scene seat is 65 bytes");
+        NpcCarHit npcCarHit;
+        npcCarHit.CarNetId = 0x02000001;
+        npcCarHit.NpcNetId = 0x01000009;
+        npcCarHit.DamageFraction = 0.7f;
+        npcCarHit.Flags = 4;
+        NpcCarHit npcCarHitBack;
+        const auto npcCarHitBytes = WriteNpcCarHit(npcCarHit);
+        Check(npcCarHitBytes.size() == 5 + 69 && npcCarHitBytes[4] == 213 && ReadNpcCarHit(npcCarHitBytes, npcCarHitBack) && npcCarHitBack.DamageFraction == 0.7f &&
+                  npcCarHitBack.Flags == 4,
+              "npc car hit is 69 bytes");
         CarRadio radio {0, 0x01000002, 1, 4, 0, 0x55, 0x66};
         CarRadio radioBack;
         const auto radioBytes = WriteCarRadio(radio);

@@ -24,6 +24,9 @@
  scene cars (VehicleSceneSeat 123): a car a scene holds us in (an npc drives and our player or the car is in a scene) is not
  shared: we tell the others our seat in our own copy of it and a partner in theirs gets its body seated in our copy of that car
  (the same static entity id or the nearest car of that record within 30 m)
+ npc car hits (NpcCarHit 213): a partners car (our mirror within 8 m) hitting one of our shared npcs tells that car owner (once
+ a second per npc) and a hit by our own car from a partner goes to our prevention system as damage (a kill once a minute per
+ npc) so the driver gets the heat
  radio (CarsWord 181 kinds 0 / 1): the car we drive tells each partner sitting in it its radio (on station index names) on
  change and evry 2 s and we play that on our mirror of their car. switching the station in a partners car asks its owner
  car hits (VehicleHit 65): when the car we drive hits a partner body (script wrap on gameObject.OnVehicleHit) that partner gets
@@ -67,6 +70,11 @@ public:
     void Tick(uint64_t nowMs, bool inSave, net::RelaySession& session, RemoteBodies& bodies);
     void RunTestCar(uint64_t nowMs);
     void OnCarHit(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs, uint32_t ourPeer);
+    void SetNpcLookups(std::function<uint32_t(uint64_t)> netIdOfOurNpc, std::function<uint64_t(uint32_t)> copyOfNetId)
+    {
+        m_netIdOfOurNpc = std::move(netIdOfOurNpc);
+        m_copyOfNetId = std::move(copyOfNetId);
+    }
 
 private:
     struct Snapshot
@@ -186,6 +194,11 @@ private:
     std::vector<uint32_t> m_handoverRefusals;
     uint32_t m_ourPeer = 0;
     std::map<uint32_t, uint64_t> m_radioSentMs;
+    std::function<uint32_t(uint64_t)> m_netIdOfOurNpc;
+    std::function<uint64_t(uint32_t)> m_copyOfNetId;
+    std::map<uint32_t, uint64_t> m_npcCarHitMs;
+    std::map<uint32_t, uint64_t> m_policeCarHitMs;
+    void SendNpcCarHits(uint64_t nowMs, net::RelaySession& session);
     struct PartnerSceneSeat
     {
         net::VehicleSceneSeat Seat;

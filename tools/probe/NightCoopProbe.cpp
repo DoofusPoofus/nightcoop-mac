@@ -42,6 +42,7 @@
  PROBE_CORPSE=1 (with PROBE_NPC) kills our npc at step 200 and shares its corpse with 2 FirstAidWhiffV0 (LootState kind 1)
  PROBE_KO=1 (with PROBE_NPC) says at step 200 that the host knocked out our npc without killing it (RewardWord kind 2)
  PROBE_VEHICLE_EMPTY=1 (with PROBE_VEHICLE) shares that car with nobody at the wheel so the host can take it
+ PROBE_NPCCARHIT=1 (with PROBE_NPC) says at step 450 that the hosts car hit our npc (NpcCarHit)
  PROBE_TAKECAR=1 says at step 250 that we took the wheel of the hosts car (VehicleHandover 1) and prints handovers
  PROBE_POLICE=1 says at step 130 that a police unit of ours fights the hosts body (PoliceFight)
  PROBE_TAG=1 tags the first npc the host shares at step 150 and untags it at step 250 (NpcTag)
@@ -1599,6 +1600,20 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             knockout.NetId = (session.GetStatus().MyPeerNumber << 24) | 7;
             session.SendGameMessage(nightcoop_mac::net::WriteRewardWord(knockout), 0);
             std::printf("probe: the host knocked out our npc %#010x (RewardWord kind 2)\n", knockout.NetId);
+        }
+        if (std::getenv("PROBE_NPCCARHIT") && std::getenv("PROBE_NPC") && hostCarNetId && step == 450)
+        {
+            nightcoop_mac::net::NpcCarHit npcHit;
+            npcHit.CarNetId = hostCarNetId;
+            npcHit.NpcNetId = (session.GetStatus().MyPeerNumber << 24) | 7;
+            npcHit.ClockMs = session.SessionClockMs();
+            npcHit.DamageFraction = 0.8f;
+            npcHit.Flags = 4;
+            npcHit.ImpulsePlace[0] = state.PositionX;
+            npcHit.ImpulsePlace[1] = state.PositionY + 2.0f;
+            npcHit.ImpulsePlace[2] = state.PositionZ;
+            session.SendGameMessage(nightcoop_mac::net::WriteNpcCarHit(npcHit), 0);
+            std::printf("probe: the hosts car hit our npc %#010x (NpcCarHit)\n", npcHit.NpcNetId);
         }
         if (std::getenv("PROBE_TAKECAR") && hostCarNetId && step == 250)
         {

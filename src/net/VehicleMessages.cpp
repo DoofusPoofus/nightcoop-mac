@@ -357,4 +357,38 @@ bool ReadVehicleSceneSeat(const std::vector<uint8_t>& message, VehicleSceneSeat&
     const bool placeOk = std::all_of(seat.CarPosition, seat.CarPosition + 3, [](float value) { return std::fabs(value) <= 100000.0f; });
     return reader.Ok() && reader.Remaining() == 0 && offsetSquared <= 100.0f && placeOk && (seat.Flags & ~7u) == 0;
 }
+
+std::vector<uint8_t> WriteNpcCarHit(const NpcCarHit& hit)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::NpcCarHit);
+    writer.PutU32(hit.CarNetId);
+    writer.PutU32(hit.NpcNetId);
+    writer.PutU64(hit.ClockMs);
+    PutFloats(writer, hit.CarVelocity, 3);
+    PutFloats(writer, hit.PreyVelocity, 3);
+    PutFloats(writer, hit.ImpulsePlace, 3);
+    PutFloats(writer, hit.Impulse, 3);
+    writer.PutF32(std::clamp(hit.DamageFraction, 0.0f, 1.5f));
+    writer.PutU8(hit.Flags & 0x1F);
+    return writer.Data();
+}
+
+bool ReadNpcCarHit(const std::vector<uint8_t>& message, NpcCarHit& hit)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (!OpenMessage(reader, nc::proto::MsgType::NpcCarHit))
+    {
+        return false;
+    }
+    hit.CarNetId = reader.GetU32();
+    hit.NpcNetId = reader.GetU32();
+    hit.ClockMs = reader.GetU64();
+    if (!GetFloats(reader, hit.CarVelocity, 3) || !GetFloats(reader, hit.PreyVelocity, 3) || !GetFloats(reader, hit.ImpulsePlace, 3) ||
+        !GetFloats(reader, hit.Impulse, 3) || !GetFloats(reader, &hit.DamageFraction, 1))
+    {
+        return false;
+    }
+    hit.Flags = reader.GetU8();
+    return reader.Ok() && hit.CarNetId != 0 && hit.NpcNetId != 0 && hit.DamageFraction >= 0 && hit.DamageFraction <= 1.5f;
+}
 }
