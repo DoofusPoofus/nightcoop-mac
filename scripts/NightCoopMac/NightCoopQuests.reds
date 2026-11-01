@@ -134,6 +134,19 @@ public class NightCoopQuestSync extends ScriptableService {
     }
   }
 
+  public func TrackByHash(hash: Uint32) -> Bool {
+    let journal = this.Journal();
+    if !IsDefined(journal) {
+      return false;
+    }
+    let entry = journal.GetEntry(hash);
+    if !IsDefined(entry) {
+      return false;
+    }
+    journal.TrackEntry(entry);
+    return true;
+  }
+
   public func ApplyJournal(hash: Uint32, state: Int32, notify: Bool) -> Int32 {
     let journal = this.Journal();
     if !IsDefined(journal) {

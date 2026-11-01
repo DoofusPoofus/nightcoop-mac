@@ -143,6 +143,12 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
         {
             plan.TestCharacter = true;
         }
+        else if (keyword == "track")
+        {
+            std::string mode;
+            words >> mode;
+            plan.TrackHostObjective = mode != "own";
+        }
         else if (keyword == "test_factword")
         {
             plan.TestFactWord = true;

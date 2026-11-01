@@ -88,6 +88,7 @@ struct HostSide
     std::map<uint32_t, uint32_t> WaitingSnapshots;
     std::map<uint32_t, std::pair<uint32_t, uint64_t>> LastSnapshotByPeer;
     uint32_t SnapshotCounter = 0;
+    std::map<uint32_t, uint8_t> TrackModeSent;
     uint32_t Tracked = 0;
     bool TrackedKnown = false;
     bool Watching = false;
@@ -114,6 +115,8 @@ struct GuestSide
     std::deque<net::QuestFact> Facts;
     std::deque<net::QuestJournalEntry> Journal;
     uint32_t HostTracked = 0;
+    bool FollowHostTracking = false;
+    uint32_t FollowedTracked = 0;
     uint32_t FactsChanged = 0;
     uint32_t FactsEqual = 0;
     uint32_t FactsKeptOwn = 0;
@@ -129,6 +132,8 @@ struct GuestSide
     bool BrokenLogged = false;
 };
 
+constexpr uint8_t TrackModeType = 222;
+bool GuestsFollowTracking = true;
 Calls Script;
 HostSide Host;
 GuestSide Guest;
@@ -652,6 +657,20 @@ void GuestTick(uint64_t nowMs, bool inSave, bool inAnyWorld, net::RelaySession& 
     AskForSnapshot(nowMs, session, log);
     ApplyFacts(nowMs, log);
     ApplyJournal(nowMs, log);
+    static auto* trackByHash = game::FindFunction("NightCoopQuestSync", "TrackByHash");
+    if (Guest.FollowHostTracking && Guest.HostTracked && Guest.HostTracked != Guest.FollowedTracked && Guest.Journal.empty() && trackByHash)
+    {
+        auto service = game::ScriptService("NightCoopQuestSync");
+        uint32_t hash = Guest.HostTracked;
+        bool tracked = false;
+        RED4ext::StackArgs_t args;
+        args.emplace_back(nullptr, &hash);
+        if (service && game::CallMethod(service.instance, trackByHash, &tracked, args) && tracked)
+        {
+            Guest.FollowedTracked = Guest.HostTracked;
+            log("quests: we track the hosts objective " + HashText(hash) + " too");
+        }
+    }
     if (Guest.Facts.empty() && Guest.Journal.empty())
     {
         Guest.SnapshotQueued = false;
@@ -715,7 +734,7 @@ void TakeHostJournal(const net::QuestJournal& journal, const LogFunction& log)
     if (journal.TrackedKnown && journal.Tracked != Guest.HostTracked)
     {
         Guest.HostTracked = journal.Tracked;
-        log("quests: the host tracks journal entry " + HashText(journal.Tracked) + " (each player tracks their own here)");
+        log("quests: the host tracks journal entry " + HashText(journal.Tracked) + (Guest.FollowHostTracking ? " (we follow it)" : " (each player tracks their own here)"));
     }
     for (const auto& entry : journal.Entries)
     {
@@ -723,6 +742,24 @@ void TakeHostJournal(const net::QuestJournal& journal, const LogFunction& log)
         {
             Guest.Journal.push_back(entry);
         }
+    }
+}
+
+void SendTrackModes(bool guestsFollow, net::RelaySession& session)
+{
+    const uint8_t mode = guestsFollow ? 1 : 0;
+    for (const uint32_t peer : PartnersInOurWorld(session))
+    {
+        auto sent = Host.TrackModeSent.find(peer);
+        if (sent != Host.TrackModeSent.end() && sent->second == mode)
+        {
+            continue;
+        }
+        Host.TrackModeSent[peer] = mode;
+        nc::proto::Writer word(static_cast<nc::proto::MsgType>(TrackModeType));
+        word.PutU8(1);
+        word.PutU8(mode);
+        session.SendGameMessage(word.Data(), static_cast<int32_t>(peer));
     }
 }
 
@@ -757,6 +794,7 @@ void Tick(uint64_t nowMs, bool inSave, bool enabled, bool inAnyWorld, net::Relay
     if (status.MyPeerNumber == 0)
     {
         HostTick(nowMs, inSave, session, log);
+        SendTrackModes(GuestsFollowTracking, session);
     }
     else
     {
@@ -772,6 +810,20 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::Rela
     }
     const uint8_t type = net::MessageTypeOf(message);
     const bool weAreHost = session.GetStatus().MyPeerNumber == 0;
+    if (type == TrackModeType)
+    {
+        nc::proto::Reader reader(message.data(), message.size());
+        reader.ReadHeader();
+        const uint8_t version = reader.GetU8();
+        const uint8_t mode = reader.GetU8();
+        if (!weAreHost && fromPeer == 0 && reader.Ok() && reader.Remaining() == 0 && version == 1 && mode < 2 && (mode == 1) != Guest.FollowHostTracking)
+        {
+            Guest.FollowHostTracking = mode == 1;
+            Guest.FollowedTracked = 0;
+            log(mode == 1 ? "quests: the host wants us to track its objective" : "quests: each player tracks their own objective");
+        }
+        return;
+    }
     if (type == static_cast<uint8_t>(nc::proto::MsgType::QuestWant))
     {
         uint32_t world = 0;
@@ -806,5 +858,16 @@ std::vector<std::pair<uint32_t, int32_t>> SharedChanges(const std::vector<std::p
         changes.push_back({fact.FactId, fact.Value});
     }
     return changes;
+}
+
+void SetGuestsFollowTracking(bool follow)
+{
+    GuestsFollowTracking = follow;
+}
+
+bool Handles(uint8_t messageType)
+{
+    return messageType == static_cast<uint8_t>(nc::proto::MsgType::QuestFacts) || messageType == static_cast<uint8_t>(nc::proto::MsgType::QuestJournal) ||
+           messageType == static_cast<uint8_t>(nc::proto::MsgType::QuestWant) || messageType == TrackModeType;
 }
 }

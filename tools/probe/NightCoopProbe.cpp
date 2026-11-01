@@ -45,6 +45,7 @@
  PROBE_PHOTO=1 opens photo mode at step 100 and closes it at step 200 (PhotoTogether)
  PROBE_FX=<effect resource path hash> shows that effect at step 120 where the joiner stands (PlayerFx)
  PROBE_CARHIT=1 (with PROBE_VEHICLE) says at step 200 that our car hit the hosts player (VehicleHit 9 m/s)
+ PROBE_TRACK=<journal entry hash> on the host wants guests to track that objective (TrackModeWord 1 + a QuestJournal word)
  PROBE_QTELE=1 on the host says the game moved it 100 m from the guest 10 s after it heard of it (QuestTeleport kind 1)
  PROBE_GATE=1 on the host says its scene waits at a gate 3 m from the guest 15 s after it heard of it and passes it 25 s later
  PROBE_LOBBY=1 on the host says it started a save from its lobby once a guest is there (LobbyStart)
@@ -648,7 +649,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto callStartedAt = std::chrono::steady_clock::time_point::max();
     int callPhaseSent = 0;
     uint32_t callCommits = 0;
-    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_QTELE") || std::getenv("PROBE_FACTWORD") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
+    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_QTELE") || std::getenv("PROBE_FACTWORD") || std::getenv("PROBE_TRACK") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
     auto deadline = std::chrono::steady_clock::now() + (staysUp ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
     auto nextReward = std::chrono::steady_clock::now() + 20s;
@@ -670,9 +671,23 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     uint8_t gateStateSent = 0;
     auto questTeleportAt = std::chrono::steady_clock::time_point::max();
     bool questTeleportSent = false;
+    bool trackSent = false;
     uint8_t lastStoryState = 0xFF;
     while (std::chrono::steady_clock::now() < deadline)
     {
+        if (const char* trackText = std::getenv("PROBE_TRACK"); trackText && guestKnown && !trackSent)
+        {
+            trackSent = true;
+            nc::proto::Writer mode(static_cast<nc::proto::MsgType>(222));
+            mode.PutU8(1);
+            mode.PutU8(1);
+            session.SendGameMessage(mode.Data());
+            for (const auto& journalMessage : nightcoop_mac::net::SplitQuestJournal(false, 0, true, static_cast<uint32_t>(std::strtoul(trackText, nullptr, 0)), {}))
+            {
+                session.SendGameMessage(journalMessage);
+            }
+            std::printf("probe: wants guests to track our objective %s (TrackModeWord 1 + QuestJournal)\n", trackText);
+        }
         if (std::getenv("PROBE_QTELE") && guestKnown && !questTeleportSent)
         {
             if (questTeleportAt == std::chrono::steady_clock::time_point::max())
@@ -2137,6 +2152,11 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::AnimSetup setup;
             nightcoop_mac::net::SessionRoster roster;
             nightcoop_mac::net::VehicleSpawn hostCar;
+            if (nightcoop_mac::net::MessageTypeOf(message.Message) == 222)
+            {
+                std::printf("probe: peer %u says track mode %u (TrackModeWord)\n", message.FromPeer, message.Message.size() >= 7 ? message.Message[6] : 255);
+                continue;
+            }
             nightcoop_mac::net::VehicleHandover handover;
             nightcoop_mac::net::SmsReply smsWord;
             if (nightcoop_mac::net::ReadSmsReply(message.Message, smsWord))

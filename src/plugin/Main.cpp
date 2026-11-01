@@ -595,9 +595,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             nightcoop_mac::npc_combat::OnMessage(message.FromPeer, message.Message, nowMs, *Npcs, *OurNpcs, *Bodies, *Session, Log);
         }
-        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::QuestFacts) ||
-                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::QuestJournal) ||
-                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::QuestWant))
+        else if (nightcoop_mac::quest_sync::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {
             nightcoop_mac::quest_sync::OnMessage(message.FromPeer, message.Message, *Session, Log);
         }
@@ -697,6 +695,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         nightcoop_mac::world_handoff::TestCharacter(nowMs, inSave, Log);
     }
     nightcoop_mac::world_handoff::Tick(nowMs, inSave, Plan->WorldHandoff, *Session, PluginFolder, Log);
+    nightcoop_mac::quest_sync::SetGuestsFollowTracking(Plan->TrackHostObjective);
     nightcoop_mac::quest_sync::Tick(nowMs, inSave, Plan->QuestSync, Plan->QuestsInAnyWorld, *Session, Log);
     nightcoop_mac::lift_sync::Tick(nowMs, inSave, !LatestRemoteStates.empty(), *Session, Log);
     nightcoop_mac::door_sync::Tick(nowMs, inSave, Plan->ShareDoors, LocalStateValid ? &LastLocalState : nullptr, RemotePeerViews(), *Session, Log);
