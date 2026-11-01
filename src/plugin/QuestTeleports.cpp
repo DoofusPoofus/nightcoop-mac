@@ -2,6 +2,7 @@
 
 #include "net/GameMessages.hpp"
 #include "net/SessionMessages.hpp"
+#include "net/RelaySession.hpp"
 #include "plugin/GameCalls.hpp"
 #include "plugin/Hud.hpp"
 #include "plugin/KeyWatch.hpp"
@@ -29,6 +30,8 @@ float OfferPlace[3] = {0, 0, 0};
 float OfferYaw = 0;
 uint64_t HeldSinceMs = 0;
 uint64_t TestKeyDownAtMs = 0;
+bool HaveLastPlace = false;
+float LastPlace[3] = {0, 0, 0};
 
 bool MoveTo(const float* place, float yaw)
 {
@@ -54,6 +57,43 @@ bool MoveTo(const float* place, float yaw)
 bool Handles(uint8_t messageType)
 {
     return messageType == static_cast<uint8_t>(nc::proto::MsgType::QuestTeleport);
+}
+
+void WatchOurMoves(bool inSave, bool partnersInOurWorld, const net::PlayerState* ourPlayer, net::RelaySession& session, const LogFunction& log)
+{
+    if (!inSave || !ourPlayer)
+    {
+        HaveLastPlace = false;
+        return;
+    }
+    const float place[3] = {ourPlayer->PositionX, ourPlayer->PositionY, ourPlayer->PositionZ};
+    if (HaveLastPlace && partnersInOurWorld && session.GetStatus().MyPeerNumber == 0)
+    {
+        const float x = place[0] - LastPlace[0];
+        const float y = place[1] - LastPlace[1];
+        const float z = place[2] - LastPlace[2];
+        const float meters = std::sqrt(x * x + y * y + z * z);
+        if (meters >= NearestOfferMeters)
+        {
+            nc::proto::Writer teleport(nc::proto::MsgType::QuestTeleport);
+            teleport.PutU8(1);
+            for (float axis : place)
+            {
+                teleport.PutF32(axis);
+            }
+            teleport.PutF32(ourPlayer->Yaw);
+            for (float axis : LastPlace)
+            {
+                teleport.PutF32(axis);
+            }
+            session.SendGameMessage(teleport.Data());
+            char line[128];
+            std::snprintf(line, sizeof(line), "quest teleports: we got moved %.0f m, the partners get an offer", meters);
+            log(line);
+        }
+    }
+    std::copy(place, place + 3, LastPlace);
+    HaveLastPlace = true;
 }
 
 void Tick(uint64_t nowMs, bool inSave, bool testHold, const LogFunction& log)

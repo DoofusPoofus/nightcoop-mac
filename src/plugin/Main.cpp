@@ -704,6 +704,14 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         nightcoop_mac::door_sync::RunTest(nowMs, inSave, LocalStateValid ? &LastLocalState : nullptr, Log);
     }
     nightcoop_mac::quest_teleports::Tick(nowMs, inSave, Plan->TestTeleport, Log);
+    {
+        bool partnerHere = false;
+        for (const auto& view : RemotePeerViews())
+        {
+            partnerHere = partnerHere || nightcoop_mac::partner_roster::PeerInHostWorld(view.PeerNumber);
+        }
+        nightcoop_mac::quest_teleports::WatchOurMoves(inSave, partnerHere, LocalStateValid ? &LastLocalState : nullptr, *Session, Log);
+    }
     nightcoop_mac::scene_gates::Tick(nowMs, inSave, nightcoop_mac::world_handoff::InHostWorld() || Plan->ScenesAnyWorld, LocalStateValid ? &LastLocalState : nullptr,
                                      *Session, Log);
     nightcoop_mac::loot::Tick(nowMs, inSave, LocalStateValid ? &LastLocalState : nullptr, Plan->TestLoot, Plan->TestLootRecord, Plan->TestLootQuantity,
