@@ -2,7 +2,8 @@
 // mode 1 (host with partners in its world): evry call phase its PhoneSystem gets (OnTriggerCall) is noted for the plugin to commit
 // to evryone. mode 2 (guest in the hosts world): the guests own quest calls are swallowed (the hosts quest makes them) and a call
 // our player dials itself is noted as a request to the host instead. Play queues a call phase on our PhoneSystem like the game
-// does (QueueRequest) and lets it thru the wrap once (bypass count)
+// does (QueueRequest) and lets it thru the wrap once (bypass count). a guest answering or rejecting a ringing call (SetPhoneFact
+// talking / rejected) is noted as a pickup (action 2) for the host and Pickup answers or rejects the call on the hosts phone
 
 public class NightCoopPhoneCall {
   public let contact: CName;
@@ -10,6 +11,7 @@ public class NightCoopPhoneCall {
   public let callMode: Int32;
   public let visuals: Int32;
   public let flags: Int32;
+  public let action: Int32;
 }
 
 public class NightCoopPhone extends ScriptableService {
@@ -43,6 +45,7 @@ public class NightCoopPhone extends ScriptableService {
     call.callMode = EnumInt(request.callMode);
     call.visuals = EnumInt(request.visuals);
     call.flags = (playerCalling ? 1 : 0) + (request.isPlayerTriggered ? 2 : 0) + (request.isRejectable ? 4 : 0) + (request.showAvatar ? 8 : 0);
+    call.action = 1;
     if this.m_mode == 1 {
       ArrayPush(this.m_outgoing, call);
       this.m_noted += 1;
@@ -54,6 +57,33 @@ public class NightCoopPhone extends ScriptableService {
     }
     this.m_swallowed += 1;
     return false;
+  }
+
+  public func NotePickup(isPlayerCalling: Bool, contact: CName, state: questPhoneTalkingState) {
+    if this.m_mode != 2 || this.m_bypass > 0 || (NotEquals(state, questPhoneTalkingState.Talking) && NotEquals(state, questPhoneTalkingState.Rejected)) {
+      return;
+    }
+    let call = new NightCoopPhoneCall();
+    call.contact = contact;
+    call.callPhase = Equals(state, questPhoneTalkingState.Talking) ? 2 : 3;
+    call.flags = (isPlayerCalling ? 1 : 0) + (Equals(state, questPhoneTalkingState.Rejected) ? 32 : 0);
+    call.action = 2;
+    ArrayPush(this.m_outgoing, call);
+    this.m_noted += 1;
+  }
+
+  public func Pickup(reject: Bool) -> Bool {
+    let phone = GameInstance.GetScriptableSystemsContainer(GetGameInstance()).Get(n"PhoneSystem") as PhoneSystem;
+    if !IsDefined(phone) {
+      return false;
+    }
+    let request = new PickupPhoneRequest();
+    request.CallInformation = phone.NightCoopLastCall();
+    request.shouldBeRejected = reject;
+    this.m_bypass += 1;
+    phone.QueueRequest(request);
+    this.m_played += 1;
+    return true;
   }
 
   public func TakeOutgoing() -> array<ref<NightCoopPhoneCall>> {
@@ -96,4 +126,18 @@ private final func OnTriggerCall(request: ref<questTriggerCallRequest>) {
     return;
   }
   wrappedMethod(request);
+}
+
+@wrapMethod(PhoneSystem)
+private final func SetPhoneFact(isPlayerCalling: Bool, contactName: CName, state: questPhoneTalkingState) {
+  let phone = NightCoopPhone.Get();
+  if IsDefined(phone) {
+    phone.NotePickup(isPlayerCalling, contactName, state);
+  }
+  wrappedMethod(isPlayerCalling, contactName, state);
+}
+
+@addMethod(PhoneSystem)
+public func NightCoopLastCall() -> PhoneCallInformation {
+  return this.m_LastCallInformation;
 }

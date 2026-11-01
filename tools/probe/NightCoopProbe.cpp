@@ -33,6 +33,7 @@
  then the new save goes out like a join
  PROBE_DEFEAT=<n> tells the host n of its shared npcs (with health above 0) died here (NpcDefeat) the joiner prints NpcDead tables and npc deaths
  PROBE_PUSH=1 says at step 110 that our grenade went off where the joiner stands (PlayerBlast radius 6)
+ PROBE_PICKUP=<contact> answers a ringing call from that contact at step 150 (PhoneSync request action 2)
  PROBE_KO=1 (with PROBE_NPC) says at step 200 that the host knocked out our npc without killing it (RewardWord kind 2)
  PROBE_VEHICLE_EMPTY=1 (with PROBE_VEHICLE) shares that car with nobody at the wheel so the host can take it
  PROBE_TAKECAR=1 says at step 250 that we took the wheel of the hosts car (VehicleHandover 1) and prints handovers
@@ -1265,6 +1266,20 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::PlayerEffect effect {1, std::strtoull(effectText, nullptr, 0), {state.PositionX, state.PositionY, state.PositionZ + 1.0f}, {0, 0, 0, 1}, 0};
             session.SendGameMessage(nightcoop_mac::net::WritePlayerFx({effect}));
             std::printf("probe: shows effect %#llx where the joiner stands (PlayerFx)\n", static_cast<unsigned long long>(effect.Resource));
+        }
+        if (const char* pickupContact = std::getenv("PROBE_PICKUP"); pickupContact && step == 150)
+        {
+            nightcoop_mac::net::PhoneSync pickup;
+            pickup.Kind = nightcoop_mac::net::kPhoneRequest;
+            pickup.Action = nightcoop_mac::net::kPhoneActionPickup;
+            pickup.AskingPeer = session.GetStatus().MyPeerNumber;
+            pickup.RequestNumber = 1;
+            pickup.CallId = 1;
+            pickup.HostClockMs = session.SessionClockMs();
+            pickup.Contact = pickupContact;
+            pickup.CallPhase = 2;
+            session.SendGameMessage(nightcoop_mac::net::WritePhoneSync(pickup), 0);
+            std::printf("probe: answered the ringing call from %s (PhoneSync action 2)\n", pickupContact);
         }
         if (std::getenv("PROBE_KO") && std::getenv("PROBE_NPC") && step == 200)
         {

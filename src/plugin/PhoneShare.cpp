@@ -71,6 +71,17 @@ Value Field(RED4ext::IScriptable* object, const char* name)
     return value;
 }
 
+bool Pickup(const net::PhoneSync& phone)
+{
+    static auto* pickup = game::FindFunction("NightCoopPhone", "Pickup");
+    auto service = game::ScriptService("NightCoopPhone");
+    bool reject = (phone.Flags & net::kPhoneShouldBeRejected) != 0;
+    bool asked = false;
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &reject);
+    return pickup && service && game::CallMethod(service.instance, pickup, &asked, args) && asked;
+}
+
 bool Play(const net::PhoneSync& phone)
 {
     auto service = game::ScriptService("NightCoopPhone");
@@ -142,7 +153,7 @@ void Tick(uint64_t nowMs, bool inSave, bool weAreHost, bool partnerInOurWorld, b
             continue;
         }
         net::PhoneSync phone;
-        phone.Action = net::kPhoneActionCall;
+        phone.Action = Field<int32_t>(callObject.instance, "action") == net::kPhoneActionPickup ? net::kPhoneActionPickup : net::kPhoneActionCall;
         phone.Contact = Field<RED4ext::CName>(callObject.instance, "contact").ToString();
         phone.CallPhase = static_cast<uint8_t>(Field<int32_t>(callObject.instance, "callPhase"));
         phone.CallMode = static_cast<uint8_t>(Field<int32_t>(callObject.instance, "callMode"));
@@ -161,7 +172,7 @@ void Tick(uint64_t nowMs, bool inSave, bool weAreHost, bool partnerInOurWorld, b
         }
         phone.CallId = CallId;
         phone.HostClockMs = session.SessionClockMs();
-        if (Mode == ModeHost)
+        if (Mode == ModeHost && phone.Action == net::kPhoneActionCall)
         {
             phone.Kind = net::kPhoneCommitted;
             phone.CommitNumber = NextCommit++;
@@ -174,7 +185,8 @@ void Tick(uint64_t nowMs, bool inSave, bool weAreHost, bool partnerInOurWorld, b
             phone.RequestNumber = NextRequest++;
             phone.AskingPeer = session.GetStatus().MyPeerNumber;
             session.SendGameMessage(net::WritePhoneSync(phone), 0);
-            log("phone: we dialed " + phone.Contact + ", the host makes the call");
+            log(phone.Action == net::kPhoneActionPickup ? std::string("phone: we ") + ((phone.Flags & net::kPhoneShouldBeRejected) ? "rejected " : "answered ") + phone.Contact + ", the host does it"
+                                  : "phone: we dialed " + phone.Contact + ", the host makes the call");
         }
     }
     if (nowMs >= NextReportMs && Mode != ModeOff)
@@ -193,6 +205,13 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, bool weAr
     net::PhoneSync phone;
     if (!Ready() || !net::ReadPhoneSync(message, phone))
     {
+        return;
+    }
+    if (weAreHost && phone.Kind == net::kPhoneRequest && phone.Action == net::kPhoneActionPickup)
+    {
+        const bool done = Mode == ModeHost && Pickup(phone);
+        log("phone: peer " + std::to_string(fromPeer) + ((phone.Flags & net::kPhoneShouldBeRejected) ? " rejected " : " answered ") + phone.Contact +
+            (done ? ", our phone does it" : ", our phone could not"));
         return;
     }
     if (weAreHost && phone.Kind == net::kPhoneRequest)

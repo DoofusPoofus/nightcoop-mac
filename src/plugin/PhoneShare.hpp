@@ -6,7 +6,8 @@
  guest in the hosts world (or phone any_world in session.txt for tests): its own quest calls are swallowed and the hosts
  commits get played on its phone. a call the guest dials goes to the host as a request and the host plays it which makes it
  a commit for evryone. commits seen before are skipped
- not done yet: answering / rejecting a ringing call (action 2) refusals and the call state after a load
+ a guest answering or rejecting a ringing call asks the host (action 2 bit5 = reject) and the hosts phone picks up the same way
+ not done yet: refusals and the call state after a load
 */
 #pragma once
 
