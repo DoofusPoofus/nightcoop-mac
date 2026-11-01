@@ -19,8 +19,9 @@ works in a save with the probe:
 - carried bodies n team build checks
 - lifts n time of day
 - doors devices n barrels (scripted toggles n blasts go out n a probes requests n blasts happen here too)
-- the hosts dead npc table (NpcDead / NpcDefeat) goes out n a guests reported kills reach the host. the kill itself only works on npcs that have health (background npcs dont)
+- the hosts dead npc table (NpcDead / NpcDefeat) goes out n a guests reported kills reach the host. the kill itself is not confirmed yet (the tests ran while the game window had no focus so the world stood still)
 - grenade blasts push loose stuff around at the partners (no damage)
+- a shared npcs corpse loot is the owners: the partners copy drops none of its own n the owners list shows as a bag (first cut, the bag needs a running world to check)
 - car dents n flat tires go both ways (VehicleDamage. the grid sits at [car + 0x538] + 0x100 on mac 2.5.0 n gets checked against the first partner dents)
 - a partners car hitting u (VehicleHit) plays the games own car hit on ur player (first cut, the knockdown isnt checked yet)
 - effects a windows partner draws (PlayerFx: rockets explosive rounds slams) show up here, sending ours isnt there
