@@ -4,6 +4,7 @@
 #include "net/RelaySession.hpp"
 #include "net/WorldMessages.hpp"
 #include "plugin/GameCalls.hpp"
+#include "plugin/Hud.hpp"
 
 #include <ProtocolCore.hpp>
 #include <RED4ext/RED4ext.hpp>
@@ -149,6 +150,27 @@ void Tick(uint64_t nowMs, bool inSave, bool partnersHere, net::RelaySession& ses
     configureArgs.emplace_back(nullptr, &oneCab);
     configureArgs.emplace_back(nullptr, &isHost);
     game::CallMethod(service.instance, Game.Configure, nullptr, configureArgs);
+    static auto* serveQuestHolds = game::FindFunction("NightCoopLiftSync", "ServeQuestHolds");
+    static auto* questHolds = game::FindFunction("NightCoopLiftSync", "QuestHolds");
+    static int32_t heldBefore = 0;
+    if (serveQuestHolds && questHolds)
+    {
+        int32_t held = 0;
+        int32_t released = 0;
+        RED4ext::StackArgs_t holdArgs;
+        game::CallMethod(service.instance, questHolds, &held, holdArgs);
+        if (held > heldBefore)
+        {
+            log("lifts: a quest moves a lift, it waits until evryone is in the cab");
+            hud::Show("The lift waits: everybody must be in the cab", 4.0f);
+        }
+        game::CallMethod(service.instance, serveQuestHolds, &released, holdArgs);
+        if (released)
+        {
+            log("lifts: evryone is in the cab (or 60 s went by), the quest lift goes");
+        }
+        heldBefore = held - released;
+    }
     const uint64_t sessionMs = session.SessionClockMs();
     for (auto release = ReleaseAtMs.begin(); release != ReleaseAtMs.end();)
     {

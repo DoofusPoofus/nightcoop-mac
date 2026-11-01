@@ -86,6 +86,10 @@ public class NightCoopDoorSync extends ScriptableService {
     ArrayClear(this.m_partnerSpots);
   }
 
+  public func PartnerSpots() -> array<Vector4> {
+    return this.m_partnerSpots;
+  }
+
   public func AddPartner(peer: Int32, x: Float, y: Float, z: Float) {
     ArrayPush(this.m_partnerPeers, peer);
     ArrayPush(this.m_partnerSpots, new Vector4(x, y, z, 1.0));

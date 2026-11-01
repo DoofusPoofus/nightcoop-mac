@@ -8,7 +8,8 @@
  in step start like nightcoop: a departure carries the session time evry copy leaves at (now + 150 ms + the lifts start delay)
  and the hosts speed. the host holds its own LiftStartDelayEvent until then a guest holds its copy and runs it at the hosts
  speed the plugin releases them when the session clock gets there
- not done yet: presence (kind 1) quest lift holds arrival holds travel time overrides and the body in cab rides (LiftRide 97)
+ a quest moving a lift on the host waits while we stand in its cab and a partner does not (60 s at most)
+ not done yet: presence (kind 1) arrival holds travel time overrides and the body in cab rides (LiftRide 97)
 */
 #pragma once
 

@@ -1,6 +1,7 @@
 // lifts the area guard of nightcoops liftsync: a lift reacts to whoever walks into its cab or call area and our partner
 // bodies and mirror cars would call or hold lifts nobody here asked for. their enter / exit events are swallowed evryone
-// elses go thru as before. the shared one cab trips of nightcoop (LiftSync 86 / LiftRide 97) are not done yet
+// elses go thru as before. a quest moving a lift on the host waits while our player stands in the cab and a partner (the spots
+// the door guard gets) does not (60 s at most) then the held quest event goes again
 
 public abstract class NightCoopLifts {
   public static func IsOurs(activator: EntityGameInterface) -> Bool {
@@ -38,6 +39,10 @@ protected cb func OnAreaExit(evt: ref<AreaExitedEvent>) -> Bool {
 // so evry copy of the cab leaves together. UseSpeed makes a guests copy run at the hosts speed while it starts (nightcoop
 // redirects GetLiftSpeed inside OnLiftStartDelayEvent the same way, an empty cab would run slower and drift apart)
 public class NightCoopLiftSync extends ScriptableService {
+  private let m_questHeldLifts: array<wref<LiftDevice>>;
+  private let m_questHeldEvents: array<ref<Event>>;
+  private let m_questHeldSince: array<Float>;
+  private let m_questBypass: Bool;
   private let m_oneCab: Bool;
   private let m_isHost: Bool;
   private let m_bypass: Bool;
@@ -57,6 +62,77 @@ public class NightCoopLiftSync extends ScriptableService {
 
   public static func Get() -> ref<NightCoopLiftSync> {
     return GameInstance.GetScriptableServiceContainer().GetService(n"NightCoopLiftSync") as NightCoopLiftSync;
+  }
+
+  private func Now() -> Float {
+    return EngineTime.ToFloat(GameInstance.GetEngineTime(GetGameInstance()));
+  }
+
+  private func CabSpot(device: ref<LiftDevice>) -> Vector4 {
+    let platform = device.FindComponentByName(n"movingPlatform") as IPlacedComponent;
+    if IsDefined(platform) {
+      return Matrix.GetTranslation(platform.GetLocalToWorld());
+    }
+    return device.GetWorldPosition();
+  }
+
+  private func InCab(cab: Vector4, spot: Vector4) -> Bool {
+    let flat = Vector4.Distance2D(cab, spot);
+    let up = spot.Z - cab.Z;
+    return flat <= 4.5 && up >= -0.6 && up <= 2.4;
+  }
+
+  public func EverybodyInCab(device: ref<LiftDevice>) -> Bool {
+    let doors = NightCoopDoorSync.Get();
+    let player = GetPlayer(GetGameInstance());
+    if !IsDefined(doors) || !IsDefined(player) {
+      return true;
+    }
+    let cab = this.CabSpot(device);
+    if !this.InCab(cab, player.GetWorldPosition()) {
+      return true;
+    }
+    for spot in doors.PartnerSpots() {
+      if !this.InCab(cab, spot) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  public func HoldsQuestMove(device: ref<LiftDevice>, evt: ref<Event>) -> Bool {
+    if this.m_questBypass || !this.m_oneCab || !this.m_isHost || this.EverybodyInCab(device) {
+      return false;
+    }
+    ArrayPush(this.m_questHeldLifts, device);
+    ArrayPush(this.m_questHeldEvents, evt);
+    ArrayPush(this.m_questHeldSince, this.Now());
+    return true;
+  }
+
+  public func ServeQuestHolds() -> Int32 {
+    let released = 0;
+    let index = ArraySize(this.m_questHeldLifts) - 1;
+    while index >= 0 {
+      let device = this.m_questHeldLifts[index];
+      if !IsDefined(device) || this.EverybodyInCab(device) || this.Now() - this.m_questHeldSince[index] > 60.0 || !this.m_oneCab {
+        if IsDefined(device) {
+          this.m_questBypass = true;
+          device.QueueEvent(this.m_questHeldEvents[index]);
+          this.m_questBypass = false;
+        }
+        ArrayErase(this.m_questHeldLifts, index);
+        ArrayErase(this.m_questHeldEvents, index);
+        ArrayErase(this.m_questHeldSince, index);
+        released += 1;
+      }
+      index -= 1;
+    }
+    return released;
+  }
+
+  public func QuestHolds() -> Int32 {
+    return ArraySize(this.m_questHeldLifts);
   }
 
   public func Configure(oneCab: Bool, isHost: Bool) {
@@ -236,4 +312,22 @@ public final const func GetLiftSpeed() -> Float {
     }
   }
   return wrappedMethod();
+}
+
+@wrapMethod(LiftDevice)
+protected cb func OnQuestGoToFloor(evt: ref<QuestGoToFloor>) -> Bool {
+  let sync = NightCoopLiftSync.Get();
+  if IsDefined(sync) && sync.HoldsQuestMove(this, evt) {
+    return true;
+  }
+  return wrappedMethod(evt);
+}
+
+@wrapMethod(LiftDevice)
+protected cb func OnQuestForceGoToFloor(evt: ref<QuestForceGoToFloor>) -> Bool {
+  let sync = NightCoopLiftSync.Get();
+  if IsDefined(sync) && sync.HoldsQuestMove(this, evt) {
+    return true;
+  }
+  return wrappedMethod(evt);
 }
