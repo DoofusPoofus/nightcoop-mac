@@ -164,6 +164,22 @@ public class NightCoopDeviceSync extends ScriptableService {
     ArrayRemove(this.m_quietBlasts, device);
   }
 
+  public func TestUse(device: ref<Device>) -> String {
+    let player = GetPlayer(GetGameInstance());
+    let ps = device.GetDevicePS();
+    if !IsDefined(player) || !IsDefined(ps) {
+      return "no ps";
+    }
+    let action = ps.ActionToggleON();
+    if !IsDefined(action) {
+      return "no toggle action on " + NameToString(ps.GetClassName());
+    }
+    action.SetExecutor(player);
+    ps.ExecutePSAction(action, ps);
+    action.CompleteAction(GetGameInstance());
+    return NameToString(ps.GetClassName()) + " " + NameToString(action.GetClassName()) + " state " + IntToString(ps.NightCoopState());
+  }
+
   public func Prepare(action: ref<ScriptableDeviceAction>, id: PersistentID, className: CName) -> Bool {
     let ps = this.FindPS(id, className);
     if !IsDefined(ps) || !IsDefined(action) {

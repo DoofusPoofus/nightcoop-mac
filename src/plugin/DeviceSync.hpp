@@ -19,6 +19,7 @@
  barrels: an explosive device that starts to blow here goes to evryone as a live blast a partners blast blows our copy
  without damage when their player blew it (with damage when it went off by itself there). late partners in the hosts world
  get a snapshot of the devices that blew those are set exploded and hidden quietly
+ test_devices in session.txt does a ToggleON as our player on the next device within 50 m evry 15 s (testing only)
 */
 #pragma once
 
@@ -38,4 +39,5 @@ using LogFunction = std::function<void(const std::string&)>;
 
 void Tick(uint64_t nowMs, bool inSave, bool shareAlways, net::RelaySession& session, const LogFunction& log);
 void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::RelaySession& session, const LogFunction& log);
+void RunTest(uint64_t nowMs, bool inSave, const float* ourPosition, const LogFunction& log);
 }

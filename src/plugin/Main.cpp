@@ -602,6 +602,11 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     nightcoop_mac::quest_sync::Tick(nowMs, inSave, Plan->QuestSync, Plan->QuestsInAnyWorld, *Session, Log);
     nightcoop_mac::lift_sync::Tick(nowMs, inSave, !LatestRemoteStates.empty(), *Session, Log);
     nightcoop_mac::door_sync::Tick(nowMs, inSave, Plan->ShareDoors, LocalStateValid ? &LastLocalState : nullptr, RemotePeerViews(), *Session, Log);
+    if (Plan->TestDevices && LocalStateValid)
+    {
+        const float ourPlace[3] = {LastLocalState.PositionX, LastLocalState.PositionY, LastLocalState.PositionZ};
+        nightcoop_mac::device_sync::RunTest(nowMs, inSave, ourPlace, Log);
+    }
     if (Plan->TestDoors)
     {
         nightcoop_mac::door_sync::RunTest(nowMs, inSave, LocalStateValid ? &LastLocalState : nullptr, Log);

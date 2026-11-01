@@ -27,6 +27,7 @@
    phone any_world       take the hosts calls (guest) or send ours (host) in any world not only the hosts (testing only)
    rewards any_world     take the hosts quest rewards (guest) or send ours (host) in any world not only the hosts (testing only)
    test_character        in a save our level attributes and perks get captured and applied back after 30 s (testing only)
+   test_devices          in a save the next device within 50 m gets a ToggleON from our player evry 15 s (testing only)
    test_doors            in a save the nearest door gets opened and closed evry 12 s from script (testing only)
    test_claim            in a save our script claims 40 % of the first partner npc copy evry 5 s as if our player hit it (testing only)
    test_vehicle          in a save a car spawns next to our player and we get mounted at its wheel (testing only)
@@ -66,6 +67,7 @@ struct SessionPlan
     bool TestDowned = false;
     bool TestClaim = false;
     bool TestDoors = false;
+    bool TestDevices = false;
     bool TestCharacter = false;
     bool RewardsAnyWorld = false;
     bool PhoneAnyWorld = false;

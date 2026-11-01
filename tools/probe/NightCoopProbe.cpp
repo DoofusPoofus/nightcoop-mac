@@ -26,6 +26,7 @@
  the hosts rewards
  PROBE_CALL=<contact> on the host rings that contact 25 s after the guest is there, starts the call 6 s later and ends it
  20 s after the ring (PhoneSync commits)
+ PROBE_DEVICE_ECHO=1 sends evry device action the host shares back to it as our own request 40 steps later
  PROBE_FAR=<meters> moves the joiners walk that far along x from where it was asked to stand
  PROBE_TAKE=1 takes the first npc the host hands over (NpcHandoffAck + NpcClaim 3), owns it for 100 steps and lets it go,
  without it evry offer gets refused
@@ -65,6 +66,7 @@
  HUB looks like 127.0.0.1:47900#FINGERPRINT
 */
 #include "net/DoorMessages.hpp"
+#include "net/DeviceMessages.hpp"
 #include "net/DialogMessages.hpp"
 #include "net/GameMessages.hpp"
 #include "net/LookMessages.hpp"
@@ -1046,6 +1048,8 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     bool tookNpc = false;
     bool takenReleased = false;
     int takenAtStep = 0;
+    std::vector<std::pair<int, nightcoop_mac::net::DeviceSync>> devicesToEcho;
+    uint16_t deviceRequestNumber = 0;
     uint32_t probeNpcSequence = 0;
     uint32_t rosterRevision = 0xFFFFFFFF;
     const bool probeQuests = std::getenv("PROBE_QUESTS") != nullptr;
@@ -1196,6 +1200,22 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             session.SendGameMessage(nightcoop_mac::net::WriteNpcHandoff(offer), 0);
             probeNpcDead = true;
             std::printf("probe: offered our npc %#010x to the host\n", offer.Spawn.NetId);
+        }
+        for (auto echo = devicesToEcho.begin(); echo != devicesToEcho.end();)
+        {
+            if (step < echo->first)
+            {
+                ++echo;
+                continue;
+            }
+            nightcoop_mac::net::DeviceSync request = echo->second;
+            request.Kind = nightcoop_mac::net::kDeviceRequest;
+            request.Peer = session.GetStatus().MyPeerNumber;
+            request.RequestNumber = ++deviceRequestNumber;
+            std::swap(request.StateBefore, request.StateAfter);
+            session.SendGameMessage(nightcoop_mac::net::WriteDeviceSync(request), 0);
+            std::printf("probe: asked the host to do it again on device %#llx (#%u)\n", static_cast<unsigned long long>(request.EntityHash), request.RequestNumber);
+            echo = devicesToEcho.erase(echo);
         }
         if (tookNpc && !takenReleased)
         {
@@ -1614,6 +1634,18 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             if (nightcoop_mac::net::ReadRewardWord(message.Message, hostReward))
             {
                 std::printf("probe: peer %u quest reward %#llx (#%u)\n", message.FromPeer, static_cast<unsigned long long>(hostReward.Reward), hostReward.Serial);
+                continue;
+            }
+            nightcoop_mac::net::DeviceSync hostDevice;
+            if (nightcoop_mac::net::ReadDeviceSync(message.Message, hostDevice))
+            {
+                std::printf("probe: peer %u device %#llx kind %u action kind %u state %d -> %d version %llu request %u fields %zu\n", message.FromPeer,
+                            static_cast<unsigned long long>(hostDevice.EntityHash), hostDevice.Kind, hostDevice.ActionKind, hostDevice.StateBefore,
+                            hostDevice.StateAfter, static_cast<unsigned long long>(hostDevice.Version), hostDevice.RequestNumber, hostDevice.Fields.size());
+                if (std::getenv("PROBE_DEVICE_ECHO") && hostDevice.RequestNumber == 0)
+                {
+                    devicesToEcho.push_back({step + 40, hostDevice});
+                }
                 continue;
             }
             nightcoop_mac::net::HackSync hackOnUs;

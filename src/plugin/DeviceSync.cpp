@@ -3,6 +3,7 @@
  and the rebuild of a partners action walk the rtti here
 */
 #include "plugin/DeviceSync.hpp"
+#include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
 
 #include "net/DeviceMessages.hpp"
 #include "net/GameMessages.hpp"
@@ -12,6 +13,7 @@
 #include "plugin/WorldHandoff.hpp"
 
 #include <ProtocolCore.hpp>
+#include <cmath>
 #include <RED4ext/RED4ext.hpp>
 #include <RED4ext/Scripting/Natives/Generated/game/PersistentID.hpp>
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
@@ -1654,5 +1656,82 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::Rela
             TakeBlast(context, fromPeer, blast);
         }
     }
+}
+
+void RunTest(uint64_t nowMs, bool inSave, const float* ourPosition, const LogFunction& log)
+{
+    static uint64_t nextUseMs = 0;
+    static std::set<uint64_t> used;
+    if (!inSave || !ourPosition)
+    {
+        return;
+    }
+    if (!nextUseMs)
+    {
+        nextUseMs = nowMs + 20000;
+    }
+    if (nowMs < nextUseMs)
+    {
+        return;
+    }
+    nextUseMs = nowMs + 15000;
+    static auto* getEntityList = game::FindFunction("ScriptGameInstance", "GetEntityList");
+    static auto* getWorldPosition = game::FindFunction("entEntity", "GetWorldPosition");
+    static auto* getEntityId = game::FindFunction("entEntity", "GetEntityID");
+    static auto* testUse = game::FindFunction("NightCoopDeviceSync", "TestUse");
+    static auto* deviceClass = RED4ext::CRTTISystem::Get()->GetClass("Device");
+    auto service = game::ScriptService("NightCoopDeviceSync");
+    if (!getEntityList || !getWorldPosition || !getEntityId || !testUse || !deviceClass || !service)
+    {
+        log("test devices: device calls missing");
+        return;
+    }
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::DynArray<RED4ext::Handle<RED4ext::IScriptable>> entities;
+    RED4ext::StackArgs_t listArgs;
+    listArgs.emplace_back(nullptr, &gameInstance);
+    game::CallStatic(getEntityList, &entities, listArgs);
+    RED4ext::Handle<RED4ext::IScriptable> nearest;
+    uint64_t nearestHash = 0;
+    float nearestDistance = 50.0f;
+    int devices = 0;
+    for (auto& entity : entities)
+    {
+        auto* entityClass = entity ? entity->GetType() : nullptr;
+        if (!entityClass || !entityClass->IsA(deviceClass))
+        {
+            continue;
+        }
+        ++devices;
+        uint64_t entityHash = 0;
+        RED4ext::Vector4 place {};
+        RED4ext::StackArgs_t noArgs;
+        game::CallMethod(entity.instance, getEntityId, &entityHash, noArgs);
+        game::CallMethod(entity.instance, getWorldPosition, &place, noArgs);
+        const float deltaX = place.X - ourPosition[0];
+        const float deltaY = place.Y - ourPosition[1];
+        const float deltaZ = place.Z - ourPosition[2];
+        const float distance = std::sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
+        if (distance < nearestDistance && !used.count(entityHash))
+        {
+            nearestDistance = distance;
+            nearest = entity;
+            nearestHash = entityHash;
+        }
+    }
+    if (!nearest)
+    {
+        log("test devices: no unused device within 50 m (" + std::to_string(devices) + " devices streamed in)");
+        return;
+    }
+    used.insert(nearestHash);
+    RED4ext::CString result;
+    RED4ext::StackArgs_t useArgs;
+    useArgs.emplace_back(nullptr, &nearest);
+    game::CallMethod(service.instance, testUse, &result, useArgs);
+    char line[200];
+    std::snprintf(line, sizeof(line), "test devices: used device %#llx %.1f m away: %s", static_cast<unsigned long long>(nearestHash), nearestDistance,
+                  result.c_str());
+    log(line);
 }
 }
