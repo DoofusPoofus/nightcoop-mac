@@ -56,6 +56,7 @@
  PROBE_SKIP=1 on the host skips 3 s of a scene 15 s after it heard of the guest (SceneLineSkip) and prints SceneSkipHere
  PROBE_SCENE=1 on the host says one of its quest scenes is live next to the guest (QuestScene 1) and prints the guests scene words
  PROBE_TRACK=<journal entry hash> on the host wants guests to track that objective (TrackModeWord 1 + a QuestJournal word)
+ PROBE_PULL=1 on the host calls the guest over to a point 50 m away (StoryPull 1)
  PROBE_QTELE=1 on the host says the game moved it 100 m from the guest 10 s after it heard of it (QuestTeleport kind 1)
  PROBE_GATE=1 on the host says its scene waits at a gate 3 m from the guest 15 s after it heard of it and passes it 25 s later
  PROBE_KICK=1 on the host kicks its guests 15 s after it heard of one (Kick)
@@ -660,7 +661,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto callStartedAt = std::chrono::steady_clock::time_point::max();
     int callPhaseSent = 0;
     uint32_t callCommits = 0;
-    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_QTELE") || std::getenv("PROBE_FACTWORD") || std::getenv("PROBE_TRACK") || std::getenv("PROBE_SCENE") || std::getenv("PROBE_SKIP") || std::getenv("PROBE_KICK") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
+    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_QTELE") || std::getenv("PROBE_FACTWORD") || std::getenv("PROBE_TRACK") || std::getenv("PROBE_SCENE") || std::getenv("PROBE_SKIP") || std::getenv("PROBE_KICK") || std::getenv("PROBE_PULL") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
     auto deadline = std::chrono::steady_clock::now() + (staysUp ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
     auto nextReward = std::chrono::steady_clock::now() + 20s;
@@ -688,6 +689,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     uint8_t gateStateSent = 0;
     auto questTeleportAt = std::chrono::steady_clock::time_point::max();
     bool questTeleportSent = false;
+    bool pullSent = false;
     bool trackSent = false;
     bool sceneSent = false;
     bool skipSent = false;
@@ -746,6 +748,24 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             scene.PutU8(1);
             session.SendGameMessage(scene.Data());
             std::printf("probe: our scene 0x5ce4e00000000007 is live next to the guest (QuestScene 1)\n");
+        }
+        if (std::getenv("PROBE_PULL") && guestKnown && !pullSent)
+        {
+            pullSent = true;
+            nc::proto::Writer pull(nc::proto::MsgType::StoryPull);
+            pull.PutU8(1);
+            pull.PutU32(1);
+            pull.PutU32(0);
+            pull.PutU64(0x5CE4E00000000007ULL);
+            pull.PutU16(0);
+            pull.PutU32(0);
+            pull.PutU32(0);
+            pull.PutF32(guestX + 50.0f);
+            pull.PutF32(guestY);
+            pull.PutF32(guestZ);
+            pull.PutF32(0.0f);
+            session.SendGameMessage(pull.Data());
+            std::printf("probe: calls the guest over 50 m away (StoryPull 1)\n");
         }
         if (std::getenv("PROBE_QTELE") && guestKnown && !questTeleportSent)
         {

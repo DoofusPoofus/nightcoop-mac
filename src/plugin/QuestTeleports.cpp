@@ -56,7 +56,7 @@ bool MoveTo(const float* place, float yaw)
 
 bool Handles(uint8_t messageType)
 {
-    return messageType == static_cast<uint8_t>(nc::proto::MsgType::QuestTeleport);
+    return messageType == static_cast<uint8_t>(nc::proto::MsgType::QuestTeleport) || messageType == static_cast<uint8_t>(nc::proto::MsgType::StoryPull);
 }
 
 void WatchOurMoves(bool inSave, bool partnersInOurWorld, const net::PlayerState* ourPlayer, net::RelaySession& session, const LogFunction& log)
@@ -140,7 +140,49 @@ void Tick(uint64_t nowMs, bool inSave, bool testHold, const LogFunction& log)
 void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, bool takeOffers, const net::PlayerState* ourPlayer, uint64_t nowMs, const LogFunction& log)
 {
     nc::proto::Reader reader(message.data(), message.size());
-    if (fromPeer != 0 || !takeOffers || !ourPlayer || reader.ReadHeader() != nc::proto::MsgType::QuestTeleport)
+    const auto type = reader.ReadHeader();
+    if (fromPeer != 0 || !takeOffers || !ourPlayer)
+    {
+        return;
+    }
+    if (type == nc::proto::MsgType::StoryPull)
+    {
+        const uint8_t pullKind = reader.GetU8();
+        reader.GetU32();
+        reader.GetU32();
+        reader.GetU64();
+        reader.GetU16();
+        reader.GetU32();
+        reader.GetU32();
+        float point[4];
+        for (float& value : point)
+        {
+            value = reader.GetF32();
+        }
+        if (!reader.Ok() || reader.Remaining() != 0 || pullKind < 1 || pullKind > 3 || !std::all_of(point, point + 4, [](float value) { return std::isfinite(value); }))
+        {
+            return;
+        }
+        const float x = point[0] - ourPlayer->PositionX;
+        const float y = point[1] - ourPlayer->PositionY;
+        const float z = point[2] - ourPlayer->PositionZ;
+        const float meters = std::sqrt(x * x + y * y + z * z);
+        char line[128];
+        std::snprintf(line, sizeof(line), "quest teleports: the host calls us over (story pull kind %u), %.0f m", pullKind, meters);
+        log(line);
+        if (meters < 10.0f)
+        {
+            return;
+        }
+        OfferOpen = true;
+        OfferUntilMs = nowMs + OfferLastsMs;
+        std::copy(point, point + 3, OfferPlace);
+        OfferYaw = point[3];
+        HeldSinceMs = 0;
+        hud::Show("The host calls you over: hold PageUp to be moved there", 5.0f);
+        return;
+    }
+    if (type != nc::proto::MsgType::QuestTeleport)
     {
         return;
     }

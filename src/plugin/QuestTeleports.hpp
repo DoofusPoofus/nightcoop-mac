@@ -3,7 +3,8 @@
  far (kind 1 game teleport 2 scene move 3 a story scene talks) a guest in its world 40..600 m away gets an offer for 60 s.
  holding PageUp (fn + up on a laptop) for a second moves our player 2 m beside that point
  host: a jump of our own player of 40 m or more between two samples (the game or a scene moved us) goes out as kind 1
- not done yet: telling game teleports from scene moves apart and the storypull calls (StoryPull 87)
+ StoryPull 87 kinds 1..3 (the host calls us over to a talk or scene) give the same offer for their point when it is 10 m or more away
+ not done yet: telling game teleports from scene moves apart and sending our own story pulls
 */
 #pragma once
 
