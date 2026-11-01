@@ -58,6 +58,7 @@
 #include "plugin/FactWords.hpp"
 #include "plugin/CutsceneBodies.hpp"
 #include "plugin/SceneSkip.hpp"
+#include "plugin/Braindance.hpp"
 #include "net/NpcMessages.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/Rewards.hpp"
@@ -562,6 +563,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             nightcoop_mac::grenades::OnMessage(message.FromPeer, message.Message, sameWorld, Log);
             nightcoop_mac::player_effects::OnMessage(message.FromPeer, message.Message, sameWorld, Log);
         }
+        else if (nightcoop_mac::braindance::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
+        {
+            nightcoop_mac::braindance::OnMessage(message.FromPeer, message.Message, nightcoop_mac::world_handoff::InHostWorld() || Plan->ScenesAnyWorld, Log);
+        }
         else if (nightcoop_mac::scene_skip::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {
             nightcoop_mac::scene_skip::OnMessage(message.FromPeer, message.Message, nightcoop_mac::world_handoff::InHostWorld() || Plan->ScenesAnyWorld ||
@@ -686,6 +691,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             }
         }
         nightcoop_mac::npc_tags::Tick(nowMs, inSave, tagPeers, *OurNpcs, *Npcs, *Session, Log);
+        nightcoop_mac::braindance::Tick(nowMs, inSave, tagPeers, *Session, Log);
         nightcoop_mac::world_load::Tick(nowMs, inSave, nightcoop_mac::world_handoff::InHostWorld(), *Session, Log);
         nightcoop_mac::sms_replies::Tick(nowMs, inSave, Session->GetStatus().MyPeerNumber == 0, partnerInOurWorld,
                                          nightcoop_mac::world_handoff::InHostWorld(), *Session, Log);

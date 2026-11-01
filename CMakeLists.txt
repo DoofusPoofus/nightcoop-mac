@@ -98,6 +98,7 @@ add_library(NightCoopMac SHARED
   src/plugin/FactWords.cpp
   src/plugin/CutsceneBodies.cpp
   src/plugin/SceneSkip.cpp
+  src/plugin/Braindance.cpp
   src/plugin/NpcShare.cpp
   src/plugin/NpcStates.cpp
   src/plugin/Items.cpp

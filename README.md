@@ -31,6 +31,7 @@ works in a save with the probe:
 - we tell the host our loading n story state so its loading n story holds dont wait on us (WorldLoad StoryHold) n a host starting from its lobby shows a hint (LobbyStart). a host kick makes us leave the session (Kick)
 - a windows hosts scene gates (talks that wait for evryone at the npc) hear from us by distance to the host (SceneGate) so they dont wait forever. holding our own scene nodes still needs native hooks
 - when the game moves the host far away a guest gets an offer n follows by holding PageUp (fn + up) (QuestTeleport)
+- in a braindance the host leads the tape (guests jump to its time n take its speed, first cut untried in a real braindance)
 - a partner skipping a talk fast forwards the scene that holds u (SceneLineSkip, first cut untried in a real scene) n we tell them when we may skip
 - police shooting at a partners body starts that partners own police fight (PoliceFight). the shared wanted level n police units arent there yet
 
@@ -44,7 +45,7 @@ npc hits on u only do damage thru a fallback (the game drops the rebuilt hit so 
 
 the quality plus upgrade n iconic stats of ur equipped items get checked after a handoff n put back if they differ (they came along fine so far)
 
-not there yet: the other player systems from ur own save (crafting recipes n co) visual grenade copies braindance photo poses shared police units holding our own scene gates (native hooks)
+not there yet: the other player systems from ur own save (crafting recipes n co) visual grenade copies braindance ghosts n clues photo poses shared police units holding our own scene gates (native hooks)
 
 ## what u need
 
