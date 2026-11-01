@@ -33,7 +33,7 @@
    test_devices          in a save the next device within 50 m gets a ToggleON from our player evry 15 s (testing only)
    test_doors            in a save the nearest door gets opened and closed evry 12 s from script (testing only)
    test_claim            in a save our script claims 40 % of the first partner npc copy evry 5 s as if our player hit it (testing only)
-   test_vehicle          in a save a car spawns next to our player and we get mounted at its wheel (testing only)
+   test_vehicle          20 s into a save a car spawns next to our player and we get mounted at its wheel (a partner car here: we get in it) (testing only)
    test_loot [REC [N]]   loot sharing on even outside the hosts world and 10 s after a partner is there N x REC (default
                          1 x Items.FirstAidWhiffV0) goes to them thru NightCoopGiveItem 10 s later one gets dropped at our
                          feet as a shared drop (testing only it tops our own stock up first)

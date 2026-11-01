@@ -14,10 +14,13 @@
  UnmountFromVehicle when they get out. a mirror nobody heard of for 10 s or a despawn takes the car away
  riding together: sitting in a partners mirror sends only our VehicleSeat for their netId (evry 200 ms reliable when it changes
  an empty one when we get out) and a partners seat in our own shared car seats their body in our real car (FindEntityByID)
+ handover (VehicleHandover 64): sitting at the wheel of a partners mirror nobody drives makes it our shared car under the same
+ netId (reason 1). the old owner turns its real car into a mirror of ours. an owner still at the wheel refuses (reason 3) and
+ a handover to us of a mirror we have adopts it as ours. a real car that became a mirror is never deleted
  car hits (VehicleHit 65): when the car we drive hits a partner body (script wrap on gameObject.OnVehicleHit) that partner gets
  the hit (at most one per 1.5 s per partner from 1.5 m/s). a partners car hitting us plays as the games OnCarHitPlayer on our
  player unless we sit in a car ourselfs
- not done yet: handover crowd / npc / quest cars doors lights damage steering
+ not done yet: handing a car back to its home peer when we get out (reason 2) crowd / npc / quest cars doors lights damage steering
  testing only: RunTestCar spawns a car next to our player (tag NightCoopTestCar) and mounts us at its wheel with the
  mounting facility (MountingRequest instant) so the sending side runs with nobody at the keyboard. when a partner car mirror
  is already here it puts us in its front right seat instead
@@ -75,6 +78,8 @@ private:
         uint64_t LastHeardMs = 0;
         uint64_t NextPlaceMs = 0;
         uint32_t Teleports = 0;
+        bool SomeoneAtWheel = true;
+        bool Adopted = false;
         std::deque<Snapshot> Snapshots;
     };
 
@@ -119,6 +124,8 @@ private:
     void Unmount(RED4ext::Handle<RED4ext::IScriptable>& vehicle, RED4ext::Handle<RED4ext::IScriptable>& body);
     void RemoveMirror(uint32_t netId, Mirror& mirror, RemoteBodies* bodies, const char* why);
     void SendCarHits(uint64_t nowMs, net::RelaySession& session);
+    void SendHandover(uint32_t netId, uint32_t newOwner, uint8_t reason, RED4ext::Handle<RED4ext::IScriptable>& vehicle, uint64_t seatSlot, net::RelaySession& session);
+    void OnHandover(uint32_t fromPeer, const net::VehicleHandover& handover, uint64_t nowMs, uint32_t ourPeer, bool weAreAtTheWheel);
 
     LogFunction m_log;
     bool m_resolved = false;
@@ -152,6 +159,9 @@ private:
     std::map<uint32_t, PartnerSeat> m_seats;
     OwnShare m_share;
     std::map<uint32_t, uint64_t> m_lastCarHitMs;
+    std::vector<uint32_t> m_handoverRefusals;
+    uint32_t m_ourPeer = 0;
+    bool m_atWheel = false;
     uint64_t m_lastHitOnUsMs = 0;
     RideSeat m_ride;
     RED4ext::CBaseFunction* m_findEntity = nullptr;
@@ -164,6 +174,7 @@ private:
     uint64_t m_testStartMs = 0;
     bool m_testMounted = false;
     bool m_testRidesMirror = false;
+    bool m_testTakesWheel = false;
     uint32_t m_sharesStarted = 0;
 };
 }

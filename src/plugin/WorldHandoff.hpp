@@ -31,8 +31,8 @@
  autosaves: the game keeps autosaving while a guest plays in the hosts world. on arrival our AutoSave folders get cloned into
  handoff/autosaves. evry autosave the game writes there is listed in handoff/host-autosaves.txt and the first start in our own
  world moves those into handoff/host-autosaves and puts our own back (only when nothing touched them since)
- not done yet: item stats and the rest of the player systems in the scriptable systems blob (crafting recipes and co) saving locks
- and sync saves
+ item stats: the quality plus upgrade level and iconic stats of the equipped items go around too (they came along right so far)
+ not done yet: the rest of the player systems in the scriptable systems blob (crafting recipes and co) saving locks and sync saves
 */
 #pragma once
 

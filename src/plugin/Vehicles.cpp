@@ -257,6 +257,10 @@ void Vehicles::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message,
         {
             return;
         }
+        if (spawn.NetId == m_share.NetId)
+        {
+            return;
+        }
         auto& mirror = m_mirrors[spawn.NetId];
         const bool fresh = mirror.LastHeardMs == 0;
         mirror.OwnerPeer = fromPeer;
@@ -282,6 +286,9 @@ void Vehicles::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message,
         {
             return;
         }
+        const uint64_t driverSlot = RED4ext::CName(DriverSeat).hash;
+        mirror->second.SomeoneAtWheel = std::any_of(state.Occupants.begin(), state.Occupants.end(),
+                                                    [driverSlot](const net::VehicleOccupant& occupant) { return occupant.Slot == driverSlot; });
         Snapshot snapshot;
         snapshot.StampMs = state.StampMs;
         std::memcpy(snapshot.Position, state.Position, sizeof(snapshot.Position));
@@ -314,6 +321,14 @@ void Vehicles::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message,
         if (mirror != m_mirrors.end() && mirror->second.OwnerPeer == fromPeer)
         {
             mirror->second.LastHeardMs = 1;
+        }
+    }
+    else if (type == static_cast<uint8_t>(nc::proto::MsgType::VehicleHandover))
+    {
+        net::VehicleHandover handover;
+        if (net::ReadVehicleHandover(message, handover))
+        {
+            OnHandover(fromPeer, handover, nowMs, m_ourPeer, m_atWheel);
         }
     }
     else if (type == static_cast<uint8_t>(nc::proto::MsgType::VehicleSeat))
@@ -360,6 +375,25 @@ void Vehicles::ShareOurCar(uint64_t nowMs, net::RelaySession& session)
             }
         }
     }
+    const uint32_t ourPeer = session.GetStatus().MyPeerNumber;
+    m_ourPeer = ourPeer;
+    m_atWheel = false;
+    if (ridingNetId)
+    {
+        const uint64_t driverSlot = RED4ext::CName(DriverSeat).hash;
+        auto riding = m_mirrors.find(ridingNetId);
+        if (OurSeatSlot(player) == driverSlot && riding != m_mirrors.end() && !riding->second.SomeoneAtWheel && riding->second.EntityHash)
+        {
+            SendHandover(ridingNetId, ourPeer, net::kHandoverTookWheel, vehicle, driverSlot, session);
+            m_log("vehicles: we took the wheel of partner car " + NetIdText(ridingNetId) + " (peer " + std::to_string(riding->second.OwnerPeer) + "), it is ours now");
+            m_share = OwnShare {};
+            m_share.NetId = ridingNetId;
+            m_share.EntityHash = riding->second.EntityHash;
+            m_mirrors.erase(riding);
+            m_ride = RideSeat {};
+            return;
+        }
+    }
     if (ridingNetId)
     {
         const uint64_t slot = OurSeatSlot(player);
@@ -383,7 +417,6 @@ void Vehicles::ShareOurCar(uint64_t nowMs, net::RelaySession& session)
         m_log("vehicles: we got out of partner car " + NetIdText(m_ride.NetId));
         m_ride = RideSeat {};
     }
-    const uint32_t ourPeer = session.GetStatus().MyPeerNumber;
     if (!vehicleHash)
     {
         if (m_share.NetId && !m_share.LeftAtMs)
@@ -407,6 +440,15 @@ void Vehicles::ShareOurCar(uint64_t nowMs, net::RelaySession& session)
         ++m_sharesStarted;
     }
     m_share.LeftAtMs = 0;
+    m_atWheel = OurSeatSlot(player) == RED4ext::CName(DriverSeat).hash;
+    for (const uint32_t refused : m_handoverRefusals)
+    {
+        if (refused == m_share.NetId)
+        {
+            SendHandover(refused, ourPeer, net::kHandoverRefused, vehicle, OurSeatSlot(player), session);
+        }
+    }
+    m_handoverRefusals.clear();
 
     RED4ext::Vector4 position {};
     QuaternionLayout orientation {0, 0, 0, 1};
@@ -726,7 +768,7 @@ void Vehicles::RemoveMirror(uint32_t netId, Mirror& mirror, RemoteBodies* bodies
             seat.MountedNetId = 0;
         }
     }
-    if (mirror.EntityHash && m_dynamicEntitySystem)
+    if (mirror.EntityHash && m_dynamicEntitySystem && !mirror.Adopted)
     {
         RED4ext::ent::EntityID entityId(mirror.EntityHash);
         RED4ext::StackArgs_t args;
@@ -776,6 +818,87 @@ void Vehicles::SendCarHits(uint64_t nowMs, net::RelaySession& session)
     }
 }
 
+void Vehicles::SendHandover(uint32_t netId, uint32_t newOwner, uint8_t reason, RED4ext::Handle<RED4ext::IScriptable>& vehicle, uint64_t seatSlot,
+                            net::RelaySession& session)
+{
+    net::VehicleHandover handover;
+    handover.NetId = netId;
+    handover.NewOwner = newOwner;
+    handover.Reason = reason;
+    handover.State.NetId = netId;
+    handover.State.StampMs = session.SessionClockMs();
+    RED4ext::Vector4 position {};
+    QuaternionLayout orientation {0, 0, 0, 1};
+    RED4ext::Vector4 velocity {};
+    RED4ext::StackArgs_t noArgs;
+    if (vehicle)
+    {
+        game::CallMethod(vehicle.instance, m_getWorldPosition, &position, noArgs);
+        game::CallMethod(vehicle.instance, m_getWorldOrientation, &orientation, noArgs);
+        game::CallMethod(vehicle.instance, m_getLinearVelocity, &velocity, noArgs);
+    }
+    handover.State.Position[0] = position.X;
+    handover.State.Position[1] = position.Y;
+    handover.State.Position[2] = position.Z;
+    std::memcpy(handover.State.Orientation, &orientation, sizeof(handover.State.Orientation));
+    handover.State.Velocity[0] = velocity.X;
+    handover.State.Velocity[1] = velocity.Y;
+    handover.State.Velocity[2] = velocity.Z;
+    handover.State.Flags = net::kVehicleSomeoneDrives;
+    handover.State.Occupants.push_back({seatSlot, net::kOccupantPlayer, newOwner});
+    session.SendGameMessage(net::WriteVehicleHandover(handover));
+}
+
+void Vehicles::OnHandover(uint32_t fromPeer, const net::VehicleHandover& handover, uint64_t nowMs, uint32_t ourPeer, bool weAreAtTheWheel)
+{
+    if (handover.NewOwner == ourPeer)
+    {
+        auto mirror = m_mirrors.find(handover.NetId);
+        if (mirror != m_mirrors.end() && mirror->second.EntityHash && !m_share.NetId)
+        {
+            m_share = OwnShare {};
+            m_share.NetId = handover.NetId;
+            m_share.EntityHash = mirror->second.EntityHash;
+            m_mirrors.erase(mirror);
+            m_log("vehicles: peer " + std::to_string(fromPeer) + " handed us " + NetIdText(handover.NetId) + ", it is ours now");
+        }
+        return;
+    }
+    if (m_share.NetId == handover.NetId)
+    {
+        if (handover.Reason == net::kHandoverTookWheel && weAreAtTheWheel)
+        {
+            m_handoverRefusals.push_back(handover.NetId);
+            m_log("vehicles: peer " + std::to_string(fromPeer) + " wants the wheel of " + NetIdText(handover.NetId) + " but we still drive it");
+            return;
+        }
+        Mirror adopted;
+        adopted.OwnerPeer = handover.NewOwner;
+        adopted.EntityHash = m_share.EntityHash;
+        adopted.InWorld = true;
+        adopted.Adopted = true;
+        adopted.LastHeardMs = nowMs;
+        adopted.Spawn.NetId = handover.NetId;
+        adopted.Spawn.HomePeer = ourPeer;
+        Snapshot first;
+        first.StampMs = handover.State.StampMs;
+        std::memcpy(first.Position, handover.State.Position, sizeof(first.Position));
+        std::memcpy(first.Orientation, handover.State.Orientation, sizeof(first.Orientation));
+        std::memcpy(first.Velocity, handover.State.Velocity, sizeof(first.Velocity));
+        adopted.Snapshots.push_back(first);
+        m_mirrors[handover.NetId] = adopted;
+        m_share = OwnShare {};
+        m_log("vehicles: peer " + std::to_string(handover.NewOwner) + " took the wheel of our car " + NetIdText(handover.NetId) + ", it follows them now");
+        return;
+    }
+    auto mirror = m_mirrors.find(handover.NetId);
+    if (mirror != m_mirrors.end())
+    {
+        mirror->second.OwnerPeer = handover.NewOwner;
+        mirror->second.LastHeardMs = nowMs;
+    }
+}
+
 void Vehicles::OnCarHit(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs, uint32_t ourPeer)
 {
     net::VehicleHit hit;
@@ -821,7 +944,7 @@ void Vehicles::RunTestCar(uint64_t nowMs)
     }
     if (!m_testStartMs)
     {
-        m_testStartMs = nowMs + 8000;
+        m_testStartMs = nowMs + 20000;
     }
     if (nowMs < m_testStartMs)
     {
@@ -843,7 +966,8 @@ void Vehicles::RunTestCar(uint64_t nowMs)
             m_testCarHash = mirror.EntityHash;
             m_testCarSpawnedMs = nowMs;
             m_testRidesMirror = true;
-            m_log("test car: a partner car " + NetIdText(netId) + " is here, getting in next to its driver");
+            m_testTakesWheel = !mirror.SomeoneAtWheel;
+            m_log("test car: a partner car " + NetIdText(netId) + " is here, " + (m_testTakesWheel ? "nobody drives it, taking its wheel" : "getting in next to its driver"));
         }
     }
     if (!m_testCarHash)
@@ -895,7 +1019,7 @@ void Vehicles::RunTestCar(uint64_t nowMs)
     }
     uint64_t playerHash = 0;
     game::CallMethod(player.instance, m_getEntityId, &playerHash, noArgs);
-    const RED4ext::CName seat(m_testRidesMirror ? "seat_front_right" : DriverSeat);
+    const RED4ext::CName seat(m_testRidesMirror && !m_testTakesWheel ? "seat_front_right" : DriverSeat);
     auto* options = static_cast<RED4ext::IScriptable*>(optionsClass->CreateInstance(true));
     RED4ext::Handle<RED4ext::IScriptable> optionsHandle(options);
     auto* data = static_cast<RED4ext::IScriptable*>(dataClass->CreateInstance(true));

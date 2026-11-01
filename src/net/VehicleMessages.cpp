@@ -84,9 +84,10 @@ bool ReadVehicleSpawn(const std::vector<uint8_t>& message, VehicleSpawn& spawn)
            GetFloats(reader, spawn.Position, 3) && GetFloats(reader, spawn.Orientation, 4) && reader.Remaining() == 0;
 }
 
-std::vector<uint8_t> WriteVehicleState(const VehicleState& state)
+namespace
 {
-    nc::proto::Writer writer(nc::proto::MsgType::VehicleState);
+void PutStateBody(nc::proto::Writer& writer, const VehicleState& state)
+{
     writer.PutU32(state.NetId);
     writer.PutU64(state.StampMs);
     PutFloats(writer, state.Position, 3);
@@ -105,16 +106,10 @@ std::vector<uint8_t> WriteVehicleState(const VehicleState& state)
         writer.PutU8(state.Occupants[index].Kind);
         writer.PutU32(state.Occupants[index].Id);
     }
-    return writer.Data();
 }
 
-bool ReadVehicleState(const std::vector<uint8_t>& message, VehicleState& state)
+bool GetStateBody(nc::proto::Reader& reader, VehicleState& state)
 {
-    nc::proto::Reader reader(message.data(), message.size());
-    if (!OpenMessage(reader, nc::proto::MsgType::VehicleState))
-    {
-        return false;
-    }
     state.NetId = reader.GetU32();
     state.StampMs = reader.GetU64();
     if (!GetFloats(reader, state.Position, 3) || !GetFloats(reader, state.Orientation, 4) || !GetFloats(reader, state.Velocity, 3))
@@ -144,7 +139,45 @@ bool ReadVehicleState(const std::vector<uint8_t>& message, VehicleState& state)
         }
         state.Occupants.push_back(occupant);
     }
-    return reader.Remaining() == 0;
+    return true;
+}
+}
+
+std::vector<uint8_t> WriteVehicleState(const VehicleState& state)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::VehicleState);
+    PutStateBody(writer, state);
+    return writer.Data();
+}
+
+bool ReadVehicleState(const std::vector<uint8_t>& message, VehicleState& state)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    return OpenMessage(reader, nc::proto::MsgType::VehicleState) && GetStateBody(reader, state) && reader.Remaining() == 0;
+}
+
+std::vector<uint8_t> WriteVehicleHandover(const VehicleHandover& handover)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::VehicleHandover);
+    writer.PutU32(handover.NetId);
+    writer.PutU32(handover.NewOwner);
+    writer.PutU8(handover.Reason);
+    PutStateBody(writer, handover.State);
+    return writer.Data();
+}
+
+bool ReadVehicleHandover(const std::vector<uint8_t>& message, VehicleHandover& handover)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (!OpenMessage(reader, nc::proto::MsgType::VehicleHandover))
+    {
+        return false;
+    }
+    handover.NetId = reader.GetU32();
+    handover.NewOwner = reader.GetU32();
+    handover.Reason = reader.GetU8();
+    return reader.Ok() && handover.Reason >= 1 && handover.Reason <= 3 && GetStateBody(reader, handover.State) && reader.Remaining() == 0 &&
+           handover.State.NetId == handover.NetId;
 }
 
 std::vector<uint8_t> WriteVehicleDespawn(const VehicleDespawn& despawn)

@@ -1009,6 +1009,18 @@ int main()
         Check(npcGrenadeBytes[4] == 24 && ReadGrenade(npcGrenadeBytes, playerGrenade, grenadeBack) && !playerGrenade, "npc grenade has the same body");
         grenade.Stage = 5;
         Check(!ReadGrenade(WriteGrenade(true, grenade), playerGrenade, grenadeBack), "a grenade stage past 4 is refused");
+        VehicleHandover handover;
+        handover.NetId = 0x01000002;
+        handover.NewOwner = 2;
+        handover.State.NetId = 0x01000002;
+        handover.State.Occupants.push_back({0x1234, 1, 2});
+        VehicleHandover handoverBack;
+        const auto handoverBytes = WriteVehicleHandover(handover);
+        Check(handoverBytes.size() == 5 + 9 + 58 + 13 && handoverBytes[4] == 64 && ReadVehicleHandover(handoverBytes, handoverBack) && handoverBack.NewOwner == 2 &&
+                  handoverBack.State.Occupants.size() == 1,
+              "vehicle handover is 9 bytes and a state body");
+        handover.State.NetId = 7;
+        Check(!ReadVehicleHandover(WriteVehicleHandover(handover), handoverBack), "a handover with another state net id is refused");
         VehicleHit carHit {0x01000002, 0, 555, {0.0f, 1.0f, 0.0f}, {0.0f, 400.0f, 50.0f}, 12.0f};
         VehicleHit carHitBack;
         const auto carHitBytes = WriteVehicleHit(carHit);

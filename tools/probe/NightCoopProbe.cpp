@@ -33,6 +33,8 @@
  then the new save goes out like a join
  PROBE_DEFEAT=<n> tells the host n of its shared npcs (with health above 0) died here (NpcDefeat) the joiner prints NpcDead tables and npc deaths
  PROBE_PUSH=1 says at step 110 that our grenade went off where the joiner stands (PlayerBlast radius 6)
+ PROBE_VEHICLE_EMPTY=1 (with PROBE_VEHICLE) shares that car with nobody at the wheel so the host can take it
+ PROBE_TAKECAR=1 says at step 250 that we took the wheel of the hosts car (VehicleHandover 1) and prints handovers
  PROBE_POLICE=1 says at step 130 that a police unit of ours fights the hosts body (PoliceFight)
  PROBE_TAG=1 tags the first npc the host shares at step 150 and untags it at step 250 (NpcTag)
  PROBE_PHOTO=1 opens photo mode at step 100 and closes it at step 200 (PhotoTogether)
@@ -1240,8 +1242,11 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             carState.Position[2] = state.PositionZ;
             std::copy(orientation, orientation + 4, carState.Orientation);
             carState.Velocity[0] = (stepInLeg < 150 ? 1.0f : -1.0f) * 0.05f / 0.08f;
-            carState.Flags = nightcoop_mac::net::kVehicleEngineOn | nightcoop_mac::net::kVehicleSomeoneDrives;
-            carState.Occupants.push_back({NameHash("seat_front_left"), nightcoop_mac::net::kOccupantPlayer, session.GetStatus().MyPeerNumber});
+            carState.Flags = nightcoop_mac::net::kVehicleEngineOn | (std::getenv("PROBE_VEHICLE_EMPTY") ? 0 : nightcoop_mac::net::kVehicleSomeoneDrives);
+            if (!std::getenv("PROBE_VEHICLE_EMPTY"))
+            {
+                carState.Occupants.push_back({NameHash("seat_front_left"), nightcoop_mac::net::kOccupantPlayer, session.GetStatus().MyPeerNumber});
+            }
             session.SendGameMessage(nightcoop_mac::net::WriteVehicleState(carState), nightcoop_mac::net::kEveryPeer, false);
             nightcoop_mac::net::VehicleSeat seat;
             seat.NetId = probeCarNetId;
@@ -1259,6 +1264,20 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::PlayerEffect effect {1, std::strtoull(effectText, nullptr, 0), {state.PositionX, state.PositionY, state.PositionZ + 1.0f}, {0, 0, 0, 1}, 0};
             session.SendGameMessage(nightcoop_mac::net::WritePlayerFx({effect}));
             std::printf("probe: shows effect %#llx where the joiner stands (PlayerFx)\n", static_cast<unsigned long long>(effect.Resource));
+        }
+        if (std::getenv("PROBE_TAKECAR") && hostCarNetId && step == 250)
+        {
+            nightcoop_mac::net::VehicleHandover takeover;
+            takeover.NetId = hostCarNetId;
+            takeover.NewOwner = session.GetStatus().MyPeerNumber;
+            takeover.Reason = nightcoop_mac::net::kHandoverTookWheel;
+            takeover.State.NetId = hostCarNetId;
+            takeover.State.StampMs = session.SessionClockMs();
+            takeover.State.Position[0] = state.PositionX;
+            takeover.State.Position[1] = state.PositionY;
+            takeover.State.Position[2] = state.PositionZ;
+            session.SendGameMessage(nightcoop_mac::net::WriteVehicleHandover(takeover));
+            std::printf("probe: takes the wheel of the hosts car %#010x (VehicleHandover 1)\n", hostCarNetId);
         }
         if (std::getenv("PROBE_POLICE") && step == 130)
         {
@@ -1965,6 +1984,13 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::AnimSetup setup;
             nightcoop_mac::net::SessionRoster roster;
             nightcoop_mac::net::VehicleSpawn hostCar;
+            nightcoop_mac::net::VehicleHandover handover;
+            if (nightcoop_mac::net::ReadVehicleHandover(message.Message, handover))
+            {
+                std::printf("probe: peer %u says car %#010x belongs to peer %u now (handover reason %u)\n", message.FromPeer, handover.NetId, handover.NewOwner,
+                            handover.Reason);
+                continue;
+            }
             if (nightcoop_mac::net::ReadVehicleSpawn(message.Message, hostCar))
             {
                 std::printf("probe: peer %u shares car %#010x record %#llx at %.1f %.1f %.1f\n", message.FromPeer, hostCar.NetId,

@@ -481,7 +481,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             Cars->OnCarHit(message.FromPeer, message.Message, nowMs, Session->GetStatus().MyPeerNumber);
         }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) >= static_cast<uint8_t>(nc::proto::MsgType::VehicleSpawn) &&
-                 nightcoop_mac::net::MessageTypeOf(message.Message) <= static_cast<uint8_t>(nc::proto::MsgType::VehicleSeat))
+                 nightcoop_mac::net::MessageTypeOf(message.Message) <= static_cast<uint8_t>(nc::proto::MsgType::VehicleHandover))
         {
             Cars->OnMessage(message.FromPeer, message.Message, nowMs);
         }
