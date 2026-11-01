@@ -79,7 +79,7 @@ protected func ComputeRootState() -> CName {
 }
 
 // name plates over partner heads (nightcoops world markers): a NightCoopPlayerMarkers canvas sits on top of the hud window,
-// found by walking up from the onscreen message controller, and holds one NightCoopPlayerMarker per partner with their
+// found by walking up from the onscreen message controller or as the hud layers virtual window thru codewares ink system, and holds one NightCoopPlayerMarker per partner with their
 // name (36 px) and distance (28 px) in the hud cyan. the plugin projects each partner to the screen evry frame and calls
 // BeginFrame, Place for evry partner it sees, then EndFrame, which hides the plates nobody placed. coordinates are in the
 // 3840 x 2160 hud space
@@ -119,6 +119,12 @@ public class NightCoopPartnerPlates extends ScriptableService {
   }
 
   public func HasLayer() -> Bool {
+    if !IsDefined(this.m_layer) {
+      let hud = GameInstance.GetInkSystem().GetLayer(n"inkHUDLayer");
+      if IsDefined(hud) {
+        this.AttachTo(hud.GetVirtualWindow());
+      }
+    }
     return IsDefined(this.m_layer);
   }
 
@@ -127,6 +133,9 @@ public class NightCoopPartnerPlates extends ScriptableService {
   }
 
   public func BeginFrame() {
+    if !IsDefined(this.m_layer) {
+      this.HasLayer();
+    }
     let index = 0;
     while index < ArraySize(this.m_placed) {
       this.m_placed[index] = false;
