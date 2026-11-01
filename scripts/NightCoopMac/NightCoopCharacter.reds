@@ -3,7 +3,7 @@
 // Capture writes our V as lines: level <proficiency> <level> | attr <stat type> <value> | perk <new perk> <level> | points
 // <development point type> <unspent>. Apply in the hosts world resets perks and attributes sets evry proficiency level adds
 // points buys the attributes up to their values unlocks and buys the perks (forced) and sets the unspent points to ours.
-// it returns how many values ended up right
+// it returns how many values ended up right. SlotCount / GetEquipped / EquipNow let the plugin carry the equipped item ids too
 
 public class NightCoopCharacter extends ScriptableService {
   public static func Get() -> ref<NightCoopCharacter> {
@@ -26,6 +26,40 @@ public class NightCoopCharacter extends ScriptableService {
   private func AttributeValue(stat: gamedataStatType) -> Int32 {
     let player = GetPlayer(GetGameInstance());
     return Cast<Int32>(GameInstance.GetStatsSystem(GetGameInstance()).GetStatValue(Cast<StatsObjectID>(player.GetEntityID()), stat));
+  }
+
+  public func SlotCount(area: Int32) -> Int32 {
+    let player = GetPlayer(GetGameInstance());
+    if !IsDefined(player) {
+      return 0;
+    }
+    let data = EquipmentSystem.GetData(player);
+    let areaType = IntEnum<gamedataEquipmentArea>(area);
+    if !IsDefined(data) || data.GetEquipAreaIndex(areaType) < 0 {
+      return 0;
+    }
+    return ArraySize(data.GetEquipArea(areaType).equipSlots);
+  }
+
+  public func GetEquipped(area: Int32, slot: Int32) -> ItemID {
+    let player = GetPlayer(GetGameInstance());
+    if !IsDefined(player) {
+      return ItemID.None();
+    }
+    return EquipmentSystem.GetInstance(player).GetItemInEquipSlot(player, IntEnum<gamedataEquipmentArea>(area), slot);
+  }
+
+  public func EquipNow(area: Int32, slot: Int32, item: ItemID) -> Bool {
+    let player = GetPlayer(GetGameInstance());
+    if !IsDefined(player) || !ItemID.IsValid(item) || !GameInstance.GetTransactionSystem(GetGameInstance()).HasItem(player, item) {
+      return false;
+    }
+    let request = new EquipRequest();
+    request.owner = player;
+    request.itemID = item;
+    request.slotIndex = slot;
+    EquipmentSystem.GetInstance(player).QueueRequest(request);
+    return true;
   }
 
   public func Capture() -> String {

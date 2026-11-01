@@ -16,9 +16,9 @@
  waits for the game to close and starts launch_red4ext.sh -save=<folder> and the game closes itself. on the next start the
  marker plus that -save argument mean we arrived (WorldStatus 7). handoff_restart off in session.txt turns this off
  the written save keeps our own V: the character nodes and the player and stash inventories of our newest own save (not a
- handoff one not PointOfNoReturn) go into the hosts save (save package). level attributes perks and unspent points go around it
- (NightCoopCharacter Capture into handoff/character.txt before and Apply 15 s after we arrived). handoff_character off in session.txt plays the hosts V instead
- not done yet: item stats and the rest of the player systems in the scriptable systems blob saving locks reloads of the host
+ handoff one not PointOfNoReturn) go into the hosts save (save package). level attributes perks unspent points and the equipped item
+ ids go around it (NightCoopCharacter Capture into handoff/character.txt before and Apply + EquipNow 15 s after we arrived). handoff_character off in session.txt plays the hosts V instead
+ not done yet: item stats and the rest of the player systems in the scriptable systems blob (crafting recipes and co) saving locks reloads of the host
  (WorldReload 95) sync saves and the return to our own world
 */
 #pragma once

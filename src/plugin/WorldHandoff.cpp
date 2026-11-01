@@ -6,6 +6,7 @@
 #include "net/WorldMessages.hpp"
 #include "plugin/GameCalls.hpp"
 #include "plugin/Hud.hpp"
+#include "plugin/Items.hpp"
 #include "plugin/PartnerRoster.hpp"
 
 #include <ProtocolCore.hpp>
@@ -20,6 +21,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <sstream>
 
 namespace nightcoop_mac::world_handoff
 {
@@ -377,9 +379,90 @@ std::string CallCharacter(const char* functionName, const std::string& text)
     return result.c_str();
 }
 
+std::string EquippedLines()
+{
+    auto service = game::ScriptService("NightCoopCharacter");
+    auto* slotCount = game::FindFunction("NightCoopCharacter", "SlotCount");
+    auto* getEquipped = game::FindFunction("NightCoopCharacter", "GetEquipped");
+    auto* areas = RED4ext::CRTTISystem::Get()->GetEnum("gamedataEquipmentArea");
+    if (!service || !slotCount || !getEquipped || !areas)
+    {
+        return {};
+    }
+    std::string lines;
+    for (uint32_t index = 0; index < areas->valueList.Size(); ++index)
+    {
+        int32_t area = static_cast<int32_t>(areas->valueList[index]);
+        int32_t slots = 0;
+        RED4ext::StackArgs_t countArgs;
+        countArgs.emplace_back(nullptr, &area);
+        game::CallMethod(service.instance, slotCount, &slots, countArgs);
+        for (int32_t slot = 0; slot < slots && slot < 16; ++slot)
+        {
+            items::ItemId item;
+            RED4ext::StackArgs_t slotArgs;
+            slotArgs.emplace_back(nullptr, &area);
+            slotArgs.emplace_back(nullptr, &slot);
+            if (!game::CallMethod(service.instance, getEquipped, &item, slotArgs) || !item.Record)
+            {
+                continue;
+            }
+            const auto* raw = reinterpret_cast<const uint8_t*>(&item);
+            char hex[33];
+            for (int byte = 0; byte < 16; ++byte)
+            {
+                std::snprintf(hex + byte * 2, 3, "%02x", raw[byte]);
+            }
+            lines += "equip " + std::to_string(area) + " " + std::to_string(slot) + " " + hex + "\n";
+        }
+    }
+    return lines;
+}
+
+int EquipFromLines(const std::string& character)
+{
+    auto service = game::ScriptService("NightCoopCharacter");
+    auto* equipNow = game::FindFunction("NightCoopCharacter", "EquipNow");
+    if (!service || !equipNow)
+    {
+        return 0;
+    }
+    int equipped = 0;
+    std::istringstream lines(character);
+    std::string word;
+    while (lines >> word)
+    {
+        if (word != "equip")
+        {
+            continue;
+        }
+        int32_t area = 0;
+        int32_t slot = 0;
+        std::string hex;
+        if (!(lines >> area >> slot >> hex) || hex.size() != 32)
+        {
+            continue;
+        }
+        items::ItemId item;
+        auto* raw = reinterpret_cast<uint8_t*>(&item);
+        for (int byte = 0; byte < 16; ++byte)
+        {
+            raw[byte] = static_cast<uint8_t>(std::stoul(hex.substr(byte * 2, 2), nullptr, 16));
+        }
+        bool done = false;
+        RED4ext::StackArgs_t args;
+        args.emplace_back(nullptr, &area);
+        args.emplace_back(nullptr, &slot);
+        args.emplace_back(nullptr, &item);
+        game::CallMethod(service.instance, equipNow, &done, args);
+        equipped += done ? 1 : 0;
+    }
+    return equipped;
+}
+
 void CaptureCharacter(const LogFunction& log)
 {
-    const std::string character = CallCharacter("Capture", "");
+    const std::string character = CallCharacter("Capture", "") + EquippedLines();
     if (character.empty())
     {
         log("handoff: could not read our level and perks");
@@ -404,6 +487,7 @@ void ApplyCharacter(const LogFunction& log)
         return;
     }
     log("handoff: our level attributes and perks in the hosts world: " + CallCharacter("Apply", character));
+    log("handoff: " + std::to_string(EquipFromLines(character)) + " of our equipped items are back on");
 }
 
 std::vector<uint8_t> WithOurCharacter(const std::vector<uint8_t>& hostSave, const LogFunction& log)
@@ -862,7 +946,7 @@ void TestCharacter(uint64_t nowMs, bool inSave, const LogFunction& log)
     if (TestCaptureAtMs != 1 && nowMs >= TestCaptureAtMs)
     {
         TestCaptureAtMs = 1;
-        TestCaptured = CallCharacter("Capture", "");
+        TestCaptured = CallCharacter("Capture", "") + EquippedLines();
         TestApplyAtMs = nowMs + 10000;
         log("test character: captured " + std::to_string(std::count(TestCaptured.begin(), TestCaptured.end(), '\n')) + " values");
     }
@@ -870,7 +954,8 @@ void TestCharacter(uint64_t nowMs, bool inSave, const LogFunction& log)
     {
         TestApplyAtMs = 0;
         log("test character: applied the same values back: " + CallCharacter("Apply", TestCaptured));
-        const std::string after = CallCharacter("Capture", "");
+        log("test character: " + std::to_string(EquipFromLines(TestCaptured)) + " equipped item(s) put on again");
+        const std::string after = CallCharacter("Capture", "") + EquippedLines();
         log(std::string("test character: a new capture is ") + (after == TestCaptured ? "the same" : "different"));
         if (after != TestCaptured)
         {
