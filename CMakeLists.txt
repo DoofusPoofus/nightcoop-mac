@@ -78,6 +78,7 @@ add_library(NightCoopMac SHARED
   src/plugin/FactsDb.cpp
   src/plugin/GameVersion.cpp
   src/plugin/Hud.cpp
+  src/plugin/BackgroundRun.cpp
   src/plugin/KeyWatch.cpp
   src/plugin/LiftSync.cpp
   src/plugin/ItemGive.cpp

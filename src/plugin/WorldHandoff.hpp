@@ -61,4 +61,5 @@ void AskForAutosave(bool wanted);
 void KeepOurCharacter(bool keep);
 void TestCharacter(uint64_t nowMs, bool inSave, const LogFunction& log);
 bool InHostWorld();
+std::string WorldPauseReport();
 }

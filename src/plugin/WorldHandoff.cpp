@@ -1697,4 +1697,18 @@ bool InHostWorld()
 {
     return Phase == GuestPhase::InHostWorld;
 }
+
+std::string WorldPauseReport()
+{
+    static auto* pauseReport = game::FindFunction("NightCoopWorldHandoff", "WorldPauseReport");
+    auto service = game::ScriptService("NightCoopWorldHandoff");
+    if (!pauseReport || !service)
+    {
+        return "the handoff script is not there";
+    }
+    RED4ext::CString result;
+    RED4ext::StackArgs_t noArgs;
+    game::CallMethod(service.instance, pauseReport, &result, noArgs);
+    return result.c_str();
+}
 }

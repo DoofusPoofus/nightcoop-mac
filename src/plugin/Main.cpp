@@ -17,6 +17,7 @@
 #include "net/LookMessages.hpp"
 #include "net/RelaySession.hpp"
 #include "plugin/AnimMirror.hpp"
+#include "plugin/BackgroundRun.hpp"
 #include "plugin/Hud.hpp"
 #include "plugin/AnimSetup.hpp"
 #include "plugin/AnimTap.hpp"
@@ -88,6 +89,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <sstream>
 
 namespace
 {
@@ -121,6 +123,7 @@ std::map<uint32_t, RemotePeerSighting> LatestRemoteStates;
 uint64_t NextSampleMs = 0;
 uint64_t NextRemoteReportMs = 0;
 uint64_t NextCrashNotesCheckMs = 0;
+uint64_t NextWorldPauseReportMs = 0;
 uint64_t NextCombatBodiesMs = 0;
 uint64_t LateDumpAtMs = 0;
 constexpr uint64_t OwnLookEveryMs = 2000;
@@ -452,11 +455,17 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         nightcoop_mac::WriteRttiDumpIfRequested(PluginFolder);
         Log("wrote rtti-dump.txt again with the game systems up");
     }
+    std::istringstream backgroundNotes(nightcoop_mac::background_run::TakeNotes());
+    for (std::string note; std::getline(backgroundNotes, note);)
+    {
+        Log(note);
+    }
     if (!Session)
     {
         return false;
     }
     const uint64_t nowMs = SteadyMs();
+    nightcoop_mac::background_run::KeepRunning(Plan->KeepRunningUnfocused, nowMs);
     if (nowMs >= NextCrashNotesCheckMs)
     {
         NextCrashNotesCheckMs = nowMs + 5000;
@@ -465,6 +474,11 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     WriteStatusFile(DescribeStatus(Session->GetStatus()));
     TakeRemoteStates(nowMs);
     const bool inSave = LocalStateValid && Flow->BodiesAllowed(nowMs);
+    if (inSave && nowMs >= NextWorldPauseReportMs)
+    {
+        NextWorldPauseReportMs = nowMs + 20000;
+        Log("world: " + nightcoop_mac::world_handoff::WorldPauseReport());
+    }
     bool kicked = false;
     for (const auto& message : Session->TakeGameMessages())
     {
@@ -941,6 +955,7 @@ void SetUpSession()
         return;
     }
     Log(Plan->IsHost ? "session.txt: host on " + Plan->Hub : "session.txt: join " + Plan->JoinCode + " on " + Plan->Hub);
+    nightcoop_mac::background_run::Install();
     nightcoop_mac::anim_tap::Install(GameSdk, PluginHandle, Log);
     if (Plan->Bodies.Enabled)
     {

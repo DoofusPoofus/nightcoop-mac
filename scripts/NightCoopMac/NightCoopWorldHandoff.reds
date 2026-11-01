@@ -139,6 +139,26 @@ public class NightCoopWorldHandoff extends ScriptableService {
     return "";
   }
 
+  public func WorldPauseReport() -> String {
+    let game = GetGameInstance();
+    let timeSystem = GameInstance.GetTimeSystem(game);
+    if !IsDefined(timeSystem) {
+      return "no time system";
+    }
+    let report = "sim time " + FloatToString(EngineTime.ToFloat(timeSystem.GetSimTime())) + " game stamp " + FloatToString(timeSystem.GetGameTimeStamp());
+    if timeSystem.IsPausedState() {
+      report += " paused";
+    }
+    let locks: array<gameSaveLock>;
+    if GameInstance.IsSavingLocked(game, locks) {
+      report += " save locks:";
+      for lock in locks {
+        report += " " + EnumValueToString("gameSaveLockReason", Cast<Int64>(EnumInt(lock.reason)));
+      }
+    }
+    return report;
+  }
+
   public func TestAutosave() -> Bool {
     let player = GetPlayer(GetGameInstance());
     return IsDefined(player) && player.RequestAutoSave(true);
