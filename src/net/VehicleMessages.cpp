@@ -324,4 +324,37 @@ bool ReadCarRadio(const std::vector<uint8_t>& message, CarRadio& radio)
     radio.TrackName = reader.GetU64();
     return reader.Ok() && reader.Remaining() == 0 && radio.NetId != 0 && radio.On < 2 && radio.Station < 0x10000;
 }
+
+std::vector<uint8_t> WriteVehicleSceneSeat(const VehicleSceneSeat& seat)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::VehicleSceneSeat);
+    writer.PutU64(seat.Entity);
+    writer.PutU64(seat.Record);
+    writer.PutU64(seat.Slot);
+    PutFloats(writer, seat.Offset, 3);
+    PutFloats(writer, seat.Orientation, 4);
+    PutFloats(writer, seat.CarPosition, 3);
+    writer.PutU8(seat.Flags & 7);
+    return writer.Data();
+}
+
+bool ReadVehicleSceneSeat(const std::vector<uint8_t>& message, VehicleSceneSeat& seat)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (!OpenMessage(reader, nc::proto::MsgType::VehicleSceneSeat))
+    {
+        return false;
+    }
+    seat.Entity = reader.GetU64();
+    seat.Record = reader.GetU64();
+    seat.Slot = reader.GetU64();
+    if (!GetFloats(reader, seat.Offset, 3) || !GetFloats(reader, seat.Orientation, 4) || !GetFloats(reader, seat.CarPosition, 3))
+    {
+        return false;
+    }
+    seat.Flags = reader.GetU8();
+    const float offsetSquared = seat.Offset[0] * seat.Offset[0] + seat.Offset[1] * seat.Offset[1] + seat.Offset[2] * seat.Offset[2];
+    const bool placeOk = std::all_of(seat.CarPosition, seat.CarPosition + 3, [](float value) { return std::fabs(value) <= 100000.0f; });
+    return reader.Ok() && reader.Remaining() == 0 && offsetSquared <= 100.0f && placeOk && (seat.Flags & ~7u) == 0;
+}
 }

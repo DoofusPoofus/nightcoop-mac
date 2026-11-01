@@ -489,6 +489,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             nightcoop_mac::partner_roster::OnMessage(message.FromPeer, message.Message, *Session, Log);
         }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::VehicleDamage) ||
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::VehicleSceneSeat) ||
                  (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::CarsWord) && message.Message.size() > 5 &&
                   message.Message[5] < 2))
         {

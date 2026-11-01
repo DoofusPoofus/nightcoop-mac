@@ -1009,6 +1009,17 @@ int main()
         Check(npcGrenadeBytes[4] == 24 && ReadGrenade(npcGrenadeBytes, playerGrenade, grenadeBack) && !playerGrenade, "npc grenade has the same body");
         grenade.Stage = 5;
         Check(!ReadGrenade(WriteGrenade(true, grenade), playerGrenade, grenadeBack), "a grenade stage past 4 is refused");
+        VehicleSceneSeat sceneSeat;
+        sceneSeat.Entity = 0x123456789ULL;
+        sceneSeat.Record = 0x277002deb0ULL;
+        sceneSeat.Slot = 0x99;
+        sceneSeat.CarPosition[0] = 100.0f;
+        sceneSeat.Flags = 6;
+        VehicleSceneSeat sceneSeatBack;
+        const auto sceneSeatBytes = WriteVehicleSceneSeat(sceneSeat);
+        Check(sceneSeatBytes.size() == 5 + 65 && sceneSeatBytes[4] == 123 && ReadVehicleSceneSeat(sceneSeatBytes, sceneSeatBack) && sceneSeatBack.Slot == 0x99 &&
+                  sceneSeatBack.CarPosition[0] == 100.0f && sceneSeatBack.Flags == 6,
+              "vehicle scene seat is 65 bytes");
         CarRadio radio {0, 0x01000002, 1, 4, 0, 0x55, 0x66};
         CarRadio radioBack;
         const auto radioBytes = WriteCarRadio(radio);

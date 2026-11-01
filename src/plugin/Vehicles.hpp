@@ -21,6 +21,9 @@
  on a mirror tells us where the grid lives (a pointer in the car object whose +0x100 holds those 30 floats, read with
  vm_read_overwrite so a wrong guess never crashes) and from then on our own cars grid goes out evry 500 ms on change (5 s
  refresh while damaged). on mac 2.5.0 the grid is known to sit at [car + 0x538] + 0x100 so ours goes out from the start
+ scene cars (VehicleSceneSeat 123): a car a scene holds us in (an npc drives and our player or the car is in a scene) is not
+ shared: we tell the others our seat in our own copy of it and a partner in theirs gets its body seated in our copy of that car
+ (the same static entity id or the nearest car of that record within 30 m)
  radio (CarsWord 181 kinds 0 / 1): the car we drive tells each partner sitting in it its radio (on station index names) on
  change and evry 2 s and we play that on our mirror of their car. switching the station in a partners car asks its owner
  car hits (VehicleHit 65): when the car we drive hits a partner body (script wrap on gameObject.OnVehicleHit) that partner gets
@@ -138,6 +141,10 @@ private:
     bool ReadRadio(RED4ext::Handle<RED4ext::IScriptable>& vehicle, net::CarRadio& radio);
     void SetRadio(RED4ext::Handle<RED4ext::IScriptable>& vehicle, bool on, uint32_t station);
     void ShareRadio(uint64_t nowMs, net::RelaySession& session);
+    bool InScene(uint64_t entityHash);
+    void SendSceneSeat(RED4ext::Handle<RED4ext::IScriptable>& vehicle, uint64_t vehicleHash, uint64_t slot, uint64_t nowMs, net::RelaySession& session);
+    RED4ext::Handle<RED4ext::IScriptable> FindSceneCar(const net::VehicleSceneSeat& seat);
+    void SeatSceneSeats(uint64_t nowMs, RemoteBodies& bodies);
     void FindDentGrid(RED4ext::Handle<RED4ext::IScriptable>& vehicle, const float* wanted);
     bool ReadDentGrid(RED4ext::Handle<RED4ext::IScriptable>& vehicle, float* grid);
     static uint32_t KnownGridOffset();
@@ -179,6 +186,19 @@ private:
     std::vector<uint32_t> m_handoverRefusals;
     uint32_t m_ourPeer = 0;
     std::map<uint32_t, uint64_t> m_radioSentMs;
+    struct PartnerSceneSeat
+    {
+        net::VehicleSceneSeat Seat;
+        uint64_t HeardMs = 0;
+        uint64_t MountedEntity = 0;
+        uint32_t Tries = 0;
+        uint64_t NextTryMs = 0;
+    };
+    std::map<uint32_t, PartnerSceneSeat> m_sceneSeats;
+    net::VehicleSceneSeat m_ourSceneSeat;
+    uint64_t m_nextSceneSeatMs = 0;
+    uint64_t m_sceneCheckedMs = 0;
+    bool m_sceneCar = false;
     net::CarRadio m_ownRadio;
     net::CarRadio m_appliedRadio;
     uint64_t m_nextRadioMs = 0;

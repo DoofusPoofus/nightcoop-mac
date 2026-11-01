@@ -47,6 +47,7 @@
  PROBE_TAG=1 tags the first npc the host shares at step 150 and untags it at step 250 (NpcTag)
  PROBE_PHOTO=1 opens photo mode at step 100 and closes it at step 200 (PhotoTogether)
  PROBE_FX=<effect resource path hash> shows that effect at step 120 where the joiner stands (PlayerFx)
+ PROBE_SCENESEAT=<car record> says from step 380 on that a scene seats us in our own copy of such a car where the host is
  PROBE_RADIO=1 (with PROBE_VEHICLE) tells the host at step 400 that our car radio plays station 3 (CarsWord kind 0)
  PROBE_DENT=1 (with PROBE_VEHICLE) says at step 220 that our car got dents and a flat front tire (VehicleDamage)
  PROBE_CARHIT=1 (with PROBE_VEHICLE) says at step 200 that our car hit the hosts player (VehicleHit 9 m/s)
@@ -1475,6 +1476,21 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             seat.NetId = probeCarNetId;
             seat.Slot = NameHash("seat_front_left");
             session.SendGameMessage(nightcoop_mac::net::WriteVehicleSeat(seat), nightcoop_mac::net::kEveryPeer, step == 0);
+        }
+        if (const char* sceneCar = std::getenv("PROBE_SCENESEAT"); sceneCar && hostPositionKnown && step >= 380 && step % 3 == 0)
+        {
+            nightcoop_mac::net::VehicleSceneSeat seat;
+            seat.Record = std::strtoull(sceneCar, nullptr, 0);
+            seat.Slot = NameHash("seat_front_right");
+            seat.CarPosition[0] = hostX;
+            seat.CarPosition[1] = hostY;
+            seat.CarPosition[2] = hostZ;
+            seat.Flags = 6;
+            session.SendGameMessage(nightcoop_mac::net::WriteVehicleSceneSeat(seat), nightcoop_mac::net::kEveryPeer, step == 380);
+            if (step == 380)
+            {
+                std::printf("probe: a scene seats us in our own copy of car %s next to the host (VehicleSceneSeat)\n", sceneCar);
+            }
         }
         if (std::getenv("PROBE_RADIO") && std::getenv("PROBE_VEHICLE") && step == 400)
         {

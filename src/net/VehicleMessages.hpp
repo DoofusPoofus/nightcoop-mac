@@ -16,6 +16,10 @@
    3 refused) | a VehicleState body of the same netId
  VehicleDamage (132) owner -> evryone 126 bytes: u32 netId | u8 flags (bit0 a flat tire) | u8 tire index (<= 7 with bit0) | f32 x30
    destruction grid (2 layers of 15 each -0.01..16)
+ VehicleSceneSeat (123) evry peer about its own player sitting in its own copy of a scene car (not shared) reliable on change
+   unreliable evry 200 ms a zero record when it got out 65 bytes: u64 its entity id | u64 car record | u64 seat slot | f32 x3 our
+   place in the cars axes (|v| <= 10) | f32 x4 orientation there | f32 x3 the cars world place | u8 flags (bit0 av bit1 a quest
+   ride bit2 seated by a scene)
  CarsWord (181) radio kinds 0 / 1 reliable to one peer 30 bytes: u8 kind (0 owner -> a passenger: the radio state 1 passenger ->
    owner: set this station) | u32 netId | u8 radio on | u32 station index (< 0x10000) | u32 spare | u64 station name | u64 track name
  VehicleHit (65) car owner -> the peer whose body its car hit reliable 44 bytes: u32 netId | u32 hit peer | u64 shared clock ms |
@@ -63,6 +67,17 @@ struct VehicleState
     uint8_t Health = 100;
     int8_t Steering = 0;
     std::vector<VehicleOccupant> Occupants;
+};
+
+struct VehicleSceneSeat
+{
+    uint64_t Entity = 0;
+    uint64_t Record = 0;
+    uint64_t Slot = 0;
+    float Offset[3] = {0, 0, 0};
+    float Orientation[4] = {0, 0, 0, 1};
+    float CarPosition[3] = {0, 0, 0};
+    uint8_t Flags = 0;
 };
 
 struct CarRadio
@@ -136,6 +151,8 @@ std::vector<uint8_t> WriteVehicleHit(const VehicleHit& hit);
 std::vector<uint8_t> WriteVehicleHandover(const VehicleHandover& handover);
 std::vector<uint8_t> WriteVehicleDamage(const VehicleDamage& damage);
 std::vector<uint8_t> WriteCarRadio(const CarRadio& radio);
+std::vector<uint8_t> WriteVehicleSceneSeat(const VehicleSceneSeat& seat);
+bool ReadVehicleSceneSeat(const std::vector<uint8_t>& message, VehicleSceneSeat& seat);
 bool ReadCarRadio(const std::vector<uint8_t>& message, CarRadio& radio);
 bool ReadVehicleDamage(const std::vector<uint8_t>& message, VehicleDamage& damage);
 bool ReadVehicleHandover(const std::vector<uint8_t>& message, VehicleHandover& handover);

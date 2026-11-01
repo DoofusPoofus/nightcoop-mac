@@ -334,6 +334,21 @@ void Vehicles::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message,
             mirror->second.LastHeardMs = 1;
         }
     }
+    else if (type == static_cast<uint8_t>(nc::proto::MsgType::VehicleSceneSeat))
+    {
+        net::VehicleSceneSeat seat;
+        if (net::ReadVehicleSceneSeat(message, seat))
+        {
+            auto& scene = m_sceneSeats[fromPeer];
+            if (scene.Seat.Entity != seat.Entity || scene.Seat.Slot != seat.Slot)
+            {
+                scene.Tries = 0;
+                scene.NextTryMs = 0;
+            }
+            scene.Seat = seat;
+            scene.HeardMs = nowMs;
+        }
+    }
     else if (type == static_cast<uint8_t>(nc::proto::MsgType::CarsWord))
     {
         net::CarRadio radio;
@@ -506,6 +521,30 @@ void Vehicles::ShareOurCar(uint64_t nowMs, net::RelaySession& session)
         session.SendGameMessage(net::WriteVehicleSeat(net::VehicleSeat {}));
         m_log("vehicles: we got out of partner car " + NetIdText(m_ride.NetId));
         m_ride = RideSeat {};
+    }
+    if (vehicleHash && nowMs - m_sceneCheckedMs >= 500)
+    {
+        m_sceneCheckedMs = nowMs;
+        uint64_t playerHash = 0;
+        game::CallMethod(player.instance, m_getEntityId, &playerHash, noArgs);
+        m_sceneCar = OurSeatSlot(player) != RED4ext::CName(DriverSeat).hash && (InScene(playerHash) || InScene(vehicleHash));
+    }
+    if (vehicleHash && m_sceneCar)
+    {
+        if (m_share.NetId)
+        {
+            session.SendGameMessage(net::WriteVehicleSeat(net::VehicleSeat {}));
+            session.SendGameMessage(net::WriteVehicleDespawn({m_share.NetId, 1}));
+            m_share = OwnShare {};
+        }
+        SendSceneSeat(vehicle, vehicleHash, OurSeatSlot(player), nowMs, session);
+        return;
+    }
+    if (m_ourSceneSeat.Entity)
+    {
+        session.SendGameMessage(net::WriteVehicleSceneSeat(net::VehicleSceneSeat {}));
+        m_ourSceneSeat = net::VehicleSceneSeat {};
+        m_log("vehicles: the scene let go of our car seat");
     }
     if (!vehicleHash)
     {
@@ -1004,6 +1043,153 @@ bool Vehicles::ReadDentGrid(RED4ext::Handle<RED4ext::IScriptable>& vehicle, floa
            ReadMemory(pointer + 0x100, grid, sizeof(float) * 30);
 }
 
+bool Vehicles::InScene(uint64_t entityHash)
+{
+    static auto* entityInScene = game::FindFunction("NightCoopCutscenes", "EntityInScene");
+    auto service = game::ScriptService("NightCoopCutscenes");
+    if (!entityInScene || !service || !entityHash)
+    {
+        return false;
+    }
+    RED4ext::ent::EntityID entityId(entityHash);
+    bool inScene = false;
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &entityId);
+    game::CallMethod(service.instance, entityInScene, &inScene, args);
+    return inScene;
+}
+
+void Vehicles::SendSceneSeat(RED4ext::Handle<RED4ext::IScriptable>& vehicle, uint64_t vehicleHash, uint64_t slot, uint64_t nowMs, net::RelaySession& session)
+{
+    const bool changed = m_ourSceneSeat.Entity != vehicleHash || m_ourSceneSeat.Slot != slot;
+    if (!changed && nowMs < m_nextSceneSeatMs)
+    {
+        return;
+    }
+    m_nextSceneSeatMs = nowMs + SeatEveryMs;
+    RED4ext::TweakDBID record;
+    RED4ext::Vector4 position {};
+    RED4ext::StackArgs_t noArgs;
+    game::CallMethod(vehicle.instance, m_getRecordId, &record, noArgs);
+    game::CallMethod(vehicle.instance, m_getWorldPosition, &position, noArgs);
+    m_ourSceneSeat.Entity = vehicleHash;
+    m_ourSceneSeat.Record = record.value & 0xFFFFFFFFFFULL;
+    m_ourSceneSeat.Slot = slot;
+    m_ourSceneSeat.CarPosition[0] = position.X;
+    m_ourSceneSeat.CarPosition[1] = position.Y;
+    m_ourSceneSeat.CarPosition[2] = position.Z;
+    m_ourSceneSeat.Flags = 6;
+    session.SendGameMessage(net::WriteVehicleSceneSeat(m_ourSceneSeat), net::kEveryPeer, changed);
+    if (changed)
+    {
+        m_log("vehicles: a scene holds us in our own copy of a car, partners get our seat in theirs (not shared)");
+    }
+}
+
+RED4ext::Handle<RED4ext::IScriptable> Vehicles::FindSceneCar(const net::VehicleSceneSeat& seat)
+{
+    RED4ext::StackArgs_t noArgs;
+    if (seat.Entity > 0xFFFFFF)
+    {
+        auto same = EntityOf(seat.Entity);
+        RED4ext::TweakDBID record;
+        if (same && game::CallMethod(same.instance, m_getRecordId, &record, noArgs) && (record.value & 0xFFFFFFFFFFULL) == seat.Record)
+        {
+            return same;
+        }
+    }
+    static auto* getEntityList = game::FindFunction("ScriptGameInstance", "GetEntityList");
+    static auto* vehicleClass = RED4ext::CRTTISystem::Get()->GetClass("vehicleBaseObject");
+    RED4ext::Handle<RED4ext::IScriptable> best;
+    if (!getEntityList || !vehicleClass)
+    {
+        return best;
+    }
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::DynArray<RED4ext::Handle<RED4ext::IScriptable>> entities;
+    RED4ext::StackArgs_t listArgs;
+    listArgs.emplace_back(nullptr, &gameInstance);
+    if (!game::CallStatic(getEntityList, &entities, listArgs))
+    {
+        return best;
+    }
+    float bestMeters = 30.0f;
+    for (auto& entity : entities)
+    {
+        auto* entityClass = entity ? entity->GetType() : nullptr;
+        if (!entityClass || !entityClass->IsA(vehicleClass))
+        {
+            continue;
+        }
+        RED4ext::TweakDBID record;
+        game::CallMethod(entity.instance, m_getRecordId, &record, noArgs);
+        if ((record.value & 0xFFFFFFFFFFULL) != seat.Record)
+        {
+            continue;
+        }
+        RED4ext::Vector4 position {};
+        game::CallMethod(entity.instance, m_getWorldPosition, &position, noArgs);
+        const float x = position.X - seat.CarPosition[0];
+        const float y = position.Y - seat.CarPosition[1];
+        const float z = position.Z - seat.CarPosition[2];
+        const float meters = std::sqrt(x * x + y * y + z * z);
+        if (meters < bestMeters)
+        {
+            bestMeters = meters;
+            best = entity;
+        }
+    }
+    return best;
+}
+
+void Vehicles::SeatSceneSeats(uint64_t nowMs, RemoteBodies& bodies)
+{
+    for (auto entry = m_sceneSeats.begin(); entry != m_sceneSeats.end();)
+    {
+        auto& [peer, scene] = *entry;
+        RED4ext::Handle<RED4ext::IScriptable> body;
+        const bool haveBody = bodies.GetBody(peer, body);
+        const bool gone = scene.Seat.Record == 0 || nowMs - scene.HeardMs > 2000;
+        if (gone)
+        {
+            if (scene.MountedEntity && haveBody)
+            {
+                auto car = EntityOf(scene.MountedEntity);
+                if (car)
+                {
+                    Unmount(car, body);
+                }
+                bodies.SetSeated(peer, false);
+                m_log("vehicles: peer " + std::to_string(peer) + " got out of their scene car");
+            }
+            entry = m_sceneSeats.erase(entry);
+            continue;
+        }
+        if (!scene.MountedEntity && haveBody && scene.Tries < MostMountTries && nowMs >= scene.NextTryMs && m_seatsUsable && m_workspotSystem)
+        {
+            ++scene.Tries;
+            scene.NextTryMs = nowMs + MountRetryMs;
+            auto car = FindSceneCar(scene.Seat);
+            uint64_t carHash = 0;
+            RED4ext::StackArgs_t noArgs;
+            if (car && game::CallMethod(car.instance, m_getEntityId, &carHash, noArgs))
+            {
+                bodies.SetSeated(peer, true);
+                if (Mount(peer, car, body, scene.Seat.Slot))
+                {
+                    scene.MountedEntity = carHash;
+                    m_log("vehicles: peer " + std::to_string(peer) + " sits in our copy of their scene car");
+                }
+                else
+                {
+                    bodies.SetSeated(peer, false);
+                }
+            }
+        }
+        ++entry;
+    }
+}
+
 bool Vehicles::ReadRadio(RED4ext::Handle<RED4ext::IScriptable>& vehicle, net::CarRadio& radio)
 {
     static auto* isActive = game::FindFunction("vehicleBaseObject", "IsRadioReceiverActive");
@@ -1398,6 +1584,7 @@ void Vehicles::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session, Rem
     ShareOurCar(nowMs, session);
     SendCarHits(nowMs, session);
     ShareRadio(nowMs, session);
+    SeatSceneSeats(nowMs, bodies);
     if (m_gridSearchAtMs && nowMs >= m_gridSearchAtMs)
     {
         m_gridSearchAtMs = 0;

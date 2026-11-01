@@ -12,6 +12,12 @@ public class NightCoopCutscenes extends ScriptableService {
     return IsDefined(sceneInterface) && sceneInterface.IsEntityInScene(player.GetEntityID()) && sceneInterface.GetSceneSystemCameraControlEnabled();
   }
 
+  public func EntityInScene(id: EntityID) -> Bool {
+    let scenes = GameInstance.GetSceneSystem(GetGameInstance());
+    let sceneInterface = IsDefined(scenes) ? scenes.GetScriptInterface() : null;
+    return IsDefined(sceneInterface) && sceneInterface.IsEntityInScene(id);
+  }
+
   public func SetBodyHidden(body: ref<GameObject>, hidden: Bool) -> Int32 {
     if !IsDefined(body) {
       return 0;

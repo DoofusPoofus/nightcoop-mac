@@ -10,7 +10,7 @@ early. evrything below is only checked against the headless test client (`tools/
 
 works in a save with the probe:
 - partner body with look clothes guns anims name plate n map pin (hidden while a cutscene holds ur player. a windows host hears which of its scenes a guest plays so it hides the guest too)
-- cars n riding together both ways n taking the wheel of a partners car nobody drives (VehicleHandover. the driver keeps it). passengers hear the drivers radio n can switch it (CarsWord)
+- cars n riding together both ways n taking the wheel of a partners car nobody drives (VehicleHandover. the driver keeps it). passengers hear the drivers radio n can switch it (CarsWord). in quest rides (a scene holds u in an npcs car) the car isnt shared, partners get ur seat in their own copy of it (VehicleSceneSeat)
 - getting downed n helped up
 - npcs shared both ways with anims states weapons attitude n health. the same person in ur own world becomes the owners puppet instead of a double n npcs get handed over to whoever is nearer (both ways)
 - shooting n quickhacking a partners npc (hit claims n HackSync statuses) n the killer gets the reward
