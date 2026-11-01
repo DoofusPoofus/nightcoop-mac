@@ -15,6 +15,9 @@
    u64 the hosts session clock | string contact name (1..96 printable ascii never player) | u8 call phase (1 incoming
    2 start 3 end) | u8 call mode | u8 visuals | u8 flags (bit0 player calling bit1 player triggered bit2 rejectable
    bit3 show avatar bit4 audio call bit5 should be rejected)
+ SmsReply (142) 20 bytes: u8 kind (1 host rules host -> evryone 2 reply guest -> host 3 verdict host -> that guest) | u8 flags
+   (kind 1 bit0 = sms_any on. kind 2 only bit1) | u8 result (kind 3: 1 taken 2 answered already 3 not open at the host yet 4 no
+   such reply 5 not in the hosts world 6 sms_any off) | u32 request number | u32 reply entry hash | u32 parent hash (kind 2)
  PlayerFx (138) evryone -> evryone: u8 n (1..24) | n x (u32 effect number (not 0) | u64 effect resource path hash (not 0) | f32 x3
    world place | f32 x4 orientation i j k r (norm^2 0.5..1.5) | u8 flags (bit0 only: the third SpawnEffect argument))
  readers drop wrong sizes broken limits and not finite floats like the dll does
@@ -151,4 +154,20 @@ inline constexpr size_t kMostEffectsAtOnce = 24;
 
 std::vector<uint8_t> WritePlayerFx(const std::vector<PlayerEffect>& effects);
 bool ReadPlayerFx(const std::vector<uint8_t>& message, std::vector<PlayerEffect>& effects);
+struct SmsReply
+{
+    uint8_t Kind = 1;
+    uint8_t Flags = 0;
+    uint8_t Result = 0;
+    uint32_t Request = 0;
+    uint32_t EntryHash = 0;
+    uint32_t ParentHash = 0;
+};
+
+inline constexpr uint8_t kSmsRules = 1;
+inline constexpr uint8_t kSmsReplyAsk = 2;
+inline constexpr uint8_t kSmsVerdict = 3;
+
+std::vector<uint8_t> WriteSmsReply(const SmsReply& sms);
+bool ReadSmsReply(const std::vector<uint8_t>& message, SmsReply& sms);
 }

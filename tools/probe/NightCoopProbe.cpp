@@ -33,6 +33,7 @@
  then the new save goes out like a join
  PROBE_DEFEAT=<n> tells the host n of its shared npcs (with health above 0) died here (NpcDefeat) the joiner prints NpcDead tables and npc deaths
  PROBE_PUSH=1 says at step 110 that our grenade went off where the joiner stands (PlayerBlast radius 6)
+ PROBE_SMS=1 picks a made up reply in a phone chat at step 140 (SmsReply kind 2) and prints the hosts sms words
  PROBE_PICKUP=<contact> answers a ringing call from that contact at step 150 (PhoneSync request action 2)
  PROBE_KO=1 (with PROBE_NPC) says at step 200 that the host knocked out our npc without killing it (RewardWord kind 2)
  PROBE_VEHICLE_EMPTY=1 (with PROBE_VEHICLE) shares that car with nobody at the wheel so the host can take it
@@ -1118,6 +1119,7 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint32_t hostClaimResults = 0;
     uint32_t firstHostNpc = 0;
     bool defeatSent = false;
+    bool smsRulesSeen = false;
     std::set<uint32_t> defeatedNpcs;
     std::map<uint32_t, float> hostNpcHealth;
     nightcoop_mac::net::NpcSpawn mirroredNpc;
@@ -1266,6 +1268,11 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::PlayerEffect effect {1, std::strtoull(effectText, nullptr, 0), {state.PositionX, state.PositionY, state.PositionZ + 1.0f}, {0, 0, 0, 1}, 0};
             session.SendGameMessage(nightcoop_mac::net::WritePlayerFx({effect}));
             std::printf("probe: shows effect %#llx where the joiner stands (PlayerFx)\n", static_cast<unsigned long long>(effect.Resource));
+        }
+        if (std::getenv("PROBE_SMS") && step == 140)
+        {
+            session.SendGameMessage(nightcoop_mac::net::WriteSmsReply({nightcoop_mac::net::kSmsReplyAsk, 0, 0, 1, 0x12345678, 0x0BADF00D}), 0);
+            std::printf("probe: picked a reply in a phone chat (SmsReply kind 2)\n");
         }
         if (const char* pickupContact = std::getenv("PROBE_PICKUP"); pickupContact && step == 150)
         {
@@ -2009,6 +2016,17 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::SessionRoster roster;
             nightcoop_mac::net::VehicleSpawn hostCar;
             nightcoop_mac::net::VehicleHandover handover;
+            nightcoop_mac::net::SmsReply smsWord;
+            if (nightcoop_mac::net::ReadSmsReply(message.Message, smsWord))
+            {
+                if (smsWord.Kind == nightcoop_mac::net::kSmsVerdict || !smsRulesSeen)
+                {
+                    std::printf("probe: SmsReply kind %u from peer %u (flags %u result %u request %u)\n", smsWord.Kind, message.FromPeer, smsWord.Flags, smsWord.Result,
+                                smsWord.Request);
+                }
+                smsRulesSeen = smsRulesSeen || smsWord.Kind == nightcoop_mac::net::kSmsRules;
+                continue;
+            }
             if (nightcoop_mac::net::ReadVehicleHandover(message.Message, handover))
             {
                 std::printf("probe: peer %u says car %#010x belongs to peer %u now (handover reason %u)\n", message.FromPeer, handover.NetId, handover.NewOwner,

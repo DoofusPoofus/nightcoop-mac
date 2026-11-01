@@ -256,4 +256,42 @@ bool ReadPlayerFx(const std::vector<uint8_t>& message, std::vector<PlayerEffect>
     }
     return reader.Remaining() == 0;
 }
+
+std::vector<uint8_t> WriteSmsReply(const SmsReply& sms)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::SmsReply);
+    writer.PutU8(sms.Kind);
+    writer.PutU8(sms.Flags);
+    writer.PutU8(sms.Result);
+    writer.PutU32(sms.Request);
+    writer.PutU32(sms.EntryHash);
+    writer.PutU32(sms.ParentHash);
+    return writer.Data();
+}
+
+bool ReadSmsReply(const std::vector<uint8_t>& message, SmsReply& sms)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::SmsReply)
+    {
+        return false;
+    }
+    sms.Kind = reader.GetU8();
+    sms.Flags = reader.GetU8();
+    sms.Result = reader.GetU8();
+    sms.Request = reader.GetU32();
+    sms.EntryHash = reader.GetU32();
+    sms.ParentHash = reader.GetU32();
+    if (!reader.Ok() || reader.Remaining() != 0)
+    {
+        return false;
+    }
+    switch (sms.Kind)
+    {
+    case kSmsRules: return (sms.Flags & ~1u) == 0 && sms.Result == 0;
+    case kSmsReplyAsk: return (sms.Flags & ~2u) == 0 && sms.Result == 0 && sms.Request != 0 && sms.EntryHash != 0 && sms.ParentHash != 0;
+    case kSmsVerdict: return sms.Flags == 0 && sms.Result >= 1 && sms.Result <= 6 && sms.Request != 0 && sms.EntryHash != 0 && sms.ParentHash == 0;
+    default: return false;
+    }
+}
 }

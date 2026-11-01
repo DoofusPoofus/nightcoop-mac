@@ -1043,6 +1043,12 @@ int main()
                   taggedBack[1] == 0x02000007,
               "npc tag is 3 + 4 per net id");
         Check(!ReadNpcTag(WriteNpcTag(4, {1}), tagKind, taggedBack), "a tag kind past 3 is refused");
+        SmsReply smsAsk {kSmsReplyAsk, 0, 0, 3, 0x1111, 0x2222};
+        SmsReply smsBack;
+        const auto smsBytes = WriteSmsReply(smsAsk);
+        Check(smsBytes.size() == 20 && smsBytes[4] == 142 && ReadSmsReply(smsBytes, smsBack) && smsBack.EntryHash == 0x1111 && smsBack.ParentHash == 0x2222,
+              "sms reply is 20 bytes");
+        Check(!ReadSmsReply(WriteSmsReply({kSmsVerdict, 0, 9, 3, 0x1111, 0}), smsBack), "an sms verdict past 6 is refused");
         Blast blast {{1.0f, 2.0f, 3.0f}, 8.0f, 0xABCDULL};
         std::vector<Blast> blastsBack;
         const auto blastBytes = WritePlayerBlast({blast});
