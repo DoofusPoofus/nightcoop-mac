@@ -164,6 +164,14 @@ public class NightCoopDeviceSync extends ScriptableService {
     ArrayRemove(this.m_quietBlasts, device);
   }
 
+  public func TestBlow(barrel: ref<ExplosiveDevice>) -> Bool {
+    if !IsDefined(barrel) {
+      return false;
+    }
+    barrel.NightCoopBlowAsPlayer();
+    return true;
+  }
+
   public func TestUse(device: ref<Device>) -> String {
     let player = GetPlayer(GetGameInstance());
     let ps = device.GetDevicePS();
@@ -353,6 +361,11 @@ public func NightCoopReevaluateTargets() {
 @addMethod(ExplosiveDevice)
 public func NightCoopBlow() {
   this.StartExplosionPipeline(null);
+}
+
+@addMethod(ExplosiveDevice)
+public func NightCoopBlowAsPlayer() {
+  this.StartExplosionPipeline(GetPlayer(this.GetGame()));
 }
 
 @addMethod(ExplosiveDevice)

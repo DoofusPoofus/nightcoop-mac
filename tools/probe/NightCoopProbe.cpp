@@ -26,6 +26,7 @@
  the hosts rewards
  PROBE_CALL=<contact> on the host rings that contact 25 s after the guest is there, starts the call 6 s later and ends it
  20 s after the ring (PhoneSync commits)
+ PROBE_BLAST=0x<device key> [PROBE_BLAST_X/Y/Z] says at step 100 that our player blew up that barrel (DeviceBlast)
  PROBE_DEVICE_ECHO=1 sends evry device action the host shares back to it as our own request 40 steps later
  PROBE_FAR=<meters> moves the joiners walk that far along x from where it was asked to stand
  PROBE_TAKE=1 takes the first npc the host hands over (NpcHandoffAck + NpcClaim 3), owns it for 100 steps and lets it go,
@@ -1201,6 +1202,20 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             probeNpcDead = true;
             std::printf("probe: offered our npc %#010x to the host\n", offer.Spawn.NetId);
         }
+        if (const char* blastKey = std::getenv("PROBE_BLAST"); blastKey && step == 100)
+        {
+            nightcoop_mac::net::DeviceBlast blast;
+            blast.Kind = nightcoop_mac::net::kBlastLive;
+            nightcoop_mac::net::BlastedDevice device;
+            device.DeviceKey = std::strtoull(blastKey, nullptr, 0);
+            device.Position[0] = std::getenv("PROBE_BLAST_X") ? static_cast<float>(std::atof(std::getenv("PROBE_BLAST_X"))) : state.PositionX;
+            device.Position[1] = std::getenv("PROBE_BLAST_Y") ? static_cast<float>(std::atof(std::getenv("PROBE_BLAST_Y"))) : state.PositionY;
+            device.Position[2] = std::getenv("PROBE_BLAST_Z") ? static_cast<float>(std::atof(std::getenv("PROBE_BLAST_Z"))) : state.PositionZ;
+            device.ByOurPlayer = 1;
+            blast.Devices.push_back(device);
+            session.SendGameMessage(nightcoop_mac::net::WriteDeviceBlast(blast));
+            std::printf("probe: told evryone barrel %#llx blew\n", static_cast<unsigned long long>(device.DeviceKey));
+        }
         for (auto echo = devicesToEcho.begin(); echo != devicesToEcho.end();)
         {
             if (step < echo->first)
@@ -1634,6 +1649,17 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             if (nightcoop_mac::net::ReadRewardWord(message.Message, hostReward))
             {
                 std::printf("probe: peer %u quest reward %#llx (#%u)\n", message.FromPeer, static_cast<unsigned long long>(hostReward.Reward), hostReward.Serial);
+                continue;
+            }
+            nightcoop_mac::net::DeviceBlast hostBlast;
+            if (nightcoop_mac::net::ReadDeviceBlast(message.Message, hostBlast))
+            {
+                for (const auto& device : hostBlast.Devices)
+                {
+                    std::printf("probe: peer %u blast kind %u of %#llx at %.1f %.1f %.1f (our player %u)\n", message.FromPeer, hostBlast.Kind,
+                                static_cast<unsigned long long>(device.DeviceKey), device.Position[0], device.Position[1], device.Position[2],
+                                device.ByOurPlayer);
+                }
                 continue;
             }
             nightcoop_mac::net::DeviceSync hostDevice;

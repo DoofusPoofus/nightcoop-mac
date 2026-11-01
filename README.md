@@ -18,9 +18,11 @@ works in a save with the probe:
 - giving items n dropped loot bags
 - carried bodies n team build checks
 - lifts n time of day
-- doors n devices (scripted toggles go out a probes requests move the door / redo the device action here)
+- doors devices n barrels (scripted toggles n blasts go out n a probes requests n blasts happen here too)
 
-first cut but not tried in the game yet: dialog votes turrets n barrels
+dialog votes: the message side works with a probe (votes decided at a shared time n subtitles) but pressing a choice needs a real dialog on screen
+
+first cut but not tried in the game yet: turrets (needs a turret in a fight)
 
 world handoff: a guest gets the hosts save with its own V spliced in (look wardrobe stat pools items stash n other character nodes) n its level attributes perks points n equipped gear get put back after it arrives n since no in game load works on mac the game restarts straight into it. when the session ends the guest goes home the same way n keeps wat it got (items level perks gear) (`handoff_restart off` / `handoff_character off` turn those off)
 

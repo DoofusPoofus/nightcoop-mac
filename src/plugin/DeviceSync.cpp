@@ -1719,6 +1719,42 @@ void RunTest(uint64_t nowMs, bool inSave, const float* ourPosition, const LogFun
             nearestHash = entityHash;
         }
     }
+    static bool barrelBlown = false;
+    static auto* barrelClass = RED4ext::CRTTISystem::Get()->GetClass("ExplosiveDevice");
+    static auto* testBlow = game::FindFunction("NightCoopDeviceSync", "TestBlow");
+    if (!barrelBlown && barrelClass && testBlow && used.size() >= 2)
+    {
+        RED4ext::Handle<RED4ext::IScriptable> barrel;
+        float barrelDistance = 60.0f;
+        for (auto& entity : entities)
+        {
+            auto* entityClass = entity ? entity->GetType() : nullptr;
+            if (!entityClass || !entityClass->IsA(barrelClass))
+            {
+                continue;
+            }
+            RED4ext::Vector4 place {};
+            RED4ext::StackArgs_t noArgs;
+            game::CallMethod(entity.instance, getWorldPosition, &place, noArgs);
+            const float distance = std::sqrt((place.X - ourPosition[0]) * (place.X - ourPosition[0]) + (place.Y - ourPosition[1]) * (place.Y - ourPosition[1]) +
+                                             (place.Z - ourPosition[2]) * (place.Z - ourPosition[2]));
+            if (distance > 8.0f && distance < barrelDistance)
+            {
+                barrelDistance = distance;
+                barrel = entity;
+            }
+        }
+        if (barrel)
+        {
+            barrelBlown = true;
+            bool blown = false;
+            RED4ext::StackArgs_t blowArgs;
+            blowArgs.emplace_back(nullptr, &barrel);
+            game::CallMethod(service.instance, testBlow, &blown, blowArgs);
+            log("test devices: blew up a barrel " + std::to_string(static_cast<int>(barrelDistance)) + " m away");
+            return;
+        }
+    }
     if (!nearest)
     {
         log("test devices: no unused device within 50 m (" + std::to_string(devices) + " devices streamed in)");
