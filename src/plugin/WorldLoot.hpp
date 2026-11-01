@@ -13,8 +13,11 @@
  given up after 60 s and the mirror holds still until the owners next revision. a denied take gets rolled back off our
  player. a mirror that vanishes while our player looked at it or stood within 4 m got picked up whole one that streamed out
  gets watched for so it binds again when it comes back
- not done yet: corpses of shared npcs (kind 1 by npc net id the ProcessLoot redirect on copies) world corpses (kind 3 by
- community key) held items of copies loot_personal the corpse marker hold and the owners tiers (ForceItemTier)
+ corpses (kind 1 by npc net id): 2 s after one of our shared npcs died its corpse is shared like a drop (its items read takes
+ answered). on a partners corpse word our copy of that npc loses its own loot once (a kill never drops twice) and the owners
+ list shows as a mirror bag at the corpse like a drop (a stand in copys inventory takes no items). takes go to the owner
+ not done yet: world corpses (kind 3 by community key) the weapons a copy drops to the floor held items of copies loot_personal
+ the corpse marker hold and the owners tiers (ForceItemTier)
 */
 #pragma once
 
@@ -42,5 +45,7 @@ void Tick(uint64_t nowMs, bool inSave, bool sharing, const net::PlayerState* our
           const LogFunction& log);
 void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, bool ownerInOurWorld, net::RelaySession& session, const LogFunction& log);
 bool TestDrop(const std::string& recordName, const LogFunction& log);
+void NoteCorpse(uint32_t netId, uint64_t entityHash);
+void SetCopyLookup(std::function<uint64_t(uint32_t)> copyOfNetId);
 std::string Status();
 }

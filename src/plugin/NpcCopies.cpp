@@ -27,7 +27,7 @@ constexpr uint64_t PlaceEveryMs = 33;
 constexpr size_t MostSamples = 16;
 constexpr uint64_t ForgetAfterMs = 10000;
 constexpr uint64_t RetrySpawnAfterMs = 10000;
-constexpr uint64_t CorpseStaysMs = 10000;
+constexpr uint64_t CorpseStaysMs = 180000;
 constexpr float MoveAtLeastSquared = 0.02f * 0.02f;
 constexpr float TurnAtLeastDegrees = 0.5f;
 constexpr uint8_t DiedReason = 3;
@@ -482,7 +482,7 @@ void NpcCopies::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message
             copy->second.RemoveAtMs = nowMs + CorpseStaysMs;
             m_log("npcs: " + NetIdText(despawn.NetId) + " died at its owner" +
                   (weKilledIt ? ", we killed it so our game rewards it" : despawn.Killer != 0xFFFFFFFF ? ", peer " + std::to_string(despawn.Killer) + " killed it" : "") +
-                  ", the body stays 10 s");
+                  ", the body stays 3 min");
         }
         else
         {
@@ -911,7 +911,7 @@ void NpcCopies::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session)
     for (auto copyEntry = m_copies.begin(); copyEntry != m_copies.end();)
     {
         auto& [netId, copy] = *copyEntry;
-        if ((copy.RemoveAtMs && nowMs >= copy.RemoveAtMs) || nowMs - copy.LastHeardMs > ForgetAfterMs)
+        if ((copy.RemoveAtMs && nowMs >= copy.RemoveAtMs) || (!copy.RemoveAtMs && nowMs - copy.LastHeardMs > ForgetAfterMs))
         {
             Remove(netId, copy, copy.RemoveAtMs ? "its owner let it go" : "nothing heard of it for 10 s");
             copyEntry = m_copies.erase(copyEntry);

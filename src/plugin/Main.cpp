@@ -51,6 +51,7 @@
 #include "plugin/NpcTags.hpp"
 #include "plugin/SmsReplies.hpp"
 #include "plugin/WorldLoad.hpp"
+#include "plugin/WorldLoot.hpp"
 #include "plugin/SceneGates.hpp"
 #include "plugin/QuestTeleports.hpp"
 #include "plugin/FactWords.hpp"
@@ -231,7 +232,11 @@ bool OnRunningEnter(RED4ext::CGameApplication*)
     Npcs = std::make_unique<nightcoop_mac::NpcCopies>(Log);
     OurNpcs = std::make_unique<nightcoop_mac::NpcShare>(Log);
     OurNpcs->SetPuppetCheck([](uint64_t entityHash) { return Npcs && Npcs->IsPuppet(entityHash); });
-    OurNpcs->SetDeathWatch([](const nightcoop_mac::net::DeadPerson& person) { nightcoop_mac::npc_deaths::NoteDeath(person); });
+    OurNpcs->SetDeathWatch([](const nightcoop_mac::net::DeadPerson& person) {
+        nightcoop_mac::npc_deaths::NoteDeath(person);
+        nightcoop_mac::world_loot::NoteCorpse(OurNpcs->NetIdOfEntity(person.Entity), person.Entity);
+    });
+    nightcoop_mac::world_loot::SetCopyLookup([](uint32_t netId) { return Npcs ? Npcs->EntityOfNetId(netId) : 0; });
     Mirror = std::make_unique<nightcoop_mac::AnimMirror>(Log);
     Flow = std::make_unique<nightcoop_mac::SessionFlow>(Log);
     Session->Start(config);

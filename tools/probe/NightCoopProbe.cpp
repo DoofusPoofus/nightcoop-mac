@@ -39,6 +39,7 @@
  prints DocumentRead words from guests and acks them
  PROBE_SMS=1 picks a made up reply in a phone chat at step 140 (SmsReply kind 2) and prints the hosts sms words
  PROBE_PICKUP=<contact> answers a ringing call from that contact at step 150 (PhoneSync request action 2)
+ PROBE_CORPSE=1 (with PROBE_NPC) kills our npc at step 200 and shares its corpse with 2 FirstAidWhiffV0 (LootState kind 1)
  PROBE_KO=1 (with PROBE_NPC) says at step 200 that the host knocked out our npc without killing it (RewardWord kind 2)
  PROBE_VEHICLE_EMPTY=1 (with PROBE_VEHICLE) shares that car with nobody at the wheel so the host can take it
  PROBE_TAKECAR=1 says at step 250 that we took the wheel of the hosts car (VehicleHandover 1) and prints handovers
@@ -1527,6 +1528,30 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             pickup.CallPhase = 2;
             session.SendGameMessage(nightcoop_mac::net::WritePhoneSync(pickup), 0);
             std::printf("probe: answered the ringing call from %s (PhoneSync action 2)\n", pickupContact);
+        }
+        if (std::getenv("PROBE_CORPSE") && std::getenv("PROBE_NPC") && (step == 200 || step == 230 || step == 290))
+        {
+            const uint32_t corpseNetId = (session.GetStatus().MyPeerNumber << 24) | 7;
+            if (step == 200)
+            {
+                probeNpcDead = true;
+                session.SendGameMessage(nightcoop_mac::net::WriteNpcDespawn({corpseNetId, 3, 0xFFFFFFFF}));
+                std::printf("probe: our npc %#010x died\n", corpseNetId);
+            }
+            else
+            {
+                nightcoop_mac::net::LootState corpse;
+                corpse.Kind = nightcoop_mac::net::kLootCorpse;
+                corpse.ContainerId = corpseNetId;
+                corpse.SourceNpc = corpseNetId;
+                corpse.Revision = step == 230 ? 1 : 2;
+                corpse.Position[0] = state.PositionX;
+                corpse.Position[1] = state.PositionY + 2.0f;
+                corpse.Position[2] = state.PositionZ;
+                corpse.Entries.push_back({{0x1519dbb192ULL, 0, 0, 0, 0}, 2, nightcoop_mac::net::kLootQualityUnknown});
+                session.SendGameMessage(nightcoop_mac::net::WriteLootState(corpse));
+                std::printf("probe: the corpse of our npc %#010x holds 2 FirstAidWhiffV0 (LootState kind 1 rev %u)\n", corpseNetId, corpse.Revision);
+            }
         }
         if (std::getenv("PROBE_KO") && std::getenv("PROBE_NPC") && step == 200)
         {

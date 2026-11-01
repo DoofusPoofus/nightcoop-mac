@@ -99,6 +99,7 @@ struct Mirror
     std::vector<net::LootEntry> Shown;
     uint64_t NextReadMs = 0;
     uint64_t HeardMs = 0;
+    bool CopyEmptied = false;
 };
 
 using MirrorKey = std::pair<uint32_t, uint64_t>;
@@ -124,6 +125,17 @@ struct Counters
     uint32_t SkippedNotInWorld = 0;
     uint32_t SkippedNotDone = 0;
 };
+
+struct PendingCorpse
+{
+    uint32_t NetId = 0;
+    uint64_t Entity = 0;
+    uint64_t ShareAtMs = 0;
+};
+
+std::vector<PendingCorpse> PendingCorpses;
+std::function<uint64_t(uint32_t)> CopyOfNetId;
+constexpr uint64_t CorpseShareDelayMs = 2000;
 
 Calls Script;
 Counters Count;
@@ -456,6 +468,12 @@ void ServeOwnDrops(RED4ext::IScriptable* service, bool sharing, const net::Playe
         const bool there = ReadContainer(service, drop.Entity, entries, position, orientation, &bag);
         if (!there || entries.empty())
         {
+            if (drop.State.Kind == net::kLootCorpse && there && drop.State.Revision == 0)
+            {
+                drop.FinishedMs = CurrentMs;
+                ++entry;
+                continue;
+            }
             const bool near = DistanceTo(ourPlayer, drop.State.Position) <= GoneNotUnloadedRange || (there && entries.empty());
             drop.State.State = near ? net::kLootClosed : net::kLootLetGo;
             drop.State.Entries.clear();
@@ -606,8 +624,14 @@ void SpawnIfNear(RED4ext::IScriptable* service, const MirrorKey& key, Mirror& mi
         MirrorByTicket[mirror.Ticket] = key;
     }
     auto ticket = mirror.Ticket;
-    bool bag = mirror.Latest.Bag;
+    bool bag = mirror.Latest.Bag || mirror.Latest.Kind == net::kLootCorpse;
     RED4ext::Vector4 spot(mirror.Latest.Position[0], mirror.Latest.Position[1], mirror.Latest.Position[2], 1.0f);
+    static auto* getWorldPosition = game::FindFunction("entEntity", "GetWorldPosition");
+    if (mirror.Latest.Kind == net::kLootCorpse && getWorldPosition)
+    {
+        RED4ext::StackArgs_t noArgs;
+        game::CallMethod(body.instance, getWorldPosition, &spot, noArgs);
+    }
     RED4ext::Quaternion turn(mirror.Latest.Orientation[0], mirror.Latest.Orientation[1], mirror.Latest.Orientation[2], mirror.Latest.Orientation[3]);
     bool spawned = false;
     RED4ext::StackArgs_t spawnArgs;
@@ -739,6 +763,21 @@ void ServeMirrors(RED4ext::IScriptable* service, const net::PlayerState* ourPlay
             mirror.Watching = false;
             mirror.UnwatchAtMs = 0;
             Unwatch(service, mirror.Ticket);
+        }
+        if (mirror.Latest.Kind == net::kLootCorpse && !mirror.CopyEmptied && CopyOfNetId)
+        {
+            const uint64_t copy = CopyOfNetId(static_cast<uint32_t>(key.second));
+            std::vector<net::LootEntry> ownLoot;
+            if (copy && ReadContainer(service, copy, ownLoot, nullptr, nullptr, nullptr))
+            {
+                mirror.CopyEmptied = true;
+                for (const auto& entry : ownLoot)
+                {
+                    MoveItems(service, Script.TakeFrom, copy, entry.Item, entry.Quantity);
+                }
+                log("world loot: our copy of npc " + Hex(key.second) + " drops none of its own (" + std::to_string(ownLoot.size()) +
+                    " thing(s) taken off), the owners corpse loot shows next to it");
+            }
         }
         if (mirror.Entity)
         {
@@ -884,7 +923,7 @@ void TakeState(uint32_t fromPeer, const net::LootState& state, bool ownerInOurWo
         ++Count.SkippedNotInWorld;
         return;
     }
-    if (state.Kind != net::kLootDrop || (state.ContainerId >> 24) != fromPeer)
+    if ((state.Kind != net::kLootDrop && state.Kind != net::kLootCorpse) || (state.Kind == net::kLootDrop && (state.ContainerId >> 24) != fromPeer))
     {
         ++Count.SkippedNotDone;
         return;
@@ -898,7 +937,8 @@ void TakeState(uint32_t fromPeer, const net::LootState& state, bool ownerInOurWo
             return;
         }
         found = Mirrors.emplace(key, Mirror {}).first;
-        log("world loot: peer " + std::to_string(fromPeer) + " shares drop " + Hex(state.ContainerId) + " with " + DescribeEntries(state.Entries));
+        log("world loot: peer " + std::to_string(fromPeer) + " shares " + (state.Kind == net::kLootCorpse ? "the corpse of npc " : "drop ") + Hex(state.ContainerId) +
+            " with " + DescribeEntries(state.Entries));
     }
     auto& mirror = found->second;
     if (state.Revision < mirror.Latest.Revision)
@@ -950,6 +990,23 @@ void Tick(uint64_t nowMs, bool inSave, bool sharing, const net::PlayerState* our
     configureArgs.emplace_back(nullptr, &noteDrops);
     game::CallMethod(service.instance, Script.Configure, nullptr, configureArgs);
     TakeNews(service.instance, session, log);
+    for (auto corpse = PendingCorpses.begin(); corpse != PendingCorpses.end();)
+    {
+        if (nowMs < corpse->ShareAtMs)
+        {
+            ++corpse;
+            continue;
+        }
+        OwnDrop drop;
+        drop.Entity = corpse->Entity;
+        drop.State.Kind = net::kLootCorpse;
+        drop.State.ContainerId = corpse->NetId;
+        drop.State.SourceNpc = corpse->NetId;
+        drop.NextReadMs = nowMs;
+        OwnDrops[drop.State.ContainerId] = std::move(drop);
+        log("world loot: the corpse of our npc " + Hex(corpse->NetId) + " is shared");
+        corpse = PendingCorpses.erase(corpse);
+    }
     ServeOwnDrops(service.instance, sharing, ourPlayer, session, log);
     ServeMirrors(service.instance, ourPlayer, session, bodies, log);
     ResendTakes(session, log);
@@ -1010,5 +1067,18 @@ std::string Status()
            " spawned, takes sent " + std::to_string(Count.TakesSent) + ", waiting " + std::to_string(PendingTakes.size()) + ", rolled back " +
            std::to_string(Count.RolledBack) + ", given up " + std::to_string(Count.TakesGivenUp) + "); skipped " +
            std::to_string(Count.SkippedNotInWorld) + " not in our world, " + std::to_string(Count.SkippedNotDone) + " corpses (not done yet)";
+}
+
+void NoteCorpse(uint32_t netId, uint64_t entityHash)
+{
+    if (netId && entityHash && !OwnDrops.count(netId))
+    {
+        PendingCorpses.push_back({netId, entityHash, CurrentMs + CorpseShareDelayMs});
+    }
+}
+
+void SetCopyLookup(std::function<uint64_t(uint32_t)> copyOfNetId)
+{
+    CopyOfNetId = std::move(copyOfNetId);
 }
 }

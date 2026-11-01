@@ -6,7 +6,7 @@
  moveComponent and moveMotionPlannerComponent get toggled off and its ragdoll disabled so only the owners snapshots move it.
  snapshots are shown 100 ms late lerped between the two around that moment by when they came and placed by the games
  teleport (at most 30 times a second only when it moved 2 cm or turned half a degree). a despawn removes the copy a death
- (reason 3) kills it first and leaves the body for 10 s. a copy nobody heard of for 10 s goes away
+ (reason 3) kills it first and leaves the body for 3 min (so its corpse loot can be taken). a copy nobody heard of for 10 s goes away
  the owners NpcAnim (23) batches play on the copys anim controller thru the same setters as the partner body mirror. a copy
  waits for a full graph state first: it asks with NpcAnimWant (35) once a second and drops the plain batches till one came
  from evry snapshot the copy gets the owners health % (kept at 1 % or more while it lives death comes with the despawn)
