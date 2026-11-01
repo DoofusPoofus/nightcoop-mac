@@ -42,6 +42,7 @@
  PROBE_CORPSE=1 (with PROBE_NPC) kills our npc at step 200 and shares its corpse with 2 FirstAidWhiffV0 (LootState kind 1)
  PROBE_KO=1 (with PROBE_NPC) says at step 200 that the host knocked out our npc without killing it (RewardWord kind 2)
  PROBE_VEHICLE_EMPTY=1 (with PROBE_VEHICLE) shares that car with nobody at the wheel so the host can take it
+ PROBE_WANT=1 asks the host for its world at step 100 (WorldWant 1) takes the streamed save checks its hash and says it arrived
  PROBE_NPCCARHIT=1 (with PROBE_NPC) says at step 450 that the hosts car hit our npc (NpcCarHit)
  PROBE_TAKECAR=1 says at step 250 that we took the wheel of the hosts car (VehicleHandover 1) and prints handovers
  PROBE_POLICE=1 says at step 130 that a police unit of ours fights the hosts body (PoliceFight)
@@ -1390,6 +1391,12 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     }
     const bool probeRides = std::getenv("PROBE_RIDE") != nullptr;
     uint32_t hostCarNetId = 0;
+    std::vector<uint8_t> wantedSave;
+    std::vector<uint8_t> wantedMetadata;
+    size_t wantedSaveGot = 0;
+    size_t wantedMetadataGot = 0;
+    uint64_t wantedSaveHash = 0;
+    bool wantedDone = false;
     bool rideSent = false;
     bool probeLiesDown = std::getenv("PROBE_DOWN") != nullptr;
     bool hostPositionKnown = false;
@@ -1600,6 +1607,11 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             knockout.NetId = (session.GetStatus().MyPeerNumber << 24) | 7;
             session.SendGameMessage(nightcoop_mac::net::WriteRewardWord(knockout), 0);
             std::printf("probe: the host knocked out our npc %#010x (RewardWord kind 2)\n", knockout.NetId);
+        }
+        if (std::getenv("PROBE_WANT") && step == 100)
+        {
+            session.SendGameMessage(nightcoop_mac::net::WriteWorldWant({1, 0}), 0);
+            std::printf("probe: asks the host for its world (WorldWant 1)\n");
         }
         if (std::getenv("PROBE_NPCCARHIT") && std::getenv("PROBE_NPC") && hostCarNetId && step == 450)
         {
@@ -2349,6 +2361,41 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                                 smsWord.Request);
                 }
                 smsRulesSeen = smsRulesSeen || smsWord.Kind == nightcoop_mac::net::kSmsRules;
+                continue;
+            }
+            nightcoop_mac::net::WorldFile hostFile;
+            if (std::getenv("PROBE_WANT") && nightcoop_mac::net::ReadWorldFile(message.Message, hostFile))
+            {
+                auto& file = hostFile.Kind == nightcoop_mac::net::kWorldFileSave ? wantedSave : wantedMetadata;
+                auto& got = hostFile.Kind == nightcoop_mac::net::kWorldFileSave ? wantedSaveGot : wantedMetadataGot;
+                if (file.size() != hostFile.TotalSize)
+                {
+                    file.assign(hostFile.TotalSize, 0);
+                    got = 0;
+                }
+                if (hostFile.Offset + hostFile.Bytes.size() <= file.size())
+                {
+                    std::copy(hostFile.Bytes.begin(), hostFile.Bytes.end(), file.begin() + hostFile.Offset);
+                    got += hostFile.Bytes.size();
+                }
+                if (hostFile.Kind == nightcoop_mac::net::kWorldFileSave)
+                {
+                    wantedSaveHash = hostFile.Hash;
+                }
+                if (!wantedDone && !wantedSave.empty() && wantedSaveGot >= wantedSave.size() && !wantedMetadata.empty() && wantedMetadataGot >= wantedMetadata.size())
+                {
+                    wantedDone = true;
+                    const bool hashOk = nightcoop_mac::net::WorldFileHash(wantedSave) == wantedSaveHash;
+                    std::printf("probe: got the hosts world: sav.dat %zu bytes (hash %s) metadata %zu bytes, transfer %u purpose %u\n", wantedSave.size(),
+                                hashOk ? "right" : "WRONG", wantedMetadata.size(), hostFile.TransferId, hostFile.Purpose);
+                    session.SendGameMessage(nightcoop_mac::net::WriteWorldStatus({7, hostFile.TransferId, ""}), 0);
+                }
+                continue;
+            }
+            nightcoop_mac::net::WorldStatus hostWorldStatus;
+            if (std::getenv("PROBE_WANT") && nightcoop_mac::net::ReadWorldStatus(message.Message, hostWorldStatus))
+            {
+                std::printf("probe: the host says world status %u %s\n", hostWorldStatus.Code, hostWorldStatus.Text.c_str());
                 continue;
             }
             nightcoop_mac::net::CarRadio hostRadio;
