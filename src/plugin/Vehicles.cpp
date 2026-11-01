@@ -193,6 +193,14 @@ RED4ext::Handle<RED4ext::IScriptable> Vehicles::EntityOf(uint64_t entityHash)
     RED4ext::StackArgs_t args;
     args.emplace_back(nullptr, &entityId);
     game::CallMethod(m_dynamicEntitySystem.instance, m_getEntity, &entity, args);
+    if (!entity && m_findEntity)
+    {
+        RED4ext::ScriptGameInstance gameInstance;
+        RED4ext::StackArgs_t findArgs;
+        findArgs.emplace_back(nullptr, &gameInstance);
+        findArgs.emplace_back(nullptr, &entityId);
+        game::CallStatic(m_findEntity, &entity, findArgs);
+    }
     return entity;
 }
 
