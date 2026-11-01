@@ -55,6 +55,7 @@
 #include "plugin/QuestTeleports.hpp"
 #include "plugin/FactWords.hpp"
 #include "plugin/CutsceneBodies.hpp"
+#include "plugin/SceneSkip.hpp"
 #include "net/NpcMessages.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/Rewards.hpp"
@@ -540,6 +541,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             nightcoop_mac::grenades::OnMessage(message.FromPeer, message.Message, sameWorld, Log);
             nightcoop_mac::player_effects::OnMessage(message.FromPeer, message.Message, sameWorld, Log);
         }
+        else if (nightcoop_mac::scene_skip::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
+        {
+            nightcoop_mac::scene_skip::OnMessage(message.FromPeer, message.Message, nightcoop_mac::world_handoff::InHostWorld() || Plan->ScenesAnyWorld, nowMs, Log);
+        }
         else if (nightcoop_mac::cutscene_bodies::HandlesScenes(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {
             nightcoop_mac::cutscene_bodies::OnSceneMessage(message.FromPeer, message.Message, Session->GetStatus().MyPeerNumber == 0, Log);
@@ -721,6 +726,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             bodyPeers.push_back(view.PeerNumber);
         }
         nightcoop_mac::cutscene_bodies::Tick(nowMs, inSave, Plan->TestHide, bodyPeers, *Bodies, Log);
+        nightcoop_mac::scene_skip::Tick(nowMs, inSave,
+                                        nightcoop_mac::world_handoff::InHostWorld() || Plan->ScenesAnyWorld ||
+                                            (Session->GetStatus().MyPeerNumber == 0 && !RemotePeerViews().empty()),
+                                        *Session, Log);
         nightcoop_mac::cutscene_bodies::TellHostScenes(nightcoop_mac::world_handoff::InHostWorld() || Plan->ScenesAnyWorld, LocalStateValid ? &LastLocalState : nullptr,
                                                        *Session, Log);
     }

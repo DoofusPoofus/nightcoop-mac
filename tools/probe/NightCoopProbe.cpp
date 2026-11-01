@@ -47,6 +47,7 @@
  PROBE_PHOTO=1 opens photo mode at step 100 and closes it at step 200 (PhotoTogether)
  PROBE_FX=<effect resource path hash> shows that effect at step 120 where the joiner stands (PlayerFx)
  PROBE_CARHIT=1 (with PROBE_VEHICLE) says at step 200 that our car hit the hosts player (VehicleHit 9 m/s)
+ PROBE_SKIP=1 on the host skips 3 s of a scene 15 s after it heard of the guest (SceneLineSkip) and prints SceneSkipHere
  PROBE_SCENE=1 on the host says one of its quest scenes is live next to the guest (QuestScene 1) and prints the guests scene words
  PROBE_TRACK=<journal entry hash> on the host wants guests to track that objective (TrackModeWord 1 + a QuestJournal word)
  PROBE_QTELE=1 on the host says the game moved it 100 m from the guest 10 s after it heard of it (QuestTeleport kind 1)
@@ -652,7 +653,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto callStartedAt = std::chrono::steady_clock::time_point::max();
     int callPhaseSent = 0;
     uint32_t callCommits = 0;
-    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_QTELE") || std::getenv("PROBE_FACTWORD") || std::getenv("PROBE_TRACK") || std::getenv("PROBE_SCENE") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
+    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_QTELE") || std::getenv("PROBE_FACTWORD") || std::getenv("PROBE_TRACK") || std::getenv("PROBE_SCENE") || std::getenv("PROBE_SKIP") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
     auto deadline = std::chrono::steady_clock::now() + (staysUp ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
     auto nextReward = std::chrono::steady_clock::now() + 20s;
@@ -680,6 +681,9 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     bool questTeleportSent = false;
     bool trackSent = false;
     bool sceneSent = false;
+    bool skipSent = false;
+    bool skipHereSeen = false;
+    auto skipAt = std::chrono::steady_clock::time_point::max();
     uint8_t lastStoryState = 0xFF;
     while (std::chrono::steady_clock::now() < deadline)
     {
@@ -695,6 +699,29 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
                 session.SendGameMessage(journalMessage);
             }
             std::printf("probe: wants guests to track our objective %s (TrackModeWord 1 + QuestJournal)\n", trackText);
+        }
+        if (std::getenv("PROBE_SKIP") && guestKnown && !skipSent)
+        {
+            if (skipAt == std::chrono::steady_clock::time_point::max())
+            {
+                skipAt = std::chrono::steady_clock::now() + 15s;
+            }
+            if (std::chrono::steady_clock::now() >= skipAt)
+            {
+                skipSent = true;
+                nc::proto::Writer skip(static_cast<nc::proto::MsgType>(118));
+                skip.PutU32(0);
+                skip.PutU64(0x5CE4E00000000007ULL);
+                skip.PutU32(3000);
+                skip.PutU64(session.SessionClockMs());
+                skip.PutU8(1);
+                skip.PutU8(1);
+                skip.PutU8(1);
+                skip.PutU64(0x1234);
+                skip.PutU16(1);
+                session.SendGameMessage(skip.Data());
+                std::printf("probe: we skipped 3 s of a scene (SceneLineSkip)\n");
+            }
         }
         if (std::getenv("PROBE_SCENE") && guestKnown && !sceneSent)
         {
@@ -985,6 +1012,15 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             if (nightcoop_mac::net::ReadNpcDespawn(message.Message, guestNpcGone) && guestNpcGone.Reason == 3)
             {
                 std::printf("probe: npc %#010x of peer %u died (killer %#x)\n", guestNpcGone.NetId, message.FromPeer, guestNpcGone.Killer);
+                continue;
+            }
+            if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::SceneSkipHere))
+            {
+                if (!skipHereSeen && message.Message.size() >= 5 + 24)
+                {
+                    skipHereSeen = true;
+                    std::printf("probe: peer %u may skip: why not %u (SceneSkipHere)\n", message.FromPeer, message.Message[5 + 4 + 8 + 1 + 8 + 2]);
+                }
                 continue;
             }
             if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::QuestScene))
