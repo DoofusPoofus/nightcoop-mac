@@ -543,7 +543,9 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         }
         else if (nightcoop_mac::scene_skip::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {
-            nightcoop_mac::scene_skip::OnMessage(message.FromPeer, message.Message, nightcoop_mac::world_handoff::InHostWorld() || Plan->ScenesAnyWorld, nowMs, Log);
+            nightcoop_mac::scene_skip::OnMessage(message.FromPeer, message.Message, nightcoop_mac::world_handoff::InHostWorld() || Plan->ScenesAnyWorld ||
+                                                     (Session->GetStatus().MyPeerNumber == 0 && nightcoop_mac::partner_roster::PeerInHostWorld(message.FromPeer)),
+                                                 nowMs, *Session, Log);
         }
         else if (nightcoop_mac::cutscene_bodies::HandlesScenes(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {

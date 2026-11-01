@@ -20,6 +20,28 @@ uint64_t NextLookMs = 0;
 uint64_t NextSkipHereMs = 0;
 int32_t LastWhyNot = -1;
 uint64_t FastForwardUntilMs = 0;
+uint64_t PressStartedMs = 0;
+constexpr uint64_t OurSceneKey = 0x4E43534B49500001ULL;
+
+std::vector<uint8_t> WriteLineSkip(uint32_t presser, uint32_t ms, uint64_t sharedTime)
+{
+    nc::proto::Writer skip(static_cast<nc::proto::MsgType>(LineSkipType));
+    skip.PutU32(presser);
+    skip.PutU64(OurSceneKey);
+    skip.PutU32(std::min<uint32_t>(ms, 100000));
+    skip.PutU64(sharedTime ? sharedTime : 1);
+    skip.PutU8(1);
+    skip.PutU8(1);
+    skip.PutU8(1);
+    skip.PutU64(OurSceneKey);
+    skip.PutU16(1);
+    return skip.Data();
+}
+
+uint8_t MessageTypeOfRaw(const std::vector<uint8_t>& message)
+{
+    return message.size() > 4 ? message[4] : 0;
+}
 
 bool CallFastForward(bool on)
 {
@@ -51,7 +73,26 @@ void Tick(uint64_t nowMs, bool inSave, bool sameWorld, net::RelaySession& sessio
     }
     NextLookMs = nowMs + LookEveryMs;
     static auto* whyNot = game::FindFunction("NightCoopSceneSkip", "WhyNot");
+    static auto* pressing = game::FindFunction("NightCoopSceneSkip", "Pressing");
     auto service = game::ScriptService("NightCoopSceneSkip");
+    bool held = false;
+    RED4ext::StackArgs_t pressArgs;
+    if (pressing && service)
+    {
+        game::CallMethod(service.instance, pressing, &held, pressArgs);
+    }
+    if (held && !PressStartedMs)
+    {
+        PressStartedMs = nowMs;
+    }
+    else if (!held && PressStartedMs)
+    {
+        const auto ms = static_cast<uint32_t>(nowMs - PressStartedMs);
+        PressStartedMs = 0;
+        const uint32_t ourPeer = session.GetStatus().MyPeerNumber;
+        session.SendGameMessage(WriteLineSkip(ourPeer, ms, session.SessionClockMs()), ourPeer == 0 ? net::kEveryPeer : 0);
+        log("scene skip: we skipped " + std::to_string(ms) + " ms of a scene, the partners catch up");
+    }
     int32_t reason = 0;
     RED4ext::StackArgs_t noArgs;
     if (!whyNot || !service || !game::CallMethod(service.instance, whyNot, &reason, noArgs))
@@ -75,9 +116,19 @@ void Tick(uint64_t nowMs, bool inSave, bool sameWorld, net::RelaySession& sessio
     session.SendGameMessage(here.Data(), session.GetStatus().MyPeerNumber == 0 ? net::kEveryPeer : 0);
 }
 
-void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, bool sameWorld, uint64_t nowMs, const LogFunction& log)
+void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, bool sameWorld, uint64_t nowMs, net::RelaySession& session, const LogFunction& log)
 {
     nc::proto::Reader reader(message.data(), message.size());
+    if (session.GetStatus().MyPeerNumber == 0 && fromPeer != 0 && static_cast<uint8_t>(MessageTypeOfRaw(message)) == LineSkipType)
+    {
+        for (const auto& [peer, nickname] : session.PeerNicknames())
+        {
+            if (peer != 0 && peer != fromPeer)
+            {
+                session.SendGameMessage(message, static_cast<int32_t>(peer));
+            }
+        }
+    }
     if (static_cast<uint8_t>(reader.ReadHeader()) != LineSkipType || !sameWorld)
     {
         return;
