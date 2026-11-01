@@ -235,12 +235,21 @@ bool GuardSlotZero(HostJob& job, const LogFunction& log)
     std::error_code error;
     const fs::path slotZero = SavesFolder() / "ManualSave-0";
     const fs::path copy = PluginFolder / "handoff" / "slot0-copy";
-    fs::remove_all(copy, error);
     job.SlotZeroSaved = false;
     if (!fs::exists(slotZero, error))
     {
+        fs::remove_all(copy, error);
         return true;
     }
+    std::error_code copyError;
+    if (fs::exists(copy / "sav.dat", copyError) && fs::file_size(copy / "sav.dat", copyError) == fs::file_size(slotZero / "sav.dat", error) &&
+        fs::last_write_time(copy / "sav.dat", copyError) == fs::last_write_time(slotZero / "sav.dat", error) && !copyError && !error)
+    {
+        job.SlotZeroSaved = true;
+        return true;
+    }
+    error.clear();
+    fs::remove_all(copy, error);
     fs::create_directories(copy.parent_path(), error);
     fs::copy(slotZero, copy, fs::copy_options::recursive, error);
     if (error)
