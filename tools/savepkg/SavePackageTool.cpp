@@ -1,7 +1,9 @@
 /*
  savepkg tool for trying the save package code on real saves without the game
  info SAV prints the chunks and the top level nodes. roundtrip IN OUT reads and writes a save and checks the result reads back
- the same. splice HOST GUEST OUT [nodes...] puts the guests character nodes (or the named ones) into the hosts save
+ the same. splice HOST GUEST OUT [nodes...] puts the guests character nodes (or the named ones) into the hosts save. treetrip SAV
+ turns the save into trees and back and checks nothing moved. inventory HOST GUEST OUT puts the guests player and stash sub
+ inventories into the hosts save
 */
 #include "net/SavePackage.hpp"
 
@@ -40,7 +42,7 @@ int main(int argc, char** argv)
     using namespace nightcoop_mac::save_package;
     if (argc < 3)
     {
-        std::printf("usage: nightcoop_savepkg info SAV | roundtrip IN OUT | splice HOST GUEST OUT [nodes...]\n");
+        std::printf("usage: nightcoop_savepkg info SAV | roundtrip IN OUT | treetrip SAV | splice HOST GUEST OUT [nodes...] | inventory HOST GUEST OUT\n");
         return 2;
     }
     const std::string command = argv[1];
@@ -76,6 +78,44 @@ int main(int argc, char** argv)
         }
         std::printf("savepkg: round trip %s\n", same ? "reads back the same" : "DIFFERS");
         return same ? 0 : 1;
+    }
+    if (command == "treetrip")
+    {
+        std::vector<TreeNode> roots;
+        std::string error;
+        if (!ToTrees(save, roots, error))
+        {
+            std::printf("savepkg: trees: %s\n", error.c_str());
+            return 1;
+        }
+        SaveFile rebuilt = save;
+        FromTrees(rebuilt, roots);
+        bool same = rebuilt.Stream == save.Stream && rebuilt.Nodes.size() == save.Nodes.size();
+        for (size_t index = 0; same && index < save.Nodes.size(); ++index)
+        {
+            same = rebuilt.Nodes[index].Offset == save.Nodes[index].Offset && rebuilt.Nodes[index].Size == save.Nodes[index].Size &&
+                   rebuilt.Nodes[index].Next == save.Nodes[index].Next && rebuilt.Nodes[index].Child == save.Nodes[index].Child;
+        }
+        std::printf("savepkg: %zu trees, rebuilt %s\n", roots.size(), same ? "the same" : "DIFFERENT");
+        return same ? 0 : 1;
+    }
+    if (command == "inventory" && argc >= 5)
+    {
+        SaveFile guest;
+        if (!Load(argv[3], guest))
+        {
+            return 1;
+        }
+        std::string error;
+        if (!SpliceInventories(save, guest, {kPlayerInventory, kStashInventory}, error))
+        {
+            std::printf("savepkg: inventories: %s\n", error.c_str());
+            return 1;
+        }
+        std::printf("savepkg: player and stash inventories came from the guest\n");
+        Store(argv[4], save);
+        SaveFile back;
+        return Load(argv[4], back) ? 0 : 1;
     }
     if (command == "splice" && argc >= 5)
     {

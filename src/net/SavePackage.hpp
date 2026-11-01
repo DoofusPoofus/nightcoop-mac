@@ -10,6 +10,10 @@
  of evry node after or around it get moved. Write packs the stream again in 256 KiB chunks with a greedy LZ4 compressor
  SpliceCharacter swaps the character nodes nightcoop takes from the guest that can go whole (look wardrobe stat pools stats
  data photo mode tutorial achievements telemetry arcade loot intro handicap ammo playthrough loot seed)
+ ToTrees / FromTrees turn the node table into trees of byte pieces around the children and back (renumbering evry node so
+ subtrees can come and go. loose bytes between top level nodes ride along as their leading bytes). SpliceInventories uses them on the inventory node (u32 index | u32 count | per sub inventory u64
+ id | u32 items | per item 16 byte item id + its itemData node) to take the player (0x1) and stash (0xF4240) sub inventories
+ from the guest
 */
 #pragma once
 
@@ -36,7 +40,21 @@ struct SaveFile
     std::vector<SaveNode> Nodes;
 };
 
+struct TreeNode
+{
+    std::vector<uint8_t> Leading;
+    std::string Name;
+    std::vector<std::vector<uint8_t>> Pieces;
+    std::vector<TreeNode> Children;
+};
+
+inline constexpr uint64_t kPlayerInventory = 0x1;
+inline constexpr uint64_t kStashInventory = 0xF4240;
+
 bool Read(const std::vector<uint8_t>& bytes, SaveFile& save, std::string& error);
+bool ToTrees(const SaveFile& save, std::vector<TreeNode>& roots, std::string& error);
+void FromTrees(SaveFile& save, const std::vector<TreeNode>& roots);
+bool SpliceInventories(SaveFile& host, const SaveFile& guest, const std::vector<uint64_t>& inventoryIds, std::string& error);
 std::vector<uint8_t> Write(const SaveFile& save);
 int32_t FindTopLevel(const SaveFile& save, const std::string& name);
 bool SwapSubtree(SaveFile& host, const SaveFile& guest, const std::string& name, std::string& error);

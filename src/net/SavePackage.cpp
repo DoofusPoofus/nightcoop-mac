@@ -516,3 +516,289 @@ int SpliceCharacter(SaveFile& host, const SaveFile& guest, std::vector<std::stri
     return swapped;
 }
 }
+
+namespace nightcoop_mac::save_package
+{
+namespace
+{
+bool BuildTree(const SaveFile& save, int32_t index, TreeNode& tree, std::string& error)
+{
+    const auto& node = save.Nodes[index];
+    tree.Name = node.Name;
+    size_t cursor = node.Offset - save.StreamStart;
+    const size_t end = cursor + node.Size;
+    for (int32_t child = node.Child; child >= 0; child = save.Nodes[child].Next)
+    {
+        const size_t childStart = save.Nodes[child].Offset - save.StreamStart;
+        if (childStart < cursor)
+        {
+            error = "child " + save.Nodes[child].Name + " of " + node.Name + " is out of order";
+            return false;
+        }
+        tree.Pieces.emplace_back(save.Stream.begin() + static_cast<std::ptrdiff_t>(cursor), save.Stream.begin() + static_cast<std::ptrdiff_t>(childStart));
+        TreeNode childTree;
+        if (!BuildTree(save, child, childTree, error))
+        {
+            return false;
+        }
+        tree.Children.push_back(std::move(childTree));
+        cursor = childStart + save.Nodes[child].Size;
+    }
+    tree.Pieces.emplace_back(save.Stream.begin() + static_cast<std::ptrdiff_t>(cursor), save.Stream.begin() + static_cast<std::ptrdiff_t>(end));
+    return true;
+}
+
+int32_t EmitTree(const TreeNode& tree, SaveFile& save)
+{
+    const int32_t index = static_cast<int32_t>(save.Nodes.size());
+    SaveNode node;
+    node.Name = tree.Name;
+    node.Offset = static_cast<uint32_t>(save.StreamStart + save.Stream.size());
+    save.Nodes.push_back(node);
+    const size_t indexAt = save.Stream.size();
+    save.Stream.insert(save.Stream.end(), tree.Pieces[0].begin(), tree.Pieces[0].end());
+    PutU32At(save.Stream, indexAt, static_cast<uint32_t>(index));
+    int32_t previousChild = -1;
+    for (size_t child = 0; child < tree.Children.size(); ++child)
+    {
+        const int32_t childIndex = EmitTree(tree.Children[child], save);
+        if (previousChild < 0)
+        {
+            save.Nodes[index].Child = childIndex;
+        }
+        else
+        {
+            save.Nodes[previousChild].Next = childIndex;
+        }
+        previousChild = childIndex;
+        save.Stream.insert(save.Stream.end(), tree.Pieces[child + 1].begin(), tree.Pieces[child + 1].end());
+    }
+    save.Nodes[index].Size = static_cast<uint32_t>(save.StreamStart + save.Stream.size() - save.Nodes[index].Offset);
+    return index;
+}
+
+struct InventoryItem
+{
+    std::vector<uint8_t> ItemId;
+    TreeNode Data;
+};
+
+struct SubInventory
+{
+    uint64_t Id = 0;
+    std::vector<InventoryItem> Items;
+};
+
+class PieceReader
+{
+public:
+    explicit PieceReader(const TreeNode& tree)
+        : m_tree(tree)
+    {
+    }
+
+    bool Take(void* target, size_t size)
+    {
+        auto* out = static_cast<uint8_t*>(target);
+        while (size)
+        {
+            if (m_piece >= m_tree.Pieces.size() || m_offset >= m_tree.Pieces[m_piece].size())
+            {
+                return false;
+            }
+            const size_t now = std::min(size, m_tree.Pieces[m_piece].size() - m_offset);
+            std::memcpy(out, m_tree.Pieces[m_piece].data() + m_offset, now);
+            out += now;
+            m_offset += now;
+            size -= now;
+        }
+        return true;
+    }
+
+    bool TakeChild(TreeNode& child)
+    {
+        if (m_piece >= m_tree.Pieces.size() || m_offset != m_tree.Pieces[m_piece].size() || m_piece >= m_tree.Children.size())
+        {
+            return false;
+        }
+        child = m_tree.Children[m_piece];
+        ++m_piece;
+        m_offset = 0;
+        return true;
+    }
+
+    bool AtEnd() const
+    {
+        return m_piece == m_tree.Pieces.size() - 1 && m_offset == m_tree.Pieces[m_piece].size();
+    }
+
+private:
+    const TreeNode& m_tree;
+    size_t m_piece = 0;
+    size_t m_offset = 0;
+};
+
+bool ReadInventories(const TreeNode& inventory, uint32_t& index, std::vector<SubInventory>& subInventories)
+{
+    PieceReader reader(inventory);
+    uint32_t count = 0;
+    if (!reader.Take(&index, 4) || !reader.Take(&count, 4) || count > 100000)
+    {
+        return false;
+    }
+    for (uint32_t sub = 0; sub < count; ++sub)
+    {
+        SubInventory subInventory;
+        uint32_t itemCount = 0;
+        if (!reader.Take(&subInventory.Id, 8) || !reader.Take(&itemCount, 4) || itemCount > 1000000)
+        {
+            return false;
+        }
+        for (uint32_t item = 0; item < itemCount; ++item)
+        {
+            InventoryItem entry;
+            entry.ItemId.resize(16);
+            if (!reader.Take(entry.ItemId.data(), 16) || !reader.TakeChild(entry.Data))
+            {
+                return false;
+            }
+            subInventory.Items.push_back(std::move(entry));
+        }
+        subInventories.push_back(std::move(subInventory));
+    }
+    return reader.AtEnd();
+}
+
+TreeNode WriteInventories(const std::string& name, uint32_t index, const std::vector<SubInventory>& subInventories)
+{
+    TreeNode tree;
+    tree.Name = name;
+    std::vector<uint8_t> piece;
+    PutU32(piece, index);
+    PutU32(piece, static_cast<uint32_t>(subInventories.size()));
+    for (const auto& subInventory : subInventories)
+    {
+        const auto* idBytes = reinterpret_cast<const uint8_t*>(&subInventory.Id);
+        piece.insert(piece.end(), idBytes, idBytes + 8);
+        PutU32(piece, static_cast<uint32_t>(subInventory.Items.size()));
+        for (const auto& item : subInventory.Items)
+        {
+            piece.insert(piece.end(), item.ItemId.begin(), item.ItemId.end());
+            tree.Pieces.push_back(std::move(piece));
+            piece.clear();
+            tree.Children.push_back(item.Data);
+        }
+    }
+    tree.Pieces.push_back(std::move(piece));
+    return tree;
+}
+}
+
+bool ToTrees(const SaveFile& save, std::vector<TreeNode>& roots, std::string& error)
+{
+    roots.clear();
+    size_t expected = 0;
+    for (int32_t index = 0; index >= 0 && index < static_cast<int32_t>(save.Nodes.size()); index = save.Nodes[index].Next)
+    {
+        const size_t start = save.Nodes[index].Offset - save.StreamStart;
+        if (start < expected)
+        {
+            error = "top level node " + save.Nodes[index].Name + " overlaps the one before";
+            return false;
+        }
+        TreeNode tree;
+        tree.Leading.assign(save.Stream.begin() + static_cast<std::ptrdiff_t>(expected), save.Stream.begin() + static_cast<std::ptrdiff_t>(start));
+        if (!BuildTree(save, index, tree, error))
+        {
+            return false;
+        }
+        expected = start + save.Nodes[index].Size;
+        roots.push_back(std::move(tree));
+    }
+    if (expected != save.Stream.size())
+    {
+        error = "data after the last top level node";
+        return false;
+    }
+    return true;
+}
+
+void FromTrees(SaveFile& save, const std::vector<TreeNode>& roots)
+{
+    save.Stream.clear();
+    save.Nodes.clear();
+    int32_t previous = -1;
+    for (const auto& root : roots)
+    {
+        save.Stream.insert(save.Stream.end(), root.Leading.begin(), root.Leading.end());
+        const int32_t index = EmitTree(root, save);
+        if (previous >= 0)
+        {
+            save.Nodes[previous].Next = index;
+        }
+        previous = index;
+    }
+}
+
+bool SpliceInventories(SaveFile& host, const SaveFile& guest, const std::vector<uint64_t>& inventoryIds, std::string& error)
+{
+    std::vector<TreeNode> hostRoots;
+    std::vector<TreeNode> guestRoots;
+    if (!ToTrees(host, hostRoots, error) || !ToTrees(guest, guestRoots, error))
+    {
+        return false;
+    }
+    auto findInventory = [](std::vector<TreeNode>& roots) -> TreeNode* {
+        for (auto& root : roots)
+        {
+            if (root.Name == "inventory")
+            {
+                return &root;
+            }
+        }
+        return nullptr;
+    };
+    TreeNode* hostInventory = findInventory(hostRoots);
+    TreeNode* guestInventory = findInventory(guestRoots);
+    if (!hostInventory || !guestInventory)
+    {
+        error = "an inventory node is missing";
+        return false;
+    }
+    uint32_t hostIndex = 0;
+    uint32_t guestIndex = 0;
+    std::vector<SubInventory> hostSubs;
+    std::vector<SubInventory> guestSubs;
+    if (!ReadInventories(*hostInventory, hostIndex, hostSubs) || !ReadInventories(*guestInventory, guestIndex, guestSubs))
+    {
+        error = "an inventory node does not read like sub inventories of items";
+        return false;
+    }
+    for (uint64_t wanted : inventoryIds)
+    {
+        const auto guestSub = std::find_if(guestSubs.begin(), guestSubs.end(), [&](const SubInventory& sub) { return sub.Id == wanted; });
+        auto hostSub = std::find_if(hostSubs.begin(), hostSubs.end(), [&](const SubInventory& sub) { return sub.Id == wanted; });
+        if (guestSub == guestSubs.end())
+        {
+            if (hostSub != hostSubs.end())
+            {
+                hostSub->Items.clear();
+            }
+            continue;
+        }
+        if (hostSub == hostSubs.end())
+        {
+            hostSubs.insert(hostSubs.begin(), *guestSub);
+        }
+        else
+        {
+            *hostSub = *guestSub;
+        }
+    }
+    const auto leading = hostInventory->Leading;
+    *hostInventory = WriteInventories(hostInventory->Name, hostIndex, hostSubs);
+    hostInventory->Leading = leading;
+    FromTrees(host, hostRoots);
+    return CheckTree(host, error);
+}
+}

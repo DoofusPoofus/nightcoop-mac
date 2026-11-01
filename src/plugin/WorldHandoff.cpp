@@ -383,8 +383,14 @@ std::vector<uint8_t> WithOurCharacter(const std::vector<uint8_t>& hostSave, cons
     {
         log("handoff: " + problem);
     }
+    const bool itemsTaken = save_package::SpliceInventories(host, guest, {save_package::kPlayerInventory, save_package::kStashInventory}, error);
+    if (!itemsTaken)
+    {
+        log("handoff: our items stay out of the hosts world (" + error + ")");
+    }
     log("handoff: our V from " + ownFolder.filename().string() + " goes into the hosts world (" + std::to_string(swapped) + " of " +
-        std::to_string(save_package::CharacterNodeNames().size()) + " character nodes; level perks and items stay the hosts for now)");
+        std::to_string(save_package::CharacterNodeNames().size()) + " character nodes" + (itemsTaken ? ", our items and stash" : "") +
+        "; level and perks stay the hosts for now)");
     return save_package::Write(host);
 }
 
