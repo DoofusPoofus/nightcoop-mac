@@ -125,6 +125,10 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
         {
             plan.TestCharacter = true;
         }
+        else if (keyword == "test_doors")
+        {
+            plan.TestDoors = true;
+        }
         else if (keyword == "test_claim")
         {
             plan.TestClaim = true;

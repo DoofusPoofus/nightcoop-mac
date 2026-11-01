@@ -602,6 +602,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     nightcoop_mac::quest_sync::Tick(nowMs, inSave, Plan->QuestSync, Plan->QuestsInAnyWorld, *Session, Log);
     nightcoop_mac::lift_sync::Tick(nowMs, inSave, !LatestRemoteStates.empty(), *Session, Log);
     nightcoop_mac::door_sync::Tick(nowMs, inSave, Plan->ShareDoors, LocalStateValid ? &LastLocalState : nullptr, RemotePeerViews(), *Session, Log);
+    if (Plan->TestDoors)
+    {
+        nightcoop_mac::door_sync::RunTest(nowMs, inSave, LocalStateValid ? &LastLocalState : nullptr, Log);
+    }
     nightcoop_mac::loot::Tick(nowMs, inSave, LocalStateValid ? &LastLocalState : nullptr, Plan->TestLoot, Plan->TestLootRecord, Plan->TestLootQuantity,
                               *Session, *Bodies, Log);
     nightcoop_mac::player_extras::Tick(nowMs, inSave, *Session, *Bodies, *Npcs, *OurNpcs, Log);

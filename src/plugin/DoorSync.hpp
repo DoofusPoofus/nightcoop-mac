@@ -14,6 +14,8 @@
  auto close guard: partner spots go to the script evry tick so a door does not close by itself in a partners face
  lift doors are skipped. not done yet: the quest catch up holds (doors_open_behind / doors_shut_behind / doors_ahead_undone /
  doors_own_shut) / doors opening for partner bodies (doors_bodies) / acts from other modules (doors_act_other)
+ test_doors in session.txt toggles the nearest door (not a lift door within 100 m) evry 12 s from script so the sync can be
+ checked with nobody at the keyboard
 */
 #pragma once
 
@@ -40,4 +42,5 @@ using LogFunction = std::function<void(const std::string&)>;
 void Tick(uint64_t nowMs, bool inSave, bool shareAlways, const net::PlayerState* ourState, const std::vector<RemotePeerView>& partners,
           net::RelaySession& session, const LogFunction& log);
 void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs, net::RelaySession& session, const LogFunction& log);
+void RunTest(uint64_t nowMs, bool inSave, const net::PlayerState* ourState, const LogFunction& log);
 }

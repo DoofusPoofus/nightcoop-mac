@@ -18,8 +18,9 @@ works in a save with the probe:
 - giving items n dropped loot bags
 - carried bodies n team build checks
 - lifts n time of day
+- doors (scripted toggles go out n a probes requests move the door here)
 
-first cut but not tried in the game yet: doors devices n dialog votes
+first cut but not tried in the game yet: devices n dialog votes
 
 world handoff: a guest gets the hosts save with its own V spliced in (look wardrobe stat pools items stash n other character nodes) n its level attributes perks points n equipped gear get put back after it arrives n since no in game load works on mac the game restarts straight into it. when the session ends the guest goes home the same way n keeps wat it got (items level perks gear) (`handoff_restart off` / `handoff_character off` turn those off)
 

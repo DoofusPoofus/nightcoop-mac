@@ -9,7 +9,11 @@
 #include "plugin/WorldHandoff.hpp"
 
 #include <ProtocolCore.hpp>
+#include <cmath>
+#include <cstdio>
 #include <RED4ext/RED4ext.hpp>
+#include <RED4ext/Scripting/Natives/ScriptGameInstance.hpp>
+#include <RED4ext/Scripting/Natives/Vector4.hpp>
 #include <RED4ext/Scripting/Natives/entEntityID.hpp>
 
 #include <algorithm>
@@ -901,5 +905,83 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t 
             std::to_string(door.RequestNumber) + "): " + AnswerText(answer) + ", ours is " + StateText(tracked->SharedState) + " (version " +
             std::to_string(tracked->Version) + ")",
         nowMs, log);
+}
+
+void RunTest(uint64_t nowMs, bool inSave, const net::PlayerState* ourState, const LogFunction& log)
+{
+    static uint64_t nextToggleMs = 0;
+    static bool open = false;
+    if (!inSave || !ourState)
+    {
+        return;
+    }
+    if (!nextToggleMs)
+    {
+        nextToggleMs = nowMs + 20000;
+    }
+    if (nowMs < nextToggleMs)
+    {
+        return;
+    }
+    nextToggleMs = nowMs + 12000;
+    static auto* getEntityList = game::FindFunction("ScriptGameInstance", "GetEntityList");
+    static auto* getWorldPosition = game::FindFunction("entEntity", "GetWorldPosition");
+    static auto* getEntityId = game::FindFunction("entEntity", "GetEntityID");
+    static auto* moveTo = game::FindFunction("Door", "NightCoopMoveTo");
+    static auto* doorClass = RED4ext::CRTTISystem::Get()->GetClass("Door");
+    if (!getEntityList || !getWorldPosition || !moveTo || !doorClass)
+    {
+        log("test doors: door calls missing");
+        return;
+    }
+    RED4ext::ScriptGameInstance gameInstance;
+    RED4ext::DynArray<RED4ext::Handle<RED4ext::IScriptable>> entities;
+    RED4ext::StackArgs_t listArgs;
+    listArgs.emplace_back(nullptr, &gameInstance);
+    game::CallStatic(getEntityList, &entities, listArgs);
+    RED4ext::Handle<RED4ext::IScriptable> nearest;
+    float nearestDistance = 100.0f;
+    int doors = 0;
+    for (auto& entity : entities)
+    {
+        auto* entityClass = entity ? entity->GetType() : nullptr;
+        if (!entityClass || !entityClass->IsA(doorClass))
+        {
+            continue;
+        }
+        ++doors;
+        RED4ext::Vector4 place {};
+        RED4ext::StackArgs_t noArgs;
+        game::CallMethod(entity.instance, getWorldPosition, &place, noArgs);
+        const float deltaX = place.X - ourState->PositionX;
+        const float deltaY = place.Y - ourState->PositionY;
+        const float deltaZ = place.Z - ourState->PositionZ;
+        const float distance = std::sqrt(deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ);
+        if (distance < nearestDistance)
+        {
+            nearestDistance = distance;
+            nearest = entity;
+        }
+    }
+    if (!nearest)
+    {
+        log("test doors: no door within 100 m (" + std::to_string(doors) + " doors streamed in)");
+        return;
+    }
+    open = !open;
+    int32_t wanted = open ? net::kDoorOpen : 0;
+    bool evenWhenBusy = true;
+    int32_t result = 0;
+    RED4ext::StackArgs_t moveArgs;
+    moveArgs.emplace_back(nullptr, &wanted);
+    moveArgs.emplace_back(nullptr, &evenWhenBusy);
+    game::CallMethod(nearest.instance, moveTo, &result, moveArgs);
+    uint64_t entityHash = 0;
+    RED4ext::StackArgs_t noArgs;
+    game::CallMethod(nearest.instance, getEntityId, &entityHash, noArgs);
+    char line[160];
+    std::snprintf(line, sizeof(line), "test doors: door %#llx %.1f m away goes %s (result %d)", static_cast<unsigned long long>(entityHash), nearestDistance,
+                  open ? "open" : "closed", result);
+    log(line);
 }
 }
