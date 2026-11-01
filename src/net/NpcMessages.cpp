@@ -347,4 +347,38 @@ bool ReadNpcDefeat(const std::vector<uint8_t>& message, uint64_t& senderClockMs,
     }
     return reader.Ok() && reader.Remaining() == 0;
 }
+
+std::vector<uint8_t> WriteNpcTag(uint8_t kind, const std::vector<uint32_t>& netIds)
+{
+    const size_t count = std::min<size_t>(netIds.size(), 1024);
+    nc::proto::Writer writer(nc::proto::MsgType::NpcTag);
+    writer.PutU8(kind);
+    writer.PutU16(static_cast<uint16_t>(count));
+    for (size_t index = 0; index < count; ++index)
+    {
+        writer.PutU32(netIds[index]);
+    }
+    return writer.Data();
+}
+
+bool ReadNpcTag(const std::vector<uint8_t>& message, uint8_t& kind, std::vector<uint32_t>& netIds)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::NpcTag)
+    {
+        return false;
+    }
+    kind = reader.GetU8();
+    const uint16_t count = reader.GetU16();
+    if (!reader.Ok() || kind < kTagSet || kind > kTagList || count > 1024 || reader.Remaining() != count * 4u)
+    {
+        return false;
+    }
+    netIds.assign(count, 0);
+    for (auto& netId : netIds)
+    {
+        netId = reader.GetU32();
+    }
+    return reader.Ok() && reader.Remaining() == 0;
+}
 }

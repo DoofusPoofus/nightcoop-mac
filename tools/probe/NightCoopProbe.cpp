@@ -33,6 +33,7 @@
  then the new save goes out like a join
  PROBE_DEFEAT=<n> tells the host n of its shared npcs (with health above 0) died here (NpcDefeat) the joiner prints NpcDead tables and npc deaths
  PROBE_PUSH=1 says at step 110 that our grenade went off where the joiner stands (PlayerBlast radius 6)
+ PROBE_TAG=1 tags the first npc the host shares at step 150 and untags it at step 250 (NpcTag)
  PROBE_PHOTO=1 opens photo mode at step 100 and closes it at step 200 (PhotoTogether)
  PROBE_FX=<effect resource path hash> shows that effect at step 120 where the joiner stands (PlayerFx)
  PROBE_CARHIT=1 (with PROBE_VEHICLE) says at step 200 that our car hit the hosts player (VehicleHit 9 m/s)
@@ -1257,6 +1258,11 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::PlayerEffect effect {1, std::strtoull(effectText, nullptr, 0), {state.PositionX, state.PositionY, state.PositionZ + 1.0f}, {0, 0, 0, 1}, 0};
             session.SendGameMessage(nightcoop_mac::net::WritePlayerFx({effect}));
             std::printf("probe: shows effect %#llx where the joiner stands (PlayerFx)\n", static_cast<unsigned long long>(effect.Resource));
+        }
+        if (std::getenv("PROBE_TAG") && firstHostNpc && (step == 150 || step == 250))
+        {
+            session.SendGameMessage(nightcoop_mac::net::WriteNpcTag(step == 150 ? nightcoop_mac::net::kTagSet : nightcoop_mac::net::kTagCleared, {firstHostNpc}));
+            std::printf("probe: %s the hosts npc %#010x (NpcTag)\n", step == 150 ? "tagged" : "untagged", firstHostNpc);
         }
         if (std::getenv("PROBE_PHOTO") && (step == 100 || step == 200))
         {

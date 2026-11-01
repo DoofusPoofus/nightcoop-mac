@@ -21,6 +21,8 @@
    (u64 the hosts entity id | u64 record | u64 match key a | u64 match key b | f32 x3 place) full table evry 30 s
  NpcDefeat (98) guest -> host reliable 9 + 45 n bytes: u64 senders session clock | u8 n (up to 32) | n x (the same 44 bytes |
    u8 flag)
+ NpcTag (220) reliable to evryone or one peer 3 + 4 n bytes: u8 kind (1 tagged 2 untagged 3 the whole list for a partner that
+   just came into the world) | u16 n (up to 1024) | n x u32 net id
  readers drop not finite floats positions past 100 km and bytes left over
 */
 #pragma once
@@ -130,4 +132,10 @@ std::vector<uint8_t> WriteNpcDead(bool fullTable, const std::vector<DeadPerson>&
 bool ReadNpcDead(const std::vector<uint8_t>& message, bool& fullTable, std::vector<DeadPerson>& people);
 std::vector<uint8_t> WriteNpcDefeat(uint64_t senderClockMs, const std::vector<DeadPerson>& people);
 bool ReadNpcDefeat(const std::vector<uint8_t>& message, uint64_t& senderClockMs, std::vector<DeadPerson>& people);
+inline constexpr uint8_t kTagSet = 1;
+inline constexpr uint8_t kTagCleared = 2;
+inline constexpr uint8_t kTagList = 3;
+
+std::vector<uint8_t> WriteNpcTag(uint8_t kind, const std::vector<uint32_t>& netIds);
+bool ReadNpcTag(const std::vector<uint8_t>& message, uint8_t& kind, std::vector<uint32_t>& netIds);
 }

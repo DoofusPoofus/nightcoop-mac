@@ -90,6 +90,7 @@ add_library(NightCoopMac SHARED
   src/plugin/Grenades.cpp
   src/plugin/PlayerEffects.cpp
   src/plugin/PhotoTogether.cpp
+  src/plugin/NpcTags.cpp
   src/plugin/NpcShare.cpp
   src/plugin/NpcStates.cpp
   src/plugin/Items.cpp

@@ -1024,6 +1024,13 @@ int main()
               "player fx is 1 + 41 per effect");
         effect.Orientation[3] = 3.0f;
         Check(!ReadPlayerFx(WritePlayerFx({effect}), effectsBack), "a player fx with a broken orientation is refused");
+        uint8_t tagKind = 0;
+        std::vector<uint32_t> taggedBack;
+        const auto tagBytes = WriteNpcTag(kTagSet, {0x01000005, 0x02000007});
+        Check(tagBytes.size() == 5 + 3 + 8 && tagBytes[4] == 220 && ReadNpcTag(tagBytes, tagKind, taggedBack) && tagKind == kTagSet && taggedBack.size() == 2 &&
+                  taggedBack[1] == 0x02000007,
+              "npc tag is 3 + 4 per net id");
+        Check(!ReadNpcTag(WriteNpcTag(4, {1}), tagKind, taggedBack), "a tag kind past 3 is refused");
         Blast blast {{1.0f, 2.0f, 3.0f}, 8.0f, 0xABCDULL};
         std::vector<Blast> blastsBack;
         const auto blastBytes = WritePlayerBlast({blast});
