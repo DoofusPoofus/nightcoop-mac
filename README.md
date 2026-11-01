@@ -26,6 +26,7 @@ works in a save with the probe:
 - a partner opening photo mode in ur world shows a hint (PhotoTogether) n ours goes out
 - tagging an npc (scanner tag) shows the tag for partners too (NpcTag)
 - we tell the host our loading n story state so its loading n story holds dont wait on us (WorldLoad StoryHold) n a host starting from its lobby shows a hint (LobbyStart)
+- a windows hosts scene gates (talks that wait for evryone at the npc) hear from us by distance to the host (SceneGate) so they dont wait forever. holding our own scene nodes still needs native hooks
 - police shooting at a partners body starts that partners own police fight (PoliceFight). the shared wanted level n police units arent there yet
 
 dialog votes: the message side works with a probe (votes decided at a shared time n subtitles) but pressing a choice needs a real dialog on screen
@@ -38,7 +39,7 @@ npc hits on u only do damage thru a fallback (the game drops the rebuilt hit so 
 
 the quality plus upgrade n iconic stats of ur equipped items get checked after a handoff n put back if they differ (they came along fine so far)
 
-not there yet: the other player systems from ur own save (crafting recipes n co) visual grenade copies braindance photo poses shared police units scene gates (they need native hooks)
+not there yet: the other player systems from ur own save (crafting recipes n co) visual grenade copies braindance photo poses shared police units holding our own scene gates (native hooks)
 
 ## what u need
 

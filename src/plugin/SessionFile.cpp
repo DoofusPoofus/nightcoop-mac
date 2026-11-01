@@ -115,6 +115,12 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
             words >> mode;
             plan.PhoneAnyWorld = mode == "any_world";
         }
+        else if (keyword == "scenes")
+        {
+            std::string mode;
+            words >> mode;
+            plan.ScenesAnyWorld = mode == "any_world";
+        }
         else if (keyword == "blasts")
         {
             std::string mode;

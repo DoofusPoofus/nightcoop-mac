@@ -51,6 +51,7 @@
 #include "plugin/NpcTags.hpp"
 #include "plugin/SmsReplies.hpp"
 #include "plugin/WorldLoad.hpp"
+#include "plugin/SceneGates.hpp"
 #include "net/NpcMessages.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/Rewards.hpp"
@@ -536,6 +537,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             nightcoop_mac::grenades::OnMessage(message.FromPeer, message.Message, sameWorld, Log);
             nightcoop_mac::player_effects::OnMessage(message.FromPeer, message.Message, sameWorld, Log);
         }
+        else if (nightcoop_mac::scene_gates::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
+        {
+            nightcoop_mac::scene_gates::OnMessage(message.FromPeer, message.Message, Session->GetStatus().MyPeerNumber == 0, Log);
+        }
         else if (nightcoop_mac::world_load::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {
             nightcoop_mac::world_load::OnMessage(message.FromPeer, message.Message, Session->GetStatus().MyPeerNumber == 0, Log);
@@ -692,6 +697,8 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     {
         nightcoop_mac::door_sync::RunTest(nowMs, inSave, LocalStateValid ? &LastLocalState : nullptr, Log);
     }
+    nightcoop_mac::scene_gates::Tick(nowMs, inSave, nightcoop_mac::world_handoff::InHostWorld() || Plan->ScenesAnyWorld, LocalStateValid ? &LastLocalState : nullptr,
+                                     *Session, Log);
     nightcoop_mac::loot::Tick(nowMs, inSave, LocalStateValid ? &LastLocalState : nullptr, Plan->TestLoot, Plan->TestLootRecord, Plan->TestLootQuantity,
                               *Session, *Bodies, Log);
     nightcoop_mac::player_extras::Tick(nowMs, inSave, *Session, *Bodies, *Npcs, *OurNpcs, Log);

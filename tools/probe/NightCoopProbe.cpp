@@ -43,6 +43,7 @@
  PROBE_PHOTO=1 opens photo mode at step 100 and closes it at step 200 (PhotoTogether)
  PROBE_FX=<effect resource path hash> shows that effect at step 120 where the joiner stands (PlayerFx)
  PROBE_CARHIT=1 (with PROBE_VEHICLE) says at step 200 that our car hit the hosts player (VehicleHit 9 m/s)
+ PROBE_GATE=1 on the host says its scene waits at a gate 3 m from the guest 15 s after it heard of it and passes it 25 s later
  PROBE_LOBBY=1 on the host says it started a save from its lobby once a guest is there (LobbyStart)
  PROBE_DEAD=1 on the host says the first npc a guest shares 40 s on died in our world (NpcDead) and prints NpcDefeat
  PROBE_TAKE=1 takes the first npc the host hands over (NpcHandoffAck + NpcClaim 3), owns it for 100 steps and lets it go,
@@ -644,7 +645,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto callStartedAt = std::chrono::steady_clock::time_point::max();
     int callPhaseSent = 0;
     uint32_t callCommits = 0;
-    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
+    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
     auto deadline = std::chrono::steady_clock::now() + (staysUp ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
     auto nextReward = std::chrono::steady_clock::now() + 20s;
@@ -662,9 +663,36 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto reloadAt = std::chrono::steady_clock::time_point::max();
     uint32_t reloadPeer = 0;
     bool lobbySent = false;
+    auto gateStartedAt = std::chrono::steady_clock::time_point::max();
+    uint8_t gateStateSent = 0;
     uint8_t lastStoryState = 0xFF;
     while (std::chrono::steady_clock::now() < deadline)
     {
+        if (std::getenv("PROBE_GATE") && guestKnown)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            if (gateStartedAt == std::chrono::steady_clock::time_point::max())
+            {
+                gateStartedAt = now;
+            }
+            const uint8_t gateState = now >= gateStartedAt + 40s ? 3 : now >= gateStartedAt + 15s ? 2 : 0;
+            if (gateState && gateState != gateStateSent)
+            {
+                gateStateSent = gateState;
+                nc::proto::Writer gate(nc::proto::MsgType::SceneGate);
+                gate.PutU64(0x5CE11E0000000001ULL);
+                gate.PutU8(gateState);
+                gate.PutU32(0);
+                gate.PutF32(guestX + 3.0f);
+                gate.PutF32(guestY);
+                gate.PutF32(guestZ);
+                gate.PutU8(0);
+                gate.PutU8(1);
+                gate.PutU16(42);
+                session.SendGameMessage(gate.Data());
+                std::printf("probe: our scene waits at its gate, state %u (SceneGate)\n", gateState);
+            }
+        }
         if (std::getenv("PROBE_LOBBY") && !lobbySent && session.GetStatus().ConnectedPeers > 0)
         {
             lobbySent = true;
@@ -873,6 +901,16 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             if (nightcoop_mac::net::ReadNpcDespawn(message.Message, guestNpcGone) && guestNpcGone.Reason == 3)
             {
                 std::printf("probe: npc %#010x of peer %u died (killer %#x)\n", guestNpcGone.NetId, message.FromPeer, guestNpcGone.Killer);
+                continue;
+            }
+            if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::SceneGate))
+            {
+                nc::proto::Reader gate(message.Message.data(), message.Message.size());
+                gate.ReadHeader();
+                const uint64_t gateScene = gate.GetU64();
+                const uint8_t gateState = gate.GetU8();
+                std::printf("probe: peer %u says it is at state %u of our gate in scene %#llx (SceneGate)\n", message.FromPeer, gateState,
+                            static_cast<unsigned long long>(gateScene));
                 continue;
             }
             if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::StoryHold))

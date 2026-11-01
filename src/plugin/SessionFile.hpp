@@ -27,6 +27,7 @@
    phone any_world       take the hosts calls (guest) or send ours (host) in any world not only the hosts (testing only)
    rewards any_world     take the hosts quest rewards (guest) or send ours (host) in any world not only the hosts (testing only)
    deaths any_world      take the hosts npc deaths (guest) or send ours (host) in any world not only the hosts (testing only)
+   scenes any_world      answer the hosts scene gate words in any world not only the hosts (testing only)
    blasts any_world      send our grenade blasts and take the partners blasts and effects in any world not only the same one (testing only)
    test_character        in a save our level attributes and perks get captured and applied back after 30 s (testing only)
    test_autosave         40 s after a guest arrived in the hosts world the game gets asked for an autosave (testing only)
@@ -77,6 +78,7 @@ struct SessionPlan
     bool PhoneAnyWorld = false;
     bool DeathsAnyWorld = false;
     bool BlastsAnyWorld = false;
+    bool ScenesAnyWorld = false;
     bool TestHelp = false;
     bool WorldHandoff = false;
     bool HandoffRestart = true;
