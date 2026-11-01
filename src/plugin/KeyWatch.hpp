@@ -15,6 +15,7 @@ inline constexpr unsigned short KeyT = 17;
 inline constexpr unsigned short KeyReturn = 36;
 inline constexpr unsigned short KeyDownArrow = 125;
 inline constexpr unsigned short KeyUpArrow = 126;
+inline constexpr unsigned short KeyPageUp = 116;
 
 void WatchKeys();
 bool KeyHeld(unsigned short keyCode);

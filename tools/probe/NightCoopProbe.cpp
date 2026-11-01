@@ -43,6 +43,7 @@
  PROBE_PHOTO=1 opens photo mode at step 100 and closes it at step 200 (PhotoTogether)
  PROBE_FX=<effect resource path hash> shows that effect at step 120 where the joiner stands (PlayerFx)
  PROBE_CARHIT=1 (with PROBE_VEHICLE) says at step 200 that our car hit the hosts player (VehicleHit 9 m/s)
+ PROBE_QTELE=1 on the host says the game moved it 100 m from the guest 10 s after it heard of it (QuestTeleport kind 1)
  PROBE_GATE=1 on the host says its scene waits at a gate 3 m from the guest 15 s after it heard of it and passes it 25 s later
  PROBE_LOBBY=1 on the host says it started a save from its lobby once a guest is there (LobbyStart)
  PROBE_DEAD=1 on the host says the first npc a guest shares 40 s on died in our world (NpcDead) and prints NpcDefeat
@@ -645,7 +646,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto callStartedAt = std::chrono::steady_clock::time_point::max();
     int callPhaseSent = 0;
     uint32_t callCommits = 0;
-    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
+    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_QTELE") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
     auto deadline = std::chrono::steady_clock::now() + (staysUp ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
     auto nextReward = std::chrono::steady_clock::now() + 20s;
@@ -665,9 +666,33 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     bool lobbySent = false;
     auto gateStartedAt = std::chrono::steady_clock::time_point::max();
     uint8_t gateStateSent = 0;
+    auto questTeleportAt = std::chrono::steady_clock::time_point::max();
+    bool questTeleportSent = false;
     uint8_t lastStoryState = 0xFF;
     while (std::chrono::steady_clock::now() < deadline)
     {
+        if (std::getenv("PROBE_QTELE") && guestKnown && !questTeleportSent)
+        {
+            if (questTeleportAt == std::chrono::steady_clock::time_point::max())
+            {
+                questTeleportAt = std::chrono::steady_clock::now() + 10s;
+            }
+            if (std::chrono::steady_clock::now() >= questTeleportAt)
+            {
+                questTeleportSent = true;
+                nc::proto::Writer teleport(nc::proto::MsgType::QuestTeleport);
+                teleport.PutU8(1);
+                teleport.PutF32(guestX + 100.0f);
+                teleport.PutF32(guestY);
+                teleport.PutF32(guestZ);
+                teleport.PutF32(90.0f);
+                teleport.PutF32(guestX);
+                teleport.PutF32(guestY);
+                teleport.PutF32(guestZ);
+                session.SendGameMessage(teleport.Data());
+                std::printf("probe: the game moved us 100 m away (QuestTeleport kind 1)\n");
+            }
+        }
         if (std::getenv("PROBE_GATE") && guestKnown)
         {
             const auto now = std::chrono::steady_clock::now();

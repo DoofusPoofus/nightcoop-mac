@@ -94,6 +94,7 @@ add_library(NightCoopMac SHARED
   src/plugin/SmsReplies.cpp
   src/plugin/WorldLoad.cpp
   src/plugin/SceneGates.cpp
+  src/plugin/QuestTeleports.cpp
   src/plugin/NpcShare.cpp
   src/plugin/NpcStates.cpp
   src/plugin/Items.cpp
