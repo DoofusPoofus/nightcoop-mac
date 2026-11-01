@@ -46,6 +46,7 @@
 #include "plugin/PhoneShare.hpp"
 #include "plugin/NpcDeaths.hpp"
 #include "plugin/Grenades.hpp"
+#include "plugin/PlayerEffects.hpp"
 #include "net/NpcMessages.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/Rewards.hpp"
@@ -473,6 +474,10 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             nightcoop_mac::partner_roster::OnMessage(message.FromPeer, message.Message, *Session, Log);
         }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::VehicleHit))
+        {
+            Cars->OnCarHit(message.FromPeer, message.Message, nowMs, Session->GetStatus().MyPeerNumber);
+        }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) >= static_cast<uint8_t>(nc::proto::MsgType::VehicleSpawn) &&
                  nightcoop_mac::net::MessageTypeOf(message.Message) <= static_cast<uint8_t>(nc::proto::MsgType::VehicleSeat))
         {
@@ -518,12 +523,13 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         {
             nightcoop_mac::rewards::OnMessage(message.FromPeer, message.Message, nightcoop_mac::world_handoff::InHostWorld() || Plan->RewardsAnyWorld, Log);
         }
-        else if (nightcoop_mac::grenades::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
+        else if (nightcoop_mac::grenades::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)) ||
+                 nightcoop_mac::player_effects::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {
-            nightcoop_mac::grenades::OnMessage(message.FromPeer, message.Message,
-                                               Plan->BlastsAnyWorld || nightcoop_mac::world_handoff::InHostWorld() ||
-                                                   (Session->GetStatus().MyPeerNumber == 0 && nightcoop_mac::partner_roster::PeerInHostWorld(message.FromPeer)),
-                                               Log);
+            const bool sameWorld = Plan->BlastsAnyWorld || nightcoop_mac::world_handoff::InHostWorld() ||
+                                   (Session->GetStatus().MyPeerNumber == 0 && nightcoop_mac::partner_roster::PeerInHostWorld(message.FromPeer));
+            nightcoop_mac::grenades::OnMessage(message.FromPeer, message.Message, sameWorld, Log);
+            nightcoop_mac::player_effects::OnMessage(message.FromPeer, message.Message, sameWorld, Log);
         }
         else if (nightcoop_mac::npc_deaths::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {

@@ -1,7 +1,8 @@
 // world handoff the script half of the plugins WorldHandoff (nightcoops sessionflow world parts): the systems request
 // handler gets taken from the onscreen message controller once the hud is up. the host asks for a manual save with it
 // (HasFreeSaveSlot + ManualSave like nightcoops RequestManualSave with the folder name the plugin picked. the game still
-// writes into ManualSave-0 so the plugin guards that slot) a guest loads the folder the plugin wrote: the save list
+// writes into ManualSave-0 so the plugin guards that slot. a game started straight into a save has no save list so
+// HasFreeSaveSlot says no: the list gets asked for once and the third try saves anyway) a guest loads the folder the plugin wrote: the save list
 // gets asked for (RequestSavesForLoad) the folder is looked up by name in it and loaded by its index (LoadSavedGame)
 // when the list does not answer the plugin loads the newest save instead (LoadNewest: the in game menus own quick load
 // DelayedHandleQuickLoad or LoadLastCheckpoint(false) without that menu) then LoadIndex(0) (the save list may be filled even
@@ -15,6 +16,8 @@ public class NightCoopWorldHandoff extends ScriptableService {
   private let m_loadState: Int32;
   private let m_listedSaves: Int32;
   private let m_listSample: String;
+  private let m_saveListAsked: Bool;
+  private let m_noSlotTries: Int32;
 
   public static func Get() -> ref<NightCoopWorldHandoff> {
     return GameInstance.GetScriptableServiceContainer().GetService(n"NightCoopWorldHandoff") as NightCoopWorldHandoff;
@@ -36,9 +39,20 @@ public class NightCoopWorldHandoff extends ScriptableService {
 
   public func MakeSave(folder: String) -> Bool {
     let handler = this.m_handler;
-    if !IsDefined(handler) || StrLen(folder) == 0 || !handler.HasFreeSaveSlot(folder) {
+    if !IsDefined(handler) || StrLen(folder) == 0 {
       return false;
     }
+    if !handler.HasFreeSaveSlot(folder) {
+      if !this.m_saveListAsked {
+        this.m_saveListAsked = true;
+        handler.RequestSavesForSave();
+      }
+      this.m_noSlotTries += 1;
+      if this.m_noSlotTries < 3 {
+        return false;
+      }
+    }
+    this.m_noSlotTries = 0;
     handler.ManualSave(folder);
     return true;
   }

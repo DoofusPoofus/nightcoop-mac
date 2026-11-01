@@ -4,6 +4,8 @@
 // <development point type> <unspent>. Apply in the hosts world resets perks and attributes sets evry proficiency level adds
 // points buys the attributes up to their values unlocks and buys the perks (forced) and sets the unspent points to ours.
 // it returns how many values ended up right. SlotCount / GetEquipped / EquipNow let the plugin carry the equipped item ids too
+// ItemStats / ApplyItemStats carry the quality plus upgrade level and iconic stats of those items (the stats system blob of
+// the save does not come along so the hosts world may hold other values for them. the difference goes on as a saved modifier)
 
 public class NightCoopCharacter extends ScriptableService {
   public static func Get() -> ref<NightCoopCharacter> {
@@ -61,6 +63,54 @@ public class NightCoopCharacter extends ScriptableService {
   public func HasInInventory(item: ItemID) -> Bool {
     let player = GetPlayer(GetGameInstance());
     return IsDefined(player) && ItemID.IsValid(item) && GameInstance.GetTransactionSystem(GetGameInstance()).HasItem(player, item);
+  }
+
+  private func ItemStatTypes() -> array<gamedataStatType> {
+    return [gamedataStatType.Quality, gamedataStatType.IsItemPlus, gamedataStatType.WasItemUpgraded, gamedataStatType.ItemLevel, gamedataStatType.IsItemIconic];
+  }
+
+  private func ItemStatsId(item: ItemID) -> StatsObjectID {
+    let player = GetPlayer(GetGameInstance());
+    let itemData = GameInstance.GetTransactionSystem(GetGameInstance()).GetItemData(player, item);
+    if !IsDefined(itemData) {
+      return Cast<StatsObjectID>(player.GetEntityID());
+    }
+    return itemData.GetStatsObjectID();
+  }
+
+  public func ItemStats(item: ItemID) -> String {
+    if !this.HasInInventory(item) {
+      return "";
+    }
+    let stats = GameInstance.GetStatsSystem(GetGameInstance());
+    let id = this.ItemStatsId(item);
+    let text = "";
+    for stat in this.ItemStatTypes() {
+      text += IntToString(EnumInt(stat)) + " " + FloatToString(stats.GetStatValue(id, stat)) + " ";
+    }
+    return text;
+  }
+
+  public func ApplyItemStats(item: ItemID, text: String) -> Int32 {
+    if !this.HasInInventory(item) {
+      return -1;
+    }
+    let stats = GameInstance.GetStatsSystem(GetGameInstance());
+    let id = this.ItemStatsId(item);
+    let words = StrSplit(text, " ");
+    let fixed = 0;
+    let index = 0;
+    while index + 1 < ArraySize(words) {
+      let stat = IntEnum<gamedataStatType>(StringToInt(words[index]));
+      let wanted = StringToFloat(words[index + 1]);
+      let now = stats.GetStatValue(id, stat);
+      if AbsF(wanted - now) > 0.01 {
+        stats.AddSavedModifier(id, RPGManager.CreateStatModifier(stat, gameStatModifierType.Additive, wanted - now));
+        fixed += 1;
+      }
+      index += 2;
+    }
+    return fixed;
   }
 
   public func EquipNow(area: Int32, slot: Int32, item: ItemID) -> Bool {

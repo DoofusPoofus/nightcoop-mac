@@ -1009,6 +1009,21 @@ int main()
         Check(npcGrenadeBytes[4] == 24 && ReadGrenade(npcGrenadeBytes, playerGrenade, grenadeBack) && !playerGrenade, "npc grenade has the same body");
         grenade.Stage = 5;
         Check(!ReadGrenade(WriteGrenade(true, grenade), playerGrenade, grenadeBack), "a grenade stage past 4 is refused");
+        VehicleHit carHit {0x01000002, 0, 555, {0.0f, 1.0f, 0.0f}, {0.0f, 400.0f, 50.0f}, 12.0f};
+        VehicleHit carHitBack;
+        const auto carHitBytes = WriteVehicleHit(carHit);
+        Check(carHitBytes.size() == 5 + 44 && carHitBytes[4] == 65 && ReadVehicleHit(carHitBytes, carHitBack) && carHitBack.Speed == 12.0f && carHitBack.Impulse[1] == 400.0f,
+              "vehicle hit is 44 bytes");
+        carHit.Speed = 250.0f;
+        Check(!ReadVehicleHit(WriteVehicleHit(carHit), carHitBack), "a car hit faster than 200 m/s is refused");
+        PlayerEffect effect {7, 0x1234567890ULL, {1.0f, 2.0f, 3.0f}, {0.0f, 0.0f, 0.0f, 1.0f}, 1};
+        std::vector<PlayerEffect> effectsBack;
+        const auto effectBytes = WritePlayerFx({effect, effect});
+        Check(effectBytes.size() == 5 + 1 + 2 * 41 && effectBytes[4] == 138 && ReadPlayerFx(effectBytes, effectsBack) && effectsBack.size() == 2 &&
+                  effectsBack[1].Resource == 0x1234567890ULL && effectsBack[1].Flags == 1,
+              "player fx is 1 + 41 per effect");
+        effect.Orientation[3] = 3.0f;
+        Check(!ReadPlayerFx(WritePlayerFx({effect}), effectsBack), "a player fx with a broken orientation is refused");
         Blast blast {{1.0f, 2.0f, 3.0f}, 8.0f, 0xABCDULL};
         std::vector<Blast> blastsBack;
         const auto blastBytes = WritePlayerBlast({blast});

@@ -193,4 +193,67 @@ bool ReadPhoneSync(const std::vector<uint8_t>& message, PhoneSync& phone)
     return reader.Ok() && reader.Remaining() == 0 && phone.Kind >= kPhoneRequest && phone.Kind <= kPhoneRefused && phone.Action >= kPhoneActionCall &&
            phone.Action <= kPhoneActionPickup && PhoneContactNameOk(phone.Contact);
 }
+
+std::vector<uint8_t> WritePlayerFx(const std::vector<PlayerEffect>& effects)
+{
+    const size_t count = std::min(effects.size(), kMostEffectsAtOnce);
+    nc::proto::Writer writer(nc::proto::MsgType::PlayerFx);
+    writer.PutU8(static_cast<uint8_t>(count));
+    for (size_t index = 0; index < count; ++index)
+    {
+        const auto& effect = effects[index];
+        writer.PutU32(effect.Number);
+        writer.PutU64(effect.Resource);
+        for (float part : effect.Position)
+        {
+            writer.PutF32(part);
+        }
+        for (float part : effect.Orientation)
+        {
+            writer.PutF32(part);
+        }
+        writer.PutU8(effect.Flags);
+    }
+    return writer.Data();
+}
+
+bool ReadPlayerFx(const std::vector<uint8_t>& message, std::vector<PlayerEffect>& effects)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::PlayerFx)
+    {
+        return false;
+    }
+    const uint8_t count = reader.GetU8();
+    if (!reader.Ok() || count < 1 || count > kMostEffectsAtOnce || reader.Remaining() != count * 41u)
+    {
+        return false;
+    }
+    effects.assign(count, {});
+    for (auto& effect : effects)
+    {
+        effect.Number = reader.GetU32();
+        effect.Resource = reader.GetU64();
+        for (float& part : effect.Position)
+        {
+            part = reader.GetF32();
+        }
+        for (float& part : effect.Orientation)
+        {
+            part = reader.GetF32();
+        }
+        effect.Flags = reader.GetU8();
+        const bool placeOk = std::all_of(effect.Position, effect.Position + 3, [](float value) { return std::isfinite(value) && std::fabs(value) < 100000.0f; });
+        float normSquared = 0;
+        for (float part : effect.Orientation)
+        {
+            normSquared += std::isfinite(part) ? part * part : 100.0f;
+        }
+        if (!reader.Ok() || effect.Number == 0 || effect.Resource == 0 || !placeOk || normSquared < 0.5f || normSquared > 1.5f || (effect.Flags & ~1u) != 0)
+        {
+            return false;
+        }
+    }
+    return reader.Remaining() == 0;
+}
 }

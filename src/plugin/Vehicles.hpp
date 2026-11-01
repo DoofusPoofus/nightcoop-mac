@@ -14,6 +14,9 @@
  UnmountFromVehicle when they get out. a mirror nobody heard of for 10 s or a despawn takes the car away
  riding together: sitting in a partners mirror sends only our VehicleSeat for their netId (evry 200 ms reliable when it changes
  an empty one when we get out) and a partners seat in our own shared car seats their body in our real car (FindEntityByID)
+ car hits (VehicleHit 65): when the car we drive hits a partner body (script wrap on gameObject.OnVehicleHit) that partner gets
+ the hit (at most one per 1.5 s per partner from 1.5 m/s). a partners car hitting us plays as the games OnCarHitPlayer on our
+ player unless we sit in a car ourselfs
  not done yet: handover crowd / npc / quest cars doors lights damage steering
  testing only: RunTestCar spawns a car next to our player (tag NightCoopTestCar) and mounts us at its wheel with the
  mounting facility (MountingRequest instant) so the sending side runs with nobody at the keyboard. when a partner car mirror
@@ -51,6 +54,7 @@ public:
     void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs);
     void Tick(uint64_t nowMs, bool inSave, net::RelaySession& session, RemoteBodies& bodies);
     void RunTestCar(uint64_t nowMs);
+    void OnCarHit(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs, uint32_t ourPeer);
 
 private:
     struct Snapshot
@@ -114,6 +118,7 @@ private:
     bool Mount(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& vehicle, RED4ext::Handle<RED4ext::IScriptable>& body, uint64_t slot);
     void Unmount(RED4ext::Handle<RED4ext::IScriptable>& vehicle, RED4ext::Handle<RED4ext::IScriptable>& body);
     void RemoveMirror(uint32_t netId, Mirror& mirror, RemoteBodies* bodies, const char* why);
+    void SendCarHits(uint64_t nowMs, net::RelaySession& session);
 
     LogFunction m_log;
     bool m_resolved = false;
@@ -146,6 +151,8 @@ private:
     std::map<uint32_t, Mirror> m_mirrors;
     std::map<uint32_t, PartnerSeat> m_seats;
     OwnShare m_share;
+    std::map<uint32_t, uint64_t> m_lastCarHitMs;
+    uint64_t m_lastHitOnUsMs = 0;
     RideSeat m_ride;
     RED4ext::CBaseFunction* m_findEntity = nullptr;
     uint32_t m_netIdCounter = 0;

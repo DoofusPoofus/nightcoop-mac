@@ -12,6 +12,8 @@
  VehicleDespawn (62) reliable: u32 netId | u8 reason (1 not shared any more 2 gone at the owner 3 destroyed)
  VehicleSeat (63) evry peer about its own player: reliable when the seat changes unreliable evry 200 ms while seated 40 bytes:
    u32 netId (0 = got out) | u64 seat slot cname (0 when out) | f32 x3 position in the vehicles axes (|v| <= 10 m) | f32 x4 orientation
+ VehicleHit (65) car owner -> the peer whose body its car hit reliable 44 bytes: u32 netId | u32 hit peer | u64 shared clock ms |
+   f32 x3 hit direction (|v|^2 <= 1e4) | f32 x3 separation impulse (|v|^2 <= 1e6) | f32 car speed m/s (0..200)
  readers drop wat nightcoops readers drop: not finite floats out of range bytes bytes left over
 */
 #pragma once
@@ -63,6 +65,16 @@ struct VehicleDespawn
     uint8_t Reason = 1;
 };
 
+struct VehicleHit
+{
+    uint32_t NetId = 0;
+    uint32_t HitPeer = 0;
+    uint64_t ClockMs = 0;
+    float Direction[3] = {0, 0, 0};
+    float Impulse[3] = {0, 0, 0};
+    float Speed = 0;
+};
+
 struct VehicleSeat
 {
     uint32_t NetId = 0;
@@ -83,4 +95,6 @@ std::vector<uint8_t> WriteVehicleDespawn(const VehicleDespawn& despawn);
 bool ReadVehicleDespawn(const std::vector<uint8_t>& message, VehicleDespawn& despawn);
 std::vector<uint8_t> WriteVehicleSeat(const VehicleSeat& seat);
 bool ReadVehicleSeat(const std::vector<uint8_t>& message, VehicleSeat& seat);
+std::vector<uint8_t> WriteVehicleHit(const VehicleHit& hit);
+bool ReadVehicleHit(const std::vector<uint8_t>& message, VehicleHit& hit);
 }

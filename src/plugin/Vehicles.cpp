@@ -12,6 +12,7 @@
 #include <RED4ext/TweakDB.hpp>
 
 #include <cmath>
+#include <sstream>
 #include <cstdio>
 #include <cstring>
 #include <random>
@@ -735,6 +736,83 @@ void Vehicles::RemoveMirror(uint32_t netId, Mirror& mirror, RemoteBodies* bodies
     m_log("vehicles: mirror of " + NetIdText(netId) + " removed, " + why + " (" + std::to_string(mirror.Teleports) + " placement(s))");
 }
 
+void Vehicles::SendCarHits(uint64_t nowMs, net::RelaySession& session)
+{
+    static auto* takeHits = game::FindFunction("NightCoopCarHits", "TakeHits");
+    auto service = game::ScriptService("NightCoopCarHits");
+    if (!takeHits || !service)
+    {
+        return;
+    }
+    RED4ext::CString lines;
+    RED4ext::StackArgs_t noArgs;
+    game::CallMethod(service.instance, takeHits, &lines, noArgs);
+    std::istringstream input(lines.c_str());
+    int32_t peer = -1;
+    net::VehicleHit hit;
+    while (input >> peer >> hit.Direction[0] >> hit.Direction[1] >> hit.Direction[2] >> hit.Impulse[0] >> hit.Impulse[1] >> hit.Impulse[2] >> hit.Speed)
+    {
+        if (peer < 0 || !m_share.NetId || !m_share.EntityHash || hit.Speed < 1.5f || nowMs - m_lastCarHitMs[static_cast<uint32_t>(peer)] < 1500)
+        {
+            continue;
+        }
+        m_lastCarHitMs[static_cast<uint32_t>(peer)] = nowMs;
+        hit.NetId = m_share.NetId;
+        hit.HitPeer = static_cast<uint32_t>(peer);
+        hit.ClockMs = session.SessionClockMs();
+        hit.Speed = std::min(hit.Speed, 200.0f);
+        const float impulseLength = std::sqrt(hit.Impulse[0] * hit.Impulse[0] + hit.Impulse[1] * hit.Impulse[1] + hit.Impulse[2] * hit.Impulse[2]);
+        if (impulseLength > 999.0f)
+        {
+            for (float& part : hit.Impulse)
+            {
+                part *= 999.0f / impulseLength;
+            }
+        }
+        session.SendGameMessage(net::WriteVehicleHit(hit), peer);
+        char line[128];
+        std::snprintf(line, sizeof(line), "cars: our car hit peer %d's body at %.1f m/s, they get knocked", peer, hit.Speed);
+        m_log(line);
+    }
+}
+
+void Vehicles::OnCarHit(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs, uint32_t ourPeer)
+{
+    net::VehicleHit hit;
+    if (!net::ReadVehicleHit(message, hit) || hit.HitPeer != ourPeer || hit.Speed < 1.5f || nowMs - m_lastHitOnUsMs < 1500)
+    {
+        return;
+    }
+    const auto mirror = m_mirrors.find(hit.NetId);
+    if (mirror == m_mirrors.end() || mirror->second.OwnerPeer != fromPeer || !mirror->second.EntityHash || m_share.EntityHash || m_ride.NetId)
+    {
+        return;
+    }
+    static auto* carHitUs = game::FindFunction("NightCoopCarHits", "CarHitUs");
+    auto service = game::ScriptService("NightCoopCarHits");
+    if (!carHitUs || !service)
+    {
+        return;
+    }
+    m_lastHitOnUsMs = nowMs;
+    RED4ext::ent::EntityID car(mirror->second.EntityHash);
+    bool played = false;
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &car);
+    for (float& part : hit.Direction)
+    {
+        args.emplace_back(nullptr, &part);
+    }
+    for (float& part : hit.Impulse)
+    {
+        args.emplace_back(nullptr, &part);
+    }
+    game::CallMethod(service.instance, carHitUs, &played, args);
+    char line[128];
+    std::snprintf(line, sizeof(line), "cars: peer %u's car hit us at %.1f m/s%s", fromPeer, hit.Speed, played ? "" : " (the hit did not play)");
+    m_log(line);
+}
+
 void Vehicles::RunTestCar(uint64_t nowMs)
 {
     if (!m_usable || !m_mount || m_testMounted || !FetchSystems())
@@ -869,6 +947,7 @@ void Vehicles::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session, Rem
         return;
     }
     ShareOurCar(nowMs, session);
+    SendCarHits(nowMs, session);
     const uint64_t showMs = session.SessionClockMs() - ShowDelayMs;
     for (auto mirrorEntry = m_mirrors.begin(); mirrorEntry != m_mirrors.end();)
     {

@@ -88,6 +88,7 @@ add_library(NightCoopMac SHARED
   src/plugin/NpcHandoffs.cpp
   src/plugin/NpcDeaths.cpp
   src/plugin/Grenades.cpp
+  src/plugin/PlayerEffects.cpp
   src/plugin/NpcShare.cpp
   src/plugin/NpcStates.cpp
   src/plugin/Items.cpp

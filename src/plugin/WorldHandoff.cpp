@@ -244,6 +244,11 @@ bool GuardSlotZero(HostJob& job, const LogFunction& log)
         log("handoff: could not copy ManualSave-0 aside (" + error.message() + "), no save made so nothing gets written over");
         return false;
     }
+    for (const auto& file : fs::directory_iterator(slotZero, error))
+    {
+        std::error_code timeError;
+        fs::last_write_time(copy / file.path().filename(), fs::last_write_time(file.path(), timeError), timeError);
+    }
     job.SlotZeroSaved = true;
     return true;
 }
@@ -660,6 +665,14 @@ std::string EquippedLines()
                 std::snprintf(hex + byte * 2, 3, "%02x", raw[byte]);
             }
             lines += "equip " + std::to_string(area) + " " + std::to_string(slot) + " " + hex + "\n";
+            static auto* itemStats = game::FindFunction("NightCoopCharacter", "ItemStats");
+            RED4ext::CString stats;
+            RED4ext::StackArgs_t statArgs;
+            statArgs.emplace_back(nullptr, &item);
+            if (itemStats && game::CallMethod(service.instance, itemStats, &stats, statArgs) && stats.Length() > 0)
+            {
+                lines += "istat " + std::string(hex) + " " + stats.c_str() + "\n";
+            }
         }
     }
     return lines;
@@ -676,6 +689,46 @@ int32_t InventoryCount()
         game::CallMethod(service.instance, count, &items, noArgs);
     }
     return items;
+}
+
+int FixItemStats(const std::string& character, int& itemsFixed)
+{
+    auto service = game::ScriptService("NightCoopCharacter");
+    static auto* applyItemStats = game::FindFunction("NightCoopCharacter", "ApplyItemStats");
+    itemsFixed = 0;
+    if (!service || !applyItemStats)
+    {
+        return 0;
+    }
+    int statsFixed = 0;
+    std::istringstream lines(character);
+    std::string line;
+    while (std::getline(lines, line))
+    {
+        if (line.rfind("istat ", 0) != 0 || line.size() < 6 + 32)
+        {
+            continue;
+        }
+        const std::string hex = line.substr(6, 32);
+        items::ItemId item;
+        auto* raw = reinterpret_cast<uint8_t*>(&item);
+        for (int byte = 0; byte < 16; ++byte)
+        {
+            raw[byte] = static_cast<uint8_t>(std::stoul(hex.substr(byte * 2, 2), nullptr, 16));
+        }
+        RED4ext::CString wanted(line.size() > 39 ? line.substr(39).c_str() : "");
+        int32_t fixed = 0;
+        RED4ext::StackArgs_t args;
+        args.emplace_back(nullptr, &item);
+        args.emplace_back(nullptr, &wanted);
+        game::CallMethod(service.instance, applyItemStats, &fixed, args);
+        if (fixed > 0)
+        {
+            ++itemsFixed;
+            statsFixed += fixed;
+        }
+    }
+    return statsFixed;
 }
 
 int EquipFromLines(const std::string& character, int& missing)
@@ -761,6 +814,10 @@ void ApplyCharacter(const LogFunction& log)
     const int equipped = EquipFromLines(character, missing);
     log("handoff: " + std::to_string(equipped) + " of our equipped items are back on, " + std::to_string(missing) + " not in our inventory (it has " +
         std::to_string(InventoryCount()) + " items)");
+    int itemsFixed = 0;
+    const int statsFixed = FixItemStats(character, itemsFixed);
+    log("handoff: item stats (quality plus upgrades level iconic): " + std::to_string(statsFixed) + " value(s) on " + std::to_string(itemsFixed) +
+        " item(s) were off here and got put back");
 }
 
 std::vector<uint8_t> WithOurCharacter(const std::vector<uint8_t>& hostSave, const LogFunction& log)
@@ -770,7 +827,10 @@ std::vector<uint8_t> WithOurCharacter(const std::vector<uint8_t>& hostSave, cons
         return hostSave;
     }
     CaptureCharacter(log);
-    const fs::path ownFolder = OwnCharacterFolder();
+    std::error_code reloadError;
+    const fs::path ownFolder = !CharacterJob.Folder.empty() && fs::exists(SavesFolder() / CharacterJob.Folder / "sav.dat", reloadError)
+                                   ? SavesFolder() / CharacterJob.Folder
+                                   : OwnCharacterFolder();
     if (ownFolder.empty())
     {
         log("handoff: no save of our own found, we play the hosts V");
@@ -1317,6 +1377,13 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
             hud::Show("You are in the host's world", 5.0f);
             return;
         }
+        std::error_code flagError;
+        const fs::path loadsNeverWork = PluginFolder / "handoff" / "loads-never-work.txt";
+        if (RestartAllowed && !QuitAtMs && !CheckpointAskedMs && fs::exists(loadsNeverWork, flagError))
+        {
+            log("handoff: in game loads never worked here before, restarting right away");
+            CheckpointAskedMs = nowMs - RestartFallbackMs;
+        }
         static auto* loadNewest = game::FindFunction("NightCoopWorldHandoff", "LoadNewest");
         if (!NewestTried && LoadAskedMs && LoadState() == 1 && nowMs - LoadAskedMs >= NewestFallbackMs && loadNewest)
         {
@@ -1373,6 +1440,7 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
             }
             if (RestartInto(WrittenFolder, Arriving.TransferId, "host", log))
             {
+                std::ofstream(loadsNeverWork) << "the save list callback quick load LoadSavedGame and LoadLastCheckpoint all stayed quiet, the handoff restarts the game\n";
                 hud::Show("Restarting into the host's world", 3.0f);
                 QuitAtMs = nowMs + QuitAfterRestartAskMs;
             }

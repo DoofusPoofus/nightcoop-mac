@@ -15,6 +15,8 @@
    u64 the hosts session clock | string contact name (1..96 printable ascii never player) | u8 call phase (1 incoming
    2 start 3 end) | u8 call mode | u8 visuals | u8 flags (bit0 player calling bit1 player triggered bit2 rejectable
    bit3 show avatar bit4 audio call bit5 should be rejected)
+ PlayerFx (138) evryone -> evryone: u8 n (1..24) | n x (u32 effect number (not 0) | u64 effect resource path hash (not 0) | f32 x3
+   world place | f32 x4 orientation i j k r (norm^2 0.5..1.5) | u8 flags (bit0 only: the third SpawnEffect argument))
  readers drop wrong sizes broken limits and not finite floats like the dll does
 */
 #pragma once
@@ -136,4 +138,17 @@ struct PhoneSync
 bool PhoneContactNameOk(const std::string& contact);
 std::vector<uint8_t> WritePhoneSync(const PhoneSync& phone);
 bool ReadPhoneSync(const std::vector<uint8_t>& message, PhoneSync& phone);
+struct PlayerEffect
+{
+    uint32_t Number = 0;
+    uint64_t Resource = 0;
+    float Position[3] = {0, 0, 0};
+    float Orientation[4] = {0, 0, 0, 1};
+    uint8_t Flags = 0;
+};
+
+inline constexpr size_t kMostEffectsAtOnce = 24;
+
+std::vector<uint8_t> WritePlayerFx(const std::vector<PlayerEffect>& effects);
+bool ReadPlayerFx(const std::vector<uint8_t>& message, std::vector<PlayerEffect>& effects);
 }

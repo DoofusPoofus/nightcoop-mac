@@ -193,4 +193,41 @@ bool ReadVehicleSeat(const std::vector<uint8_t>& message, VehicleSeat& seat)
     const float offsetSquared = seat.Position[0] * seat.Position[0] + seat.Position[1] * seat.Position[1] + seat.Position[2] * seat.Position[2];
     return offsetSquared <= MostSeatOffsetSquared && (seat.NetId == 0 || seat.Slot != 0);
 }
+
+std::vector<uint8_t> WriteVehicleHit(const VehicleHit& hit)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::VehicleHit);
+    writer.PutU32(hit.NetId);
+    writer.PutU32(hit.HitPeer);
+    writer.PutU64(hit.ClockMs);
+    for (float part : hit.Direction)
+    {
+        writer.PutF32(part);
+    }
+    for (float part : hit.Impulse)
+    {
+        writer.PutF32(part);
+    }
+    writer.PutF32(hit.Speed);
+    return writer.Data();
+}
+
+bool ReadVehicleHit(const std::vector<uint8_t>& message, VehicleHit& hit)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (!OpenMessage(reader, nc::proto::MsgType::VehicleHit))
+    {
+        return false;
+    }
+    hit.NetId = reader.GetU32();
+    hit.HitPeer = reader.GetU32();
+    hit.ClockMs = reader.GetU64();
+    if (!GetFloats(reader, hit.Direction, 3) || !GetFloats(reader, hit.Impulse, 3) || !GetFloats(reader, &hit.Speed, 1) || reader.Remaining() != 0)
+    {
+        return false;
+    }
+    const float directionSquared = hit.Direction[0] * hit.Direction[0] + hit.Direction[1] * hit.Direction[1] + hit.Direction[2] * hit.Direction[2];
+    const float impulseSquared = hit.Impulse[0] * hit.Impulse[0] + hit.Impulse[1] * hit.Impulse[1] + hit.Impulse[2] * hit.Impulse[2];
+    return directionSquared <= 1e4f && impulseSquared <= 1e6f && hit.Speed >= 0 && hit.Speed <= 200;
+}
 }

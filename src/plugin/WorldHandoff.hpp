@@ -14,7 +14,8 @@
  when no in game load works (the save list callback the menus quick load LoadSavedGame(0) and LoadLastCheckpoint all stay
  quiet on mac) the game restarts straight into the written save: handoff/arriving.txt gets the folder a detached relauncher
  waits for the game to close and starts launch_red4ext.sh -save=<folder> and the game closes itself. on the next start the
- marker plus that -save argument mean we arrived (WorldStatus 7). handoff_restart off in session.txt turns this off
+ marker plus that -save argument mean we arrived (WorldStatus 7). handoff_restart off in session.txt turns this off. once a restart
+ was needed handoff/loads-never-work.txt makes later handoffs restart right away
  the written save keeps our own V: the character nodes and the player and stash inventories of our newest own save (not a
  handoff one not PointOfNoReturn) go into the hosts save (save package). level attributes perks unspent points and the equipped item
  ids go around it (NightCoopCharacter Capture into handoff/character.txt before and Apply + EquipNow 15 s after we arrived). handoff_character off in session.txt plays the hosts V instead
