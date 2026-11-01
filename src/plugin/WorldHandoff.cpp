@@ -65,6 +65,7 @@ struct HostJob
     fs::file_time_type AskedAt;
     std::string Expected;
     bool SlotZeroSaved = false;
+    uint64_t NextWaitWordMs = 0;
     std::string Folder;
     uintmax_t LastSize = 0;
     std::vector<uint8_t> Metadata;
@@ -382,6 +383,8 @@ void SendChunks(HostJob& job, net::RelaySession& session)
     }
 }
 
+std::string SaveBlockReason(const std::string& folder);
+
 void ServeJobs(uint64_t nowMs, bool inSave, net::RelaySession& session, const LogFunction& log)
 {
     for (auto job = Jobs.begin(); job != Jobs.end();)
@@ -406,6 +409,13 @@ void ServeJobs(uint64_t nowMs, bool inSave, net::RelaySession& session, const Lo
                 SendStatus(session, 4, 0, "the save did not answer", static_cast<int32_t>(job->Peer));
                 job = Jobs.erase(job);
                 continue;
+            }
+            else if (nowMs - job->StartedMs >= 5000 && nowMs >= job->NextWaitWordMs)
+            {
+                job->NextWaitWordMs = nowMs + 15000;
+                const std::string reason = SaveBlockReason(job->Expected);
+                SendStatus(session, 1, 0, reason.empty() ? "the game is busy" : reason, static_cast<int32_t>(job->Peer));
+                log("handoff: we cannot save for peer " + std::to_string(job->Peer) + " yet (" + (reason.empty() ? "the game is busy" : reason) + ")");
             }
         }
         else if (job->Stage == HostStage::WaitSave && nowMs >= job->NextTryMs)
