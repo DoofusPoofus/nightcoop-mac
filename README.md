@@ -21,6 +21,7 @@ works in a save with the probe:
 - doors devices n barrels (scripted toggles n blasts go out n a probes requests n blasts happen here too)
 - the hosts dead npc table (NpcDead / NpcDefeat) goes out n a guests reported kills reach the host. the kill itself only works on npcs that have health (background npcs dont)
 - grenade blasts push loose stuff around at the partners (no damage)
+- a windows partners car dents n flat tires show on our copy of it (VehicleDamage, ours dont go out yet)
 - a partners car hitting u (VehicleHit) plays the games own car hit on ur player (first cut, the knockdown isnt checked yet)
 - effects a windows partner draws (PlayerFx: rockets explosive rounds slams) show up here, sending ours isnt there
 - a partner opening photo mode in ur world shows a hint (PhotoTogether) n ours goes out

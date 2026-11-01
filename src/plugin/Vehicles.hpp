@@ -17,6 +17,8 @@
  handover (VehicleHandover 64): sitting at the wheel of a partners mirror nobody drives makes it our shared car under the same
  netId (reason 1). the old owner turns its real car into a mirror of ours. an owner still at the wheel refuses (reason 3) and
  a handover to us of a mirror we have adopts it as ours. a real car that became a mirror is never deleted
+ dents (VehicleDamage 132): a partners car damage grid (2 layers of 15) and flat tire go onto our mirror. sending ours needs the
+ grid read natively (no mac offset yet)
  car hits (VehicleHit 65): when the car we drive hits a partner body (script wrap on gameObject.OnVehicleHit) that partner gets
  the hit (at most one per 1.5 s per partner from 1.5 m/s). a partners car hitting us plays as the games OnCarHitPlayer on our
  player unless we sit in a car ourselfs
@@ -80,6 +82,7 @@ private:
         uint32_t Teleports = 0;
         bool SomeoneAtWheel = true;
         bool Adopted = false;
+        uint32_t DentsShown = 0;
         std::deque<Snapshot> Snapshots;
     };
 

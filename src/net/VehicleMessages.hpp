@@ -14,6 +14,8 @@
    u32 netId (0 = got out) | u64 seat slot cname (0 when out) | f32 x3 position in the vehicles axes (|v| <= 10 m) | f32 x4 orientation
  VehicleHandover (64) reliable to evryone: u32 netId | u32 new owner peer | u8 reason (1 took the wheel 2 back to its home peer
    3 refused) | a VehicleState body of the same netId
+ VehicleDamage (132) owner -> evryone 126 bytes: u32 netId | u8 flags (bit0 a flat tire) | u8 tire index (<= 7 with bit0) | f32 x30
+   destruction grid (2 layers of 15 each -0.01..16)
  VehicleHit (65) car owner -> the peer whose body its car hit reliable 44 bytes: u32 netId | u32 hit peer | u64 shared clock ms |
    f32 x3 hit direction (|v|^2 <= 1e4) | f32 x3 separation impulse (|v|^2 <= 1e6) | f32 car speed m/s (0..200)
  readers drop wat nightcoops readers drop: not finite floats out of range bytes bytes left over
@@ -59,6 +61,14 @@ struct VehicleState
     uint8_t Health = 100;
     int8_t Steering = 0;
     std::vector<VehicleOccupant> Occupants;
+};
+
+struct VehicleDamage
+{
+    uint32_t NetId = 0;
+    uint8_t Flags = 0;
+    uint8_t TireIndex = 0;
+    float Grid[30] = {};
 };
 
 struct VehicleHandover
@@ -111,6 +121,8 @@ std::vector<uint8_t> WriteVehicleSeat(const VehicleSeat& seat);
 bool ReadVehicleSeat(const std::vector<uint8_t>& message, VehicleSeat& seat);
 std::vector<uint8_t> WriteVehicleHit(const VehicleHit& hit);
 std::vector<uint8_t> WriteVehicleHandover(const VehicleHandover& handover);
+std::vector<uint8_t> WriteVehicleDamage(const VehicleDamage& damage);
+bool ReadVehicleDamage(const std::vector<uint8_t>& message, VehicleDamage& damage);
 bool ReadVehicleHandover(const std::vector<uint8_t>& message, VehicleHandover& handover);
 bool ReadVehicleHit(const std::vector<uint8_t>& message, VehicleHit& hit);
 }

@@ -10,6 +10,7 @@
 #include <RED4ext/Scripting/Natives/entEntityID.hpp>
 #include <RED4ext/Scripting/Natives/Vector4.hpp>
 #include <RED4ext/TweakDB.hpp>
+#include <RED4ext/Containers/StaticArray.hpp>
 
 #include <cmath>
 #include <sstream>
@@ -321,6 +322,48 @@ void Vehicles::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message,
         if (mirror != m_mirrors.end() && mirror->second.OwnerPeer == fromPeer)
         {
             mirror->second.LastHeardMs = 1;
+        }
+    }
+    else if (type == static_cast<uint8_t>(nc::proto::MsgType::VehicleDamage))
+    {
+        net::VehicleDamage damage;
+        auto mirror = net::ReadVehicleDamage(message, damage) ? m_mirrors.find(damage.NetId) : m_mirrors.end();
+        if (mirror == m_mirrors.end() || mirror->second.OwnerPeer != fromPeer || !mirror->second.InWorld)
+        {
+            return;
+        }
+        auto vehicle = EntityOf(mirror->second.EntityHash);
+        static auto* setGrid = game::FindFunction("vehicleBaseObject", "SetDestructionGridPointValues");
+        static auto* toggleTire = game::FindFunction("vehicleWheeledBaseObject", "ToggleBrokenTire");
+        static auto* wheeledClass = RED4ext::CRTTISystem::Get()->GetClass("vehicleWheeledBaseObject");
+        if (!vehicle || !setGrid)
+        {
+            return;
+        }
+        for (uint32_t layer = 0; layer < 2; ++layer)
+        {
+            RED4ext::StaticArray<float, 15> values(damage.Grid + layer * 15, damage.Grid + layer * 15 + 15);
+            uint32_t layerIndex = layer;
+            bool accumulate = false;
+            RED4ext::StackArgs_t args;
+            args.emplace_back(nullptr, &layerIndex);
+            args.emplace_back(nullptr, &values);
+            args.emplace_back(nullptr, &accumulate);
+            game::CallMethod(vehicle.instance, setGrid, nullptr, args);
+        }
+        if ((damage.Flags & 1) && toggleTire && wheeledClass && vehicle->GetType()->IsA(wheeledClass))
+        {
+            uint32_t tire = damage.TireIndex;
+            bool broken = true;
+            bool toggled = false;
+            RED4ext::StackArgs_t args;
+            args.emplace_back(nullptr, &tire);
+            args.emplace_back(nullptr, &broken);
+            game::CallMethod(vehicle.instance, toggleTire, &toggled, args);
+        }
+        if (mirror->second.DentsShown++ == 0)
+        {
+            m_log("vehicles: peer " + std::to_string(fromPeer) + "s car " + NetIdText(damage.NetId) + " got dents, our mirror shows them");
         }
     }
     else if (type == static_cast<uint8_t>(nc::proto::MsgType::VehicleHandover))

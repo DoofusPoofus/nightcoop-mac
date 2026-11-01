@@ -1009,6 +1009,17 @@ int main()
         Check(npcGrenadeBytes[4] == 24 && ReadGrenade(npcGrenadeBytes, playerGrenade, grenadeBack) && !playerGrenade, "npc grenade has the same body");
         grenade.Stage = 5;
         Check(!ReadGrenade(WriteGrenade(true, grenade), playerGrenade, grenadeBack), "a grenade stage past 4 is refused");
+        VehicleDamage dents;
+        dents.NetId = 0x01000002;
+        dents.Flags = 1;
+        dents.TireIndex = 2;
+        dents.Grid[7] = 0.75f;
+        VehicleDamage dentsBack;
+        const auto dentsBytes = WriteVehicleDamage(dents);
+        Check(dentsBytes.size() == 5 + 126 && dentsBytes[4] == 132 && ReadVehicleDamage(dentsBytes, dentsBack) && dentsBack.TireIndex == 2 && dentsBack.Grid[7] == 0.75f,
+              "vehicle damage is 126 bytes");
+        dents.Grid[3] = 20.0f;
+        Check(!ReadVehicleDamage(WriteVehicleDamage(dents), dentsBack), "a dent past 16 is refused");
         VehicleHandover handover;
         handover.NetId = 0x01000002;
         handover.NewOwner = 2;

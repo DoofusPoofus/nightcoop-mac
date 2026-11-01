@@ -263,4 +263,31 @@ bool ReadVehicleHit(const std::vector<uint8_t>& message, VehicleHit& hit)
     const float impulseSquared = hit.Impulse[0] * hit.Impulse[0] + hit.Impulse[1] * hit.Impulse[1] + hit.Impulse[2] * hit.Impulse[2];
     return directionSquared <= 1e4f && impulseSquared <= 1e6f && hit.Speed >= 0 && hit.Speed <= 200;
 }
+
+std::vector<uint8_t> WriteVehicleDamage(const VehicleDamage& damage)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::VehicleDamage);
+    writer.PutU32(damage.NetId);
+    writer.PutU8(damage.Flags & 1);
+    writer.PutU8(damage.TireIndex);
+    PutFloats(writer, damage.Grid, 30);
+    return writer.Data();
+}
+
+bool ReadVehicleDamage(const std::vector<uint8_t>& message, VehicleDamage& damage)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (!OpenMessage(reader, nc::proto::MsgType::VehicleDamage))
+    {
+        return false;
+    }
+    damage.NetId = reader.GetU32();
+    damage.Flags = reader.GetU8();
+    damage.TireIndex = reader.GetU8();
+    if (!GetFloats(reader, damage.Grid, 30) || reader.Remaining() != 0 || (damage.Flags & ~1u) != 0 || ((damage.Flags & 1) && damage.TireIndex > 7))
+    {
+        return false;
+    }
+    return std::all_of(damage.Grid, damage.Grid + 30, [](float value) { return value >= -0.01f && value <= 16.0f; });
+}
 }

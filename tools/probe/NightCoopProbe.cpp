@@ -46,6 +46,7 @@
  PROBE_TAG=1 tags the first npc the host shares at step 150 and untags it at step 250 (NpcTag)
  PROBE_PHOTO=1 opens photo mode at step 100 and closes it at step 200 (PhotoTogether)
  PROBE_FX=<effect resource path hash> shows that effect at step 120 where the joiner stands (PlayerFx)
+ PROBE_DENT=1 (with PROBE_VEHICLE) says at step 220 that our car got dents and a flat front tire (VehicleDamage)
  PROBE_CARHIT=1 (with PROBE_VEHICLE) says at step 200 that our car hit the hosts player (VehicleHit 9 m/s)
  PROBE_SKIP=1 on the host skips 3 s of a scene 15 s after it heard of the guest (SceneLineSkip) and prints SceneSkipHere
  PROBE_SCENE=1 on the host says one of its quest scenes is live next to the guest (QuestScene 1) and prints the guests scene words
@@ -1471,6 +1472,19 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             seat.NetId = probeCarNetId;
             seat.Slot = NameHash("seat_front_left");
             session.SendGameMessage(nightcoop_mac::net::WriteVehicleSeat(seat), nightcoop_mac::net::kEveryPeer, step == 0);
+        }
+        if (std::getenv("PROBE_DENT") && std::getenv("PROBE_VEHICLE") && step == 220)
+        {
+            nightcoop_mac::net::VehicleDamage dents;
+            dents.NetId = probeCarNetId;
+            dents.Flags = 1;
+            dents.TireIndex = 0;
+            for (int index = 0; index < 30; index += 3)
+            {
+                dents.Grid[index] = 1.0f;
+            }
+            session.SendGameMessage(nightcoop_mac::net::WriteVehicleDamage(dents));
+            std::printf("probe: our car %#010x got dents and a flat tire (VehicleDamage)\n", probeCarNetId);
         }
         if (std::getenv("PROBE_CARHIT") && std::getenv("PROBE_VEHICLE") && step == 200)
         {
