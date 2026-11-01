@@ -1336,6 +1336,7 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint32_t firstHostNpc = 0;
     bool defeatSent = false;
     bool smsRulesSeen = false;
+    bool hostDentsSeen = false;
     std::set<uint32_t> defeatedNpcs;
     std::map<uint32_t, float> hostNpcHealth;
     nightcoop_mac::net::NpcSpawn mirroredNpc;
@@ -2269,6 +2270,17 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                                 smsWord.Request);
                 }
                 smsRulesSeen = smsRulesSeen || smsWord.Kind == nightcoop_mac::net::kSmsRules;
+                continue;
+            }
+            nightcoop_mac::net::VehicleDamage hostDents;
+            if (nightcoop_mac::net::ReadVehicleDamage(message.Message, hostDents))
+            {
+                if (!hostDentsSeen)
+                {
+                    hostDentsSeen = true;
+                    std::printf("probe: peer %u car %#010x has dents (first grid values %.2f %.2f %.2f, flat tire %s) (VehicleDamage)\n", message.FromPeer, hostDents.NetId,
+                                hostDents.Grid[0], hostDents.Grid[5], hostDents.Grid[1], (hostDents.Flags & 1) ? "yes" : "no");
+                }
                 continue;
             }
             if (nightcoop_mac::net::ReadVehicleHandover(message.Message, handover))

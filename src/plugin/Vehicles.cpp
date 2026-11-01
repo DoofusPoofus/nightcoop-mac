@@ -3,6 +3,7 @@
 #include "net/GameMessages.hpp"
 #include "net/RelaySession.hpp"
 #include "plugin/GameCalls.hpp"
+#include "plugin/GameVersion.hpp"
 #include "plugin/RemoteBodies.hpp"
 
 #include <ProtocolCore.hpp>
@@ -13,6 +14,7 @@
 #include <RED4ext/Containers/StaticArray.hpp>
 
 #include <cmath>
+#include <mach/mach.h>
 #include <sstream>
 #include <cstdio>
 #include <cstring>
@@ -361,6 +363,12 @@ void Vehicles::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message,
             args.emplace_back(nullptr, &broken);
             game::CallMethod(vehicle.instance, toggleTire, &toggled, args);
         }
+        if (!m_gridSearched && !m_gridSearchAtMs && std::any_of(damage.Grid, damage.Grid + 30, [](float value) { return value > 0.01f; }))
+        {
+            m_gridSearchAtMs = nowMs + 1000;
+            m_gridSearchNetId = damage.NetId;
+            std::copy(damage.Grid, damage.Grid + 30, m_gridWanted);
+        }
         if (mirror->second.DentsShown++ == 0)
         {
             m_log("vehicles: peer " + std::to_string(fromPeer) + "s car " + NetIdText(damage.NetId) + " got dents, our mirror shows them");
@@ -546,6 +554,38 @@ void Vehicles::ShareOurCar(uint64_t nowMs, net::RelaySession& session)
         state.Occupants.push_back({slot, net::kOccupantPlayer, ourPeer});
         session.SendGameMessage(net::WriteVehicleState(state), net::kEveryPeer, false);
         m_share.NextStateMs = nowMs + (speed >= MovingAboveMetersPerSecond ? StateWhileMovingMs : StateStandingMs);
+    }
+    float grid[30];
+    if (!m_gridBroken && nowMs >= m_share.NextDentsMs && ReadDentGrid(vehicle, grid))
+    {
+        static auto* flatTire = game::FindFunction("vehicleWheeledBaseObject", "GetFlatTireIndex");
+        static auto* wheeledClass = RED4ext::CRTTISystem::Get()->GetClass("vehicleWheeledBaseObject");
+        int32_t tire = -1;
+        if (flatTire && wheeledClass && vehicle->GetType()->IsA(wheeledClass))
+        {
+            game::CallMethod(vehicle.instance, flatTire, &tire, noArgs);
+        }
+        bool changed = tire != m_share.LastFlatTire;
+        bool anyDamage = tire >= 0;
+        for (int index = 0; index < 30; ++index)
+        {
+            grid[index] = std::clamp(std::isfinite(grid[index]) ? grid[index] : 0.0f, -0.01f, 16.0f);
+            changed = changed || std::fabs(grid[index] - m_share.LastGrid[index]) > 0.01f;
+            anyDamage = anyDamage || grid[index] > 0.01f;
+        }
+        if (changed || (anyDamage && nowMs >= m_share.NextDentsRefreshMs))
+        {
+            net::VehicleDamage damage;
+            damage.NetId = m_share.NetId;
+            damage.Flags = tire >= 0 && tire <= 7 ? 1 : 0;
+            damage.TireIndex = static_cast<uint8_t>(tire >= 0 && tire <= 7 ? tire : 0);
+            std::copy(grid, grid + 30, damage.Grid);
+            session.SendGameMessage(net::WriteVehicleDamage(damage), net::kEveryPeer, changed);
+            std::copy(grid, grid + 30, m_share.LastGrid);
+            m_share.LastFlatTire = tire;
+            m_share.NextDentsRefreshMs = nowMs + 5000;
+        }
+        m_share.NextDentsMs = nowMs + 500;
     }
     if (nowMs >= m_share.NextSeatMs)
     {
@@ -861,6 +901,70 @@ void Vehicles::SendCarHits(uint64_t nowMs, net::RelaySession& session)
     }
 }
 
+namespace
+{
+bool ReadMemory(uint64_t address, void* out, size_t size)
+{
+    vm_size_t readBytes = 0;
+    return address && vm_read_overwrite(mach_task_self(), static_cast<vm_address_t>(address), size, reinterpret_cast<vm_address_t>(out), &readBytes) == KERN_SUCCESS &&
+           readBytes == size;
+}
+
+bool GridMatches(const float* found, const float* wanted)
+{
+    for (int index = 0; index < 30; ++index)
+    {
+        if (!std::isfinite(found[index]) || std::fabs(found[index] - wanted[index]) > 0.001f)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+}
+
+uint32_t Vehicles::KnownGridOffset()
+{
+    static const uint32_t known = ReadMacBundleVersion() == "2.5.0" ? 0x538 : 0;
+    return known;
+}
+
+void Vehicles::FindDentGrid(RED4ext::Handle<RED4ext::IScriptable>& vehicle, const float* wanted)
+{
+    const auto base = reinterpret_cast<uint64_t>(vehicle.instance);
+    for (uint32_t offset = 0; offset + 8 <= VehicleObjectSize; offset += 8)
+    {
+        uint64_t pointer = 0;
+        float grid[30];
+        if (!ReadMemory(base + offset, &pointer, sizeof(pointer)) || pointer < 0x100000000ULL || pointer > 0x7FFFFFFFFFFFULL)
+        {
+            continue;
+        }
+        if (ReadMemory(pointer + 0x100, grid, sizeof(grid)) && GridMatches(grid, wanted))
+        {
+            m_gridOffset = offset;
+            char line[128];
+            std::snprintf(line, sizeof(line), "vehicles: found the dent grid at [car + %#x] + 0x100, our own dents can go out now", offset);
+            m_log(line);
+            return;
+        }
+    }
+    m_gridOffset = 0;
+    m_log("vehicles: the dent grid was not found in the car, our own dents stay ours");
+    m_gridBroken = true;
+}
+
+bool Vehicles::ReadDentGrid(RED4ext::Handle<RED4ext::IScriptable>& vehicle, float* grid)
+{
+    if (!m_gridOffset && !m_gridBroken)
+    {
+        m_gridOffset = KnownGridOffset();
+    }
+    uint64_t pointer = 0;
+    return m_gridOffset && ReadMemory(reinterpret_cast<uint64_t>(vehicle.instance) + m_gridOffset, &pointer, sizeof(pointer)) && pointer > 0x100000000ULL &&
+           ReadMemory(pointer + 0x100, grid, sizeof(float) * 30);
+}
+
 void Vehicles::SendHandover(uint32_t netId, uint32_t newOwner, uint8_t reason, RED4ext::Handle<RED4ext::IScriptable>& vehicle, uint64_t seatSlot,
                             net::RelaySession& session)
 {
@@ -981,6 +1085,36 @@ void Vehicles::OnCarHit(uint32_t fromPeer, const std::vector<uint8_t>& message, 
 
 void Vehicles::RunTestCar(uint64_t nowMs)
 {
+    if (m_testMounted && !m_testDented && m_share.EntityHash && !m_testRidesMirror)
+    {
+        if (!m_testDentAtMs)
+        {
+            m_testDentAtMs = nowMs + 10000;
+        }
+        static auto* setGrid = game::FindFunction("vehicleBaseObject", "SetDestructionGridPointValues");
+        auto car = EntityOf(m_share.EntityHash);
+        if (nowMs >= m_testDentAtMs && car && setGrid)
+        {
+            m_testDented = true;
+            for (uint32_t layer = 0; layer < 2; ++layer)
+            {
+                RED4ext::StaticArray<float, 15> values;
+                values.Resize(15);
+                for (uint32_t index = 0; index < 15; ++index)
+                {
+                    values[index] = index % 5 == 0 ? 0.5f : 0.0f;
+                }
+                uint32_t layerIndex = layer;
+                bool accumulate = false;
+                RED4ext::StackArgs_t args;
+                args.emplace_back(nullptr, &layerIndex);
+                args.emplace_back(nullptr, &values);
+                args.emplace_back(nullptr, &accumulate);
+                game::CallMethod(car.instance, setGrid, nullptr, args);
+            }
+            m_log("test car: dented our car a bit so its grid goes out");
+        }
+    }
     if (!m_usable || !m_mount || m_testMounted || !FetchSystems())
     {
         return;
@@ -1115,6 +1249,17 @@ void Vehicles::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session, Rem
     }
     ShareOurCar(nowMs, session);
     SendCarHits(nowMs, session);
+    if (m_gridSearchAtMs && nowMs >= m_gridSearchAtMs)
+    {
+        m_gridSearchAtMs = 0;
+        m_gridSearched = true;
+        const auto mirror = m_mirrors.find(m_gridSearchNetId);
+        auto vehicle = mirror != m_mirrors.end() ? EntityOf(mirror->second.EntityHash) : RED4ext::Handle<RED4ext::IScriptable>();
+        if (vehicle)
+        {
+            FindDentGrid(vehicle, m_gridWanted);
+        }
+    }
     const uint64_t showMs = session.SessionClockMs() - ShowDelayMs;
     for (auto mirrorEntry = m_mirrors.begin(); mirrorEntry != m_mirrors.end();)
     {

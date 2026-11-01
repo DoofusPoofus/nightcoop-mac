@@ -17,8 +17,10 @@
  handover (VehicleHandover 64): sitting at the wheel of a partners mirror nobody drives makes it our shared car under the same
  netId (reason 1). the old owner turns its real car into a mirror of ours. an owner still at the wheel refuses (reason 3) and
  a handover to us of a mirror we have adopts it as ours. a real car that became a mirror is never deleted
- dents (VehicleDamage 132): a partners car damage grid (2 layers of 15) and flat tire go onto our mirror. sending ours needs the
- grid read natively (no mac offset yet)
+ dents (VehicleDamage 132): a partners car damage grid (2 layers of 15) and flat tire go onto our mirror. the first damage we put
+ on a mirror tells us where the grid lives (a pointer in the car object whose +0x100 holds those 30 floats, read with
+ vm_read_overwrite so a wrong guess never crashes) and from then on our own cars grid goes out evry 500 ms on change (5 s
+ refresh while damaged). on mac 2.5.0 the grid is known to sit at [car + 0x538] + 0x100 so ours goes out from the start
  car hits (VehicleHit 65): when the car we drive hits a partner body (script wrap on gameObject.OnVehicleHit) that partner gets
  the hit (at most one per 1.5 s per partner from 1.5 m/s). a partners car hitting us plays as the games OnCarHitPlayer on our
  player unless we sit in a car ourselfs
@@ -105,6 +107,10 @@ private:
         uint64_t NextSeatMs = 0;
         uint64_t LeftAtMs = 0;
         bool SeatSent = false;
+        uint64_t NextDentsMs = 0;
+        uint64_t NextDentsRefreshMs = 0;
+        float LastGrid[30] = {};
+        int32_t LastFlatTire = -1;
     };
 
     struct RideSeat
@@ -127,6 +133,9 @@ private:
     void Unmount(RED4ext::Handle<RED4ext::IScriptable>& vehicle, RED4ext::Handle<RED4ext::IScriptable>& body);
     void RemoveMirror(uint32_t netId, Mirror& mirror, RemoteBodies* bodies, const char* why);
     void SendCarHits(uint64_t nowMs, net::RelaySession& session);
+    void FindDentGrid(RED4ext::Handle<RED4ext::IScriptable>& vehicle, const float* wanted);
+    bool ReadDentGrid(RED4ext::Handle<RED4ext::IScriptable>& vehicle, float* grid);
+    static uint32_t KnownGridOffset();
     void SendHandover(uint32_t netId, uint32_t newOwner, uint8_t reason, RED4ext::Handle<RED4ext::IScriptable>& vehicle, uint64_t seatSlot, net::RelaySession& session);
     void OnHandover(uint32_t fromPeer, const net::VehicleHandover& handover, uint64_t nowMs, uint32_t ourPeer, bool weAreAtTheWheel);
 
@@ -164,6 +173,13 @@ private:
     std::map<uint32_t, uint64_t> m_lastCarHitMs;
     std::vector<uint32_t> m_handoverRefusals;
     uint32_t m_ourPeer = 0;
+    uint32_t m_gridOffset = 0;
+    bool m_gridSearched = false;
+    bool m_gridBroken = false;
+    uint64_t m_gridSearchAtMs = 0;
+    uint32_t m_gridSearchNetId = 0;
+    float m_gridWanted[30] = {};
+    static constexpr uint32_t VehicleObjectSize = 2976;
     bool m_atWheel = false;
     uint64_t m_lastHitOnUsMs = 0;
     RideSeat m_ride;
@@ -178,6 +194,8 @@ private:
     bool m_testMounted = false;
     bool m_testRidesMirror = false;
     bool m_testTakesWheel = false;
+    bool m_testDented = false;
+    uint64_t m_testDentAtMs = 0;
     uint32_t m_sharesStarted = 0;
 };
 }
