@@ -2,6 +2,7 @@
 
 #include "net/GameMessages.hpp"
 #include "net/RelaySession.hpp"
+#include "net/SavePackage.hpp"
 #include "net/WorldMessages.hpp"
 #include "plugin/GameCalls.hpp"
 #include "plugin/Hud.hpp"
@@ -112,6 +113,7 @@ uint64_t QuitAtMs = 0;
 bool ArrivalChecked = false;
 fs::path PluginFolder;
 bool RestartAllowed = true;
+bool CharacterSplice = true;
 
 bool Resolve(const LogFunction& log)
 {
@@ -321,6 +323,71 @@ std::string NextManualSave()
     return "ManualSave-" + std::to_string(highest + 1);
 }
 
+fs::path OwnCharacterFolder()
+{
+    std::error_code error;
+    std::string listed;
+    {
+        std::ifstream list(PluginFolder / "handoff" / "mod-saves.txt");
+        listed.assign((std::istreambuf_iterator<char>(list)), std::istreambuf_iterator<char>());
+    }
+    fs::path newest;
+    fs::file_time_type newestTime {};
+    for (const auto& entry : fs::directory_iterator(SavesFolder(), error))
+    {
+        const std::string name = entry.path().filename().string();
+        const fs::path save = entry.path() / "sav.dat";
+        if (!entry.is_directory(error) || !fs::exists(save, error) || name.rfind("PointOfNoReturn", 0) == 0 || name.rfind("EndGameSave", 0) == 0 ||
+            listed.find(" " + name + " ") != std::string::npos)
+        {
+            continue;
+        }
+        const auto written = fs::last_write_time(save, error);
+        if (newest.empty() || written > newestTime)
+        {
+            newest = entry.path();
+            newestTime = written;
+        }
+    }
+    return newest;
+}
+
+std::vector<uint8_t> WithOurCharacter(const std::vector<uint8_t>& hostSave, const LogFunction& log)
+{
+    if (!CharacterSplice)
+    {
+        return hostSave;
+    }
+    const fs::path ownFolder = OwnCharacterFolder();
+    if (ownFolder.empty())
+    {
+        log("handoff: no save of our own found, we play the hosts V");
+        return hostSave;
+    }
+    save_package::SaveFile host;
+    save_package::SaveFile guest;
+    std::string error;
+    if (!save_package::Read(hostSave, host, error))
+    {
+        log("handoff: the hosts save does not read (" + error + "), we play the hosts V");
+        return hostSave;
+    }
+    if (!save_package::Read(ReadFile(ownFolder / "sav.dat"), guest, error))
+    {
+        log("handoff: our save " + ownFolder.filename().string() + " does not read (" + error + "), we play the hosts V");
+        return hostSave;
+    }
+    std::vector<std::string> problems;
+    const int swapped = save_package::SpliceCharacter(host, guest, problems);
+    for (const auto& problem : problems)
+    {
+        log("handoff: " + problem);
+    }
+    log("handoff: our V from " + ownFolder.filename().string() + " goes into the hosts world (" + std::to_string(swapped) + " of " +
+        std::to_string(save_package::CharacterNodeNames().size()) + " character nodes; level perks and items stay the hosts for now)");
+    return save_package::Write(host);
+}
+
 bool WriteHostWorld(const LogFunction& log)
 {
     const std::string folder = NextManualSave();
@@ -350,13 +417,12 @@ bool WriteHostWorld(const LogFunction& log)
         metadata.replace(stampAt + stampKey.size(), stampEnd - stampAt - stampKey.size(), stamp);
     }
     std::ofstream(target / "metadata.9.json", std::ios::binary).write(metadata.data(), static_cast<std::streamsize>(metadata.size()));
-    std::ofstream(target / "sav.dat", std::ios::binary)
-        .write(reinterpret_cast<const char*>(Arriving.Files[net::kWorldFileSave].data()), static_cast<std::streamsize>(Arriving.Files[net::kWorldFileSave].size()));
+    const auto built = WithOurCharacter(Arriving.Files[net::kWorldFileSave], log);
+    std::ofstream(target / "sav.dat", std::ios::binary).write(reinterpret_cast<const char*>(built.data()), static_cast<std::streamsize>(built.size()));
     fs::create_directories(PluginFolder / "handoff", error);
-    std::ofstream(PluginFolder / "handoff" / "mod-saves.txt", std::ios::app)
-        << "join " << folder << " " << Arriving.Files[net::kWorldFileSave].size() << " from " << Arriving.HostFolder << "\n";
+    std::ofstream(PluginFolder / "handoff" / "mod-saves.txt", std::ios::app) << "join " << folder << " " << built.size() << " from " << Arriving.HostFolder << "\n";
     WrittenFolder = folder;
-    log("handoff: the hosts world is written as " + folder + " (" + std::to_string(Arriving.Files[net::kWorldFileSave].size()) + " bytes)");
+    log("handoff: the hosts world is written as " + folder + " (" + std::to_string(built.size()) + " bytes)");
     return true;
 }
 
@@ -707,6 +773,11 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::Rela
 void AllowRestart(bool allowed)
 {
     RestartAllowed = allowed;
+}
+
+void KeepOurCharacter(bool keep)
+{
+    CharacterSplice = keep;
 }
 
 bool InHostWorld()

@@ -593,6 +593,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         OurNpcs->Tick(nowMs, inSave, weAreHost || Plan->ShareNpcsAlways, npcPartners, *Session);
     }
     nightcoop_mac::world_handoff::AllowRestart(Plan->HandoffRestart);
+    nightcoop_mac::world_handoff::KeepOurCharacter(Plan->HandoffCharacter);
     nightcoop_mac::world_handoff::Tick(nowMs, inSave, Plan->WorldHandoff, *Session, PluginFolder, Log);
     nightcoop_mac::quest_sync::Tick(nowMs, inSave, Plan->QuestSync, Plan->QuestsInAnyWorld, *Session, Log);
     nightcoop_mac::lift_sync::Tick(nowMs, inSave, !LatestRemoteStates.empty(), *Session, Log);

@@ -89,6 +89,12 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
             plan.QuestSync = setting != "off";
             plan.QuestsInAnyWorld = setting == "any_world";
         }
+        else if (keyword == "handoff_character")
+        {
+            std::string mode;
+            words >> mode;
+            plan.HandoffCharacter = mode != "off";
+        }
         else if (keyword == "handoff_restart")
         {
             std::string mode;

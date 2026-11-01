@@ -50,6 +50,7 @@ add_library(nightcoop_mac_net STATIC
   src/net/PlayerExtrasMessages.cpp
   src/net/DroppedMessages.cpp
   src/net/DeviceMessages.cpp
+  src/net/SavePackage.cpp
   src/net/RelaySession.cpp
 )
 target_include_directories(nightcoop_mac_net PUBLIC src)
@@ -125,6 +126,8 @@ add_executable(nightcoop_mac_tests tests/SessionMessagesTests.cpp)
 target_link_libraries(nightcoop_mac_tests PRIVATE nightcoop_mac_net)
 
 add_executable(nightcoop_mac_game_tests tests/GameMessagesTests.cpp)
+add_executable(nightcoop_savepkg tools/savepkg/SavePackageTool.cpp)
+target_link_libraries(nightcoop_savepkg PRIVATE nightcoop_mac_net)
 target_link_libraries(nightcoop_mac_game_tests PRIVATE nightcoop_mac_net)
 
 if(NIGHTCOOP_BUILD_LOCAL_HUB)
