@@ -18,6 +18,12 @@
  the written save keeps our own V: the character nodes and the player and stash inventories of our newest own save (not a
  handoff one not PointOfNoReturn) go into the hosts save (save package). level attributes perks unspent points and the equipped item
  ids go around it (NightCoopCharacter Capture into handoff/character.txt before and Apply + EquipNow 15 s after we arrived). handoff_character off in session.txt plays the hosts V instead
+ going home: 30 s after the session is gone a guest in the hosts world saves there takes that V (character nodes items stash)
+ into the campaign save it came from (handoff/state.txt) writes that as a new save captures level perks and gear and restarts
+ into it (marker kind home)
+ the games ManualSave call ignores the folder name and writes into ManualSave-0 when nobody asked for the save list first (the
+ list callback never comes on mac) so before evry save ManualSave-0 is copied aside and when the game wrote into it the new
+ save is moved to the folder we wanted and the copy goes back
  not done yet: item stats and the rest of the player systems in the scriptable systems blob (crafting recipes and co) saving locks reloads of the host
  (WorldReload 95) sync saves and the return to our own world
 */

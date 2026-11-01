@@ -49,9 +49,23 @@ public class NightCoopCharacter extends ScriptableService {
     return EquipmentSystem.GetInstance(player).GetItemInEquipSlot(player, IntEnum<gamedataEquipmentArea>(area), slot);
   }
 
+  public func InventoryCount() -> Int32 {
+    let player = GetPlayer(GetGameInstance());
+    let items: array<wref<gameItemData>>;
+    if IsDefined(player) {
+      GameInstance.GetTransactionSystem(GetGameInstance()).GetItemList(player, items);
+    }
+    return ArraySize(items);
+  }
+
+  public func HasInInventory(item: ItemID) -> Bool {
+    let player = GetPlayer(GetGameInstance());
+    return IsDefined(player) && ItemID.IsValid(item) && GameInstance.GetTransactionSystem(GetGameInstance()).HasItem(player, item);
+  }
+
   public func EquipNow(area: Int32, slot: Int32, item: ItemID) -> Bool {
     let player = GetPlayer(GetGameInstance());
-    if !IsDefined(player) || !ItemID.IsValid(item) || !GameInstance.GetTransactionSystem(GetGameInstance()).HasItem(player, item) {
+    if !IsDefined(player) || !this.HasInInventory(item) {
       return false;
     }
     let request = new EquipRequest();

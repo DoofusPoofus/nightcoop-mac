@@ -9,6 +9,7 @@
  usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z [STEPS [LOOKFILE [CLOTHESFILE]]]] | watch CODE HUB [seconds]
  CLOTHESFILE is a PlayerLook (31) as it is (the plugin writes own-clothes.bin) sent right after the look
  its look (PlayerCustomization 33) is LOOKFILE as it is (the plugin writes own-look.bin) or a male look with no parts
+ PROBE_LEAVE_AFTER_ARRIVAL=1 makes such a host leave 20 s after a guest says it arrived (WorldStatus 7)
  PROBE_HOST_SAVE=<save folder> makes the host say it is in its world (SessionRoster) and answer a WorldWant with that
  folders metadata.*.json and sav.dat (WorldStatus 3 + WorldFile chunks) printing what the guest says back
  PROBE_CLOCK=<game seconds> makes the host send that GameClock evry 5 s to its guests and stay up for 10 min
@@ -811,6 +812,11 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             else if (nightcoop_mac::net::ReadWorldStatus(message.Message, worldStatus))
             {
                 std::printf("probe: peer %u says world status %u %s\n", message.FromPeer, worldStatus.Code, worldStatus.Text.c_str());
+                if (worldStatus.Code == 7 && std::getenv("PROBE_LEAVE_AFTER_ARRIVAL"))
+                {
+                    deadline = std::min(deadline, std::chrono::steady_clock::now() + 20s);
+                    std::printf("probe: the guest is in our world, we leave in 20 s\n");
+                }
             }
         }
         for (int chunkCount = 0; servingPeer && chunkCount < 8 && (metadataSent < metadataBytes.size() || saveSent < saveBytes.size()); ++chunkCount)

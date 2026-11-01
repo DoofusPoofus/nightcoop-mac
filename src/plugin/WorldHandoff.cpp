@@ -32,6 +32,8 @@ namespace fs = std::filesystem;
 constexpr uint64_t SaveWaitMs = 60000;
 constexpr uint64_t RestartFallbackMs = 15000;
 constexpr uint64_t ApplyCharacterAfterMs = 15000;
+constexpr uint64_t ReturnAfterMs = 30000;
+constexpr uint64_t ReturnSaveWaitMs = 60000;
 constexpr uint64_t QuitAfterRestartAskMs = 3000;
 constexpr uint64_t SaveRetryMs = 2000;
 constexpr uint32_t ChunksPerTick = 8;
@@ -58,6 +60,8 @@ struct HostJob
     uint64_t StartedMs = 0;
     uint64_t NextTryMs = 0;
     fs::file_time_type AskedAt;
+    std::string Expected;
+    bool SlotZeroSaved = false;
     std::string Folder;
     uintmax_t LastSize = 0;
     std::vector<uint8_t> Metadata;
@@ -74,6 +78,7 @@ enum class GuestPhase
     Waiting,
     Loading,
     InHostWorld,
+    Returning,
     Failed,
 };
 
@@ -122,6 +127,10 @@ uint64_t ArrivalNowMs = 0;
 uint64_t TestCaptureAtMs = 0;
 uint64_t TestApplyAtMs = 0;
 std::string TestCaptured;
+uint64_t NotInSessionSinceMs = 0;
+HostJob ReturnJob;
+uint64_t ReturnStartedMs = 0;
+uint64_t ReturnNextTryMs = 0;
 
 bool Resolve(const LogFunction& log)
 {
@@ -134,7 +143,7 @@ bool Resolve(const LogFunction& log)
     Game.MakeSave = game::FindFunction("NightCoopWorldHandoff", "MakeSave");
     Game.LoadFolder = game::FindFunction("NightCoopWorldHandoff", "LoadFolder");
     Game.LoadState = game::FindFunction("NightCoopWorldHandoff", "LoadState");
-    Game.Usable = game::ParamsAre(Game.HasHandler, {}) && game::ParamsAre(Game.MakeSave, {}) && game::ParamsAre(Game.LoadFolder, {"String"}) &&
+    Game.Usable = game::ParamsAre(Game.HasHandler, {}) && game::ParamsAre(Game.MakeSave, {"String"}) && game::ParamsAre(Game.LoadFolder, {"String"}) &&
                   game::ParamsAre(Game.LoadState, {});
     if (!Game.Usable)
     {
@@ -161,6 +170,17 @@ int32_t LoadState()
         game::CallMethod(service.instance, Game.LoadState, &state, noArgs);
     }
     return state;
+}
+
+
+bool MakeSaveIn(const std::string& folder)
+{
+    auto service = game::ScriptService("NightCoopWorldHandoff");
+    RED4ext::CString name(folder.c_str());
+    bool asked = false;
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &name);
+    return service && game::CallMethod(service.instance, Game.MakeSave, &asked, args) && asked;
 }
 
 bool LoadFolder(const std::string& folder)
@@ -190,12 +210,54 @@ void SendStatus(net::RelaySession& session, uint8_t code, uint32_t value, const 
     session.SendGameMessage(net::WriteWorldStatus({code, value, text}), toPeer);
 }
 
+bool GuardSlotZero(HostJob& job, const LogFunction& log)
+{
+    std::error_code error;
+    const fs::path slotZero = SavesFolder() / "ManualSave-0";
+    const fs::path copy = PluginFolder / "handoff" / "slot0-copy";
+    fs::remove_all(copy, error);
+    job.SlotZeroSaved = false;
+    if (!fs::exists(slotZero, error))
+    {
+        return true;
+    }
+    fs::create_directories(copy.parent_path(), error);
+    fs::copy(slotZero, copy, fs::copy_options::recursive, error);
+    if (error)
+    {
+        log("handoff: could not copy ManualSave-0 aside (" + error.message() + "), no save made so nothing gets written over");
+        return false;
+    }
+    job.SlotZeroSaved = true;
+    return true;
+}
+
+std::string NextManualSave()
+{
+    int highest = -1;
+    std::error_code error;
+    for (const auto& entry : fs::directory_iterator(SavesFolder(), error))
+    {
+        const std::string name = entry.path().filename().string();
+        if (name.rfind("ManualSave-", 0) == 0)
+        {
+            highest = std::max(highest, std::atoi(name.c_str() + 11));
+        }
+    }
+    return "ManualSave-" + std::to_string(highest + 1);
+}
+
 bool FindNewSave(HostJob& job, std::error_code& error)
 {
     fs::path newest;
     fs::file_time_type newestTime;
     for (const auto& entry : fs::directory_iterator(SavesFolder(), error))
     {
+        const std::string entryName = entry.path().filename().string();
+        if (!job.Expected.empty() && entryName != job.Expected && entryName != "ManualSave-0")
+        {
+            continue;
+        }
         const auto save = entry.path() / "sav.dat";
         const auto written = fs::last_write_time(save, error);
         if (error || written < job.AskedAt - std::chrono::seconds(2))
@@ -220,6 +282,39 @@ bool FindNewSave(HostJob& job, std::error_code& error)
         job.Folder = newest.filename().string();
         error.clear();
         return false;
+    }
+    if (newest.filename().string() == "ManualSave-0" && !job.Expected.empty() && job.Expected != "ManualSave-0")
+    {
+        const fs::path target = SavesFolder() / job.Expected;
+        fs::rename(newest, target, error);
+        if (!error && job.SlotZeroSaved)
+        {
+            fs::rename(PluginFolder / "handoff" / "slot0-copy", newest, error);
+        }
+        if (error)
+        {
+            return false;
+        }
+        newest = target;
+        job.Folder = job.Expected;
+        for (const auto& file : fs::directory_iterator(newest, error))
+        {
+            const std::string name = file.path().filename().string();
+            if (name.rfind("metadata.", 0) == 0)
+            {
+                std::ifstream input(file.path());
+                std::string metadata((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+                input.close();
+                const std::string nameKey = "\"name\": \"";
+                const size_t nameAt = metadata.find(nameKey);
+                const size_t nameEnd = nameAt == std::string::npos ? std::string::npos : metadata.find('"', nameAt + nameKey.size());
+                if (nameEnd != std::string::npos)
+                {
+                    metadata.replace(nameAt + nameKey.size(), nameEnd - nameAt - nameKey.size(), job.Expected);
+                    std::ofstream(file.path(), std::ios::binary).write(metadata.data(), static_cast<std::streamsize>(metadata.size()));
+                }
+            }
+        }
     }
     for (const auto& file : fs::directory_iterator(newest, error))
     {
@@ -269,7 +364,8 @@ void ServeJobs(uint64_t nowMs, bool inSave, net::RelaySession& session, const Lo
         if (job->Stage == HostStage::AskSave && nowMs >= job->NextTryMs)
         {
             job->NextTryMs = nowMs + SaveRetryMs;
-            if (inSave && CallBool(Game.HasHandler) && CallBool(Game.MakeSave))
+            job->Expected = NextManualSave();
+            if (inSave && CallBool(Game.HasHandler) && GuardSlotZero(*job, log) && MakeSaveIn(job->Expected))
             {
                 job->Stage = HostStage::WaitSave;
                 job->AskedAt = fs::file_time_type::clock::now();
@@ -316,20 +412,6 @@ void ServeJobs(uint64_t nowMs, bool inSave, net::RelaySession& session, const Lo
     }
 }
 
-std::string NextManualSave()
-{
-    int highest = -1;
-    std::error_code error;
-    for (const auto& entry : fs::directory_iterator(SavesFolder(), error))
-    {
-        const std::string name = entry.path().filename().string();
-        if (name.rfind("ManualSave-", 0) == 0)
-        {
-            highest = std::max(highest, std::atoi(name.c_str() + 11));
-        }
-    }
-    return "ManualSave-" + std::to_string(highest + 1);
-}
 
 fs::path OwnCharacterFolder()
 {
@@ -419,11 +501,26 @@ std::string EquippedLines()
     return lines;
 }
 
-int EquipFromLines(const std::string& character)
+int32_t InventoryCount()
+{
+    auto service = game::ScriptService("NightCoopCharacter");
+    auto* count = game::FindFunction("NightCoopCharacter", "InventoryCount");
+    int32_t items = -1;
+    RED4ext::StackArgs_t noArgs;
+    if (service && count)
+    {
+        game::CallMethod(service.instance, count, &items, noArgs);
+    }
+    return items;
+}
+
+int EquipFromLines(const std::string& character, int& missing)
 {
     auto service = game::ScriptService("NightCoopCharacter");
     auto* equipNow = game::FindFunction("NightCoopCharacter", "EquipNow");
-    if (!service || !equipNow)
+    auto* hasInInventory = game::FindFunction("NightCoopCharacter", "HasInInventory");
+    missing = 0;
+    if (!service || !equipNow || !hasInInventory)
     {
         return 0;
     }
@@ -449,6 +546,15 @@ int EquipFromLines(const std::string& character)
         {
             raw[byte] = static_cast<uint8_t>(std::stoul(hex.substr(byte * 2, 2), nullptr, 16));
         }
+        bool there = false;
+        RED4ext::StackArgs_t hasArgs;
+        hasArgs.emplace_back(nullptr, &item);
+        game::CallMethod(service.instance, hasInInventory, &there, hasArgs);
+        if (!there)
+        {
+            ++missing;
+            continue;
+        }
         bool done = false;
         RED4ext::StackArgs_t args;
         args.emplace_back(nullptr, &area);
@@ -471,8 +577,8 @@ void CaptureCharacter(const LogFunction& log)
     std::error_code error;
     fs::create_directories(PluginFolder / "handoff", error);
     std::ofstream(PluginFolder / "handoff" / "character.txt") << character;
-    log("handoff: our level attributes and perks are kept for the hosts world (" + std::to_string(std::count(character.begin(), character.end(), '\n')) +
-        " values)");
+    log("handoff: our level attributes perks and gear are kept for the next world (" + std::to_string(std::count(character.begin(), character.end(), '\n')) +
+        " values, " + std::to_string(InventoryCount()) + " items in our inventory)");
 }
 
 void ApplyCharacter(const LogFunction& log)
@@ -486,8 +592,11 @@ void ApplyCharacter(const LogFunction& log)
     {
         return;
     }
-    log("handoff: our level attributes and perks in the hosts world: " + CallCharacter("Apply", character));
-    log("handoff: " + std::to_string(EquipFromLines(character)) + " of our equipped items are back on");
+    log("handoff: our level attributes and perks here: " + CallCharacter("Apply", character));
+    int missing = 0;
+    const int equipped = EquipFromLines(character, missing);
+    log("handoff: " + std::to_string(equipped) + " of our equipped items are back on, " + std::to_string(missing) + " not in our inventory (it has " +
+        std::to_string(InventoryCount()) + " items)");
 }
 
 std::vector<uint8_t> WithOurCharacter(const std::vector<uint8_t>& hostSave, const LogFunction& log)
@@ -503,6 +612,7 @@ std::vector<uint8_t> WithOurCharacter(const std::vector<uint8_t>& hostSave, cons
         log("handoff: no save of our own found, we play the hosts V");
         return hostSave;
     }
+    std::ofstream(PluginFolder / "handoff" / "state.txt") << "campaign " << ownFolder.filename().string() << "\n";
     save_package::SaveFile host;
     save_package::SaveFile guest;
     std::string error;
@@ -637,7 +747,7 @@ std::string SaveFolderFromArguments()
     return {};
 }
 
-bool RestartInto(const std::string& folder, uint32_t transferId, const LogFunction& log)
+bool RestartInto(const std::string& folder, uint32_t transferId, const std::string& kind, const LogFunction& log)
 {
     const fs::path gameFolder = PluginFolder.parent_path().parent_path().parent_path();
     std::error_code error;
@@ -646,7 +756,7 @@ bool RestartInto(const std::string& folder, uint32_t transferId, const LogFuncti
         log("handoff: no launch_red4ext.sh in " + gameFolder.string() + ", cant restart into the hosts world");
         return false;
     }
-    std::ofstream(PluginFolder / "handoff" / "arriving.txt") << folder << " " << transferId << "\n";
+    std::ofstream(PluginFolder / "handoff" / "arriving.txt") << folder << " " << transferId << " " << kind << "\n";
     const std::string command = "sleep 3; while /usr/bin/pgrep -x Cyberpunk2077 >/dev/null; do sleep 1; done; cd '" + gameFolder.string() +
                                 "' && ./launch_red4ext.sh -save=" + folder + " -skipStartScreen >/dev/null 2>&1";
     posix_spawnattr_t attributes;
@@ -681,11 +791,21 @@ void CheckArrival(bool inSave, net::RelaySession& session, const LogFunction& lo
     ArrivalChecked = true;
     std::string folder;
     uint32_t transferId = 0;
-    std::ifstream(marker) >> folder >> transferId;
+    std::string kind;
+    std::ifstream(marker) >> folder >> transferId >> kind;
     fs::remove(marker, error);
     if (folder.empty() || folder != SaveFolderFromArguments())
     {
         log("handoff: an old restart marker for " + folder + " was left, this start is not it");
+        return;
+    }
+    if (kind == "home")
+    {
+        Phase = GuestPhase::Idle;
+        ApplyCharacterAtMs = ArrivalNowMs + ApplyCharacterAfterMs;
+        fs::remove(PluginFolder / "handoff" / "state.txt", error);
+        log("handoff: we are back in our own world (" + folder + ") with what we got in the hosts");
+        hud::Show("Back in your own world", 5.0f);
         return;
     }
     WrittenFolder = folder;
@@ -696,11 +816,185 @@ void CheckArrival(bool inSave, net::RelaySession& session, const LogFunction& lo
     hud::Show("You are in the host's world", 5.0f);
 }
 
+std::string CampaignFolder()
+{
+    std::string word;
+    std::string folder;
+    std::ifstream(PluginFolder / "handoff" / "state.txt") >> word >> folder;
+    return word == "campaign" ? folder : std::string();
+}
+
+void StartReturn(uint64_t nowMs, const LogFunction& log)
+{
+    if (CampaignFolder().empty())
+    {
+        log("handoff: the session is gone but we dont know our own campaign save, we stay");
+        NotInSessionSinceMs = 0;
+        return;
+    }
+    const std::string sessionFolder = NextManualSave();
+    HostJob guard;
+    if (!CallBool(Game.HasHandler) || !GuardSlotZero(guard, log) || !MakeSaveIn(sessionFolder))
+    {
+        log("handoff: the session is gone, cant save here yet, trying again");
+        NotInSessionSinceMs = nowMs - ReturnAfterMs + 5000;
+        return;
+    }
+    ReturnJob = HostJob {};
+    ReturnJob.Expected = sessionFolder;
+    ReturnJob.SlotZeroSaved = guard.SlotZeroSaved;
+    ReturnJob.AskedAt = fs::file_time_type::clock::now();
+    ReturnStartedMs = nowMs;
+    ReturnNextTryMs = nowMs + SaveRetryMs;
+    Phase = GuestPhase::Returning;
+    log("handoff: the session is gone, saving what we got in the hosts world to take it home");
+    hud::Show("Going back to your own world", 4.0f);
+}
+
+void TickReturn(uint64_t nowMs, const LogFunction& log)
+{
+    if (QuitAtMs || nowMs < ReturnNextTryMs)
+    {
+        return;
+    }
+    ReturnNextTryMs = nowMs + SaveRetryMs;
+    std::error_code error;
+    const std::string campaign = CampaignFolder();
+    std::vector<uint8_t> built;
+    if (FindNewSave(ReturnJob, error))
+    {
+        std::ofstream(PluginFolder / "handoff" / "mod-saves.txt", std::ios::app) << "session " << ReturnJob.Folder << " " << ReturnJob.Save.size() << " from us\n";
+        save_package::SaveFile home;
+        save_package::SaveFile session;
+        std::string readError;
+        if (save_package::Read(ReadFile(SavesFolder() / campaign / "sav.dat"), home, readError) && save_package::Read(ReturnJob.Save, session, readError))
+        {
+            std::vector<std::string> problems;
+            const int swapped = save_package::SpliceCharacter(home, session, problems);
+            const bool items = save_package::SpliceInventories(home, session, {save_package::kPlayerInventory, save_package::kStashInventory}, readError);
+            built = save_package::Write(home);
+            log("handoff: our V from the session (" + std::to_string(swapped) + " character nodes" + (items ? ", items and stash" : "") + ") goes back into " + campaign);
+        }
+        else
+        {
+            log("handoff: " + readError + ", we go back to " + campaign + " as it was");
+        }
+    }
+    else if (nowMs - ReturnStartedMs < ReturnSaveWaitMs)
+    {
+        return;
+    }
+    else
+    {
+        log("handoff: our save in the hosts world never showed up, we go back to " + campaign + " as it was");
+    }
+    std::string target = campaign;
+    if (!built.empty())
+    {
+        target = NextManualSave();
+        const fs::path folder = SavesFolder() / target;
+        fs::create_directory(folder, error);
+        for (const auto& file : fs::directory_iterator(SavesFolder() / campaign, error))
+        {
+            const std::string name = file.path().filename().string();
+            if (name != "sav.dat")
+            {
+                fs::copy_file(file.path(), folder / name, fs::copy_options::overwrite_existing, error);
+            }
+        }
+        for (const auto& file : fs::directory_iterator(folder, error))
+        {
+            const std::string name = file.path().filename().string();
+            if (name.rfind("metadata.", 0) == 0)
+            {
+                std::ifstream input(file.path());
+                std::string metadata((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+                const std::string nameKey = "\"name\": \"";
+                const size_t nameAt = metadata.find(nameKey);
+                const size_t nameEnd = nameAt == std::string::npos ? std::string::npos : metadata.find('"', nameAt + nameKey.size());
+                if (nameEnd != std::string::npos)
+                {
+                    metadata.replace(nameAt + nameKey.size(), nameEnd - nameAt - nameKey.size(), target);
+                }
+                const std::string stampKey = "\"timestampString\": \"";
+                const size_t stampAt = metadata.find(stampKey);
+                const size_t stampEnd = stampAt == std::string::npos ? std::string::npos : metadata.find('"', stampAt + stampKey.size());
+                if (stampEnd != std::string::npos)
+                {
+                    const std::time_t now = std::time(nullptr);
+                    char stamp[32];
+                    std::strftime(stamp, sizeof(stamp), "%H:%M:%S, %d.%m.%Y", std::localtime(&now));
+                    metadata.replace(stampAt + stampKey.size(), stampEnd - stampAt - stampKey.size(), stamp);
+                }
+                std::ofstream(file.path(), std::ios::binary).write(metadata.data(), static_cast<std::streamsize>(metadata.size()));
+            }
+        }
+        std::ofstream(folder / "sav.dat", std::ios::binary).write(reinterpret_cast<const char*>(built.data()), static_cast<std::streamsize>(built.size()));
+    }
+    CaptureCharacter(log);
+    if (RestartInto(target, 0, "home", log))
+    {
+        hud::Show("Restarting into your own world", 3.0f);
+        QuitAtMs = nowMs + QuitAfterRestartAskMs;
+    }
+    else
+    {
+        Phase = GuestPhase::InHostWorld;
+        NotInSessionSinceMs = 0;
+    }
+}
+
 void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& session, const fs::path& pluginFolder, const LogFunction& log)
 {
     PluginFolder = pluginFolder;
     const auto status = session.GetStatus();
-    if (!status.InSession || !Resolve(log))
+    if (!Resolve(log))
+    {
+        return;
+    }
+    if (QuitAtMs && nowMs >= QuitAtMs)
+    {
+        log("handoff: closing the game for the restart");
+        _exit(0);
+    }
+    if (Phase == GuestPhase::InHostWorld && RestartAllowed && inSave)
+    {
+        if (status.InSession)
+        {
+            NotInSessionSinceMs = 0;
+        }
+        else if (!NotInSessionSinceMs)
+        {
+            NotInSessionSinceMs = nowMs;
+        }
+        else if (nowMs - NotInSessionSinceMs >= ReturnAfterMs)
+        {
+            StartReturn(nowMs, log);
+        }
+    }
+    if (Phase == GuestPhase::Returning)
+    {
+        TickReturn(nowMs, log);
+        return;
+    }
+    if (joinHostWorld && !(status.InSession && status.MyPeerNumber == 0))
+    {
+        if (ApplyCharacterAtMs && inSave && nowMs >= ApplyCharacterAtMs)
+        {
+            ApplyCharacterAtMs = 0;
+            ApplyCharacter(log);
+        }
+        if (!ArrivalChecked)
+        {
+            ArrivalNowMs = nowMs;
+            CheckArrival(inSave, session, log);
+            if (!ArrivalChecked || Phase == GuestPhase::InHostWorld)
+            {
+                return;
+            }
+        }
+    }
+    if (!status.InSession)
     {
         return;
     }
@@ -712,20 +1006,6 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
     if (!joinHostWorld)
     {
         return;
-    }
-    if (ApplyCharacterAtMs && inSave && nowMs >= ApplyCharacterAtMs)
-    {
-        ApplyCharacterAtMs = 0;
-        ApplyCharacter(log);
-    }
-    if (!ArrivalChecked)
-    {
-        ArrivalNowMs = nowMs;
-        CheckArrival(inSave, session, log);
-        if (!ArrivalChecked || Phase == GuestPhase::InHostWorld)
-        {
-            return;
-        }
     }
     if (QuitAtMs && nowMs >= QuitAtMs)
     {
@@ -804,7 +1084,11 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
         }
         if (RestartAllowed && CheckpointAskedMs && !QuitAtMs && nowMs - CheckpointAskedMs >= RestartFallbackMs)
         {
-            if (RestartInto(WrittenFolder, Arriving.TransferId, log))
+            if (CharacterSplice)
+            {
+                CaptureCharacter(log);
+            }
+            if (RestartInto(WrittenFolder, Arriving.TransferId, "host", log))
             {
                 hud::Show("Restarting into the host's world", 3.0f);
                 QuitAtMs = nowMs + QuitAfterRestartAskMs;
@@ -954,7 +1238,9 @@ void TestCharacter(uint64_t nowMs, bool inSave, const LogFunction& log)
     {
         TestApplyAtMs = 0;
         log("test character: applied the same values back: " + CallCharacter("Apply", TestCaptured));
-        log("test character: " + std::to_string(EquipFromLines(TestCaptured)) + " equipped item(s) put on again");
+        int missing = 0;
+        log("test character: " + std::to_string(EquipFromLines(TestCaptured, missing)) + " equipped item(s) put on again, " + std::to_string(missing) +
+            " missing");
         const std::string after = CallCharacter("Capture", "") + EquippedLines();
         log(std::string("test character: a new capture is ") + (after == TestCaptured ? "the same" : "different"));
         if (after != TestCaptured)
