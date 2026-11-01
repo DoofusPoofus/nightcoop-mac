@@ -1009,6 +1009,11 @@ int main()
         Check(npcGrenadeBytes[4] == 24 && ReadGrenade(npcGrenadeBytes, playerGrenade, grenadeBack) && !playerGrenade, "npc grenade has the same body");
         grenade.Stage = 5;
         Check(!ReadGrenade(WriteGrenade(true, grenade), playerGrenade, grenadeBack), "a grenade stage past 4 is refused");
+        CarRadio radio {0, 0x01000002, 1, 4, 0, 0x55, 0x66};
+        CarRadio radioBack;
+        const auto radioBytes = WriteCarRadio(radio);
+        Check(radioBytes.size() == 5 + 30 && radioBytes[4] == 181 && ReadCarRadio(radioBytes, radioBack) && radioBack.Station == 4 && radioBack.TrackName == 0x66,
+              "car radio word is 30 bytes");
         VehicleDamage dents;
         dents.NetId = 0x01000002;
         dents.Flags = 1;

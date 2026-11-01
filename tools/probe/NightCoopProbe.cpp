@@ -47,6 +47,7 @@
  PROBE_TAG=1 tags the first npc the host shares at step 150 and untags it at step 250 (NpcTag)
  PROBE_PHOTO=1 opens photo mode at step 100 and closes it at step 200 (PhotoTogether)
  PROBE_FX=<effect resource path hash> shows that effect at step 120 where the joiner stands (PlayerFx)
+ PROBE_RADIO=1 (with PROBE_VEHICLE) tells the host at step 400 that our car radio plays station 3 (CarsWord kind 0)
  PROBE_DENT=1 (with PROBE_VEHICLE) says at step 220 that our car got dents and a flat front tire (VehicleDamage)
  PROBE_CARHIT=1 (with PROBE_VEHICLE) says at step 200 that our car hit the hosts player (VehicleHit 9 m/s)
  PROBE_SKIP=1 on the host skips 3 s of a scene 15 s after it heard of the guest (SceneLineSkip) and prints SceneSkipHere
@@ -1475,6 +1476,11 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             seat.Slot = NameHash("seat_front_left");
             session.SendGameMessage(nightcoop_mac::net::WriteVehicleSeat(seat), nightcoop_mac::net::kEveryPeer, step == 0);
         }
+        if (std::getenv("PROBE_RADIO") && std::getenv("PROBE_VEHICLE") && step == 400)
+        {
+            session.SendGameMessage(nightcoop_mac::net::WriteCarRadio({0, probeCarNetId, 1, 3, 0, 0, 0}), 0);
+            std::printf("probe: our car radio plays station 3 (CarsWord kind 0)\n");
+        }
         if (std::getenv("PROBE_DENT") && std::getenv("PROBE_VEHICLE") && step == 220)
         {
             nightcoop_mac::net::VehicleDamage dents;
@@ -2295,6 +2301,13 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
                                 smsWord.Request);
                 }
                 smsRulesSeen = smsRulesSeen || smsWord.Kind == nightcoop_mac::net::kSmsRules;
+                continue;
+            }
+            nightcoop_mac::net::CarRadio hostRadio;
+            if (nightcoop_mac::net::ReadCarRadio(message.Message, hostRadio))
+            {
+                std::printf("probe: peer %u car %#010x radio %s station %u (CarsWord kind %u)\n", message.FromPeer, hostRadio.NetId, hostRadio.On ? "on" : "off",
+                            hostRadio.Station, hostRadio.Kind);
                 continue;
             }
             nightcoop_mac::net::VehicleDamage hostDents;

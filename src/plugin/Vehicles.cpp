@@ -326,6 +326,37 @@ void Vehicles::OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message,
             mirror->second.LastHeardMs = 1;
         }
     }
+    else if (type == static_cast<uint8_t>(nc::proto::MsgType::CarsWord))
+    {
+        net::CarRadio radio;
+        if (!net::ReadCarRadio(message, radio))
+        {
+            return;
+        }
+        if (radio.Kind == 0)
+        {
+            auto mirror = m_mirrors.find(radio.NetId);
+            if (mirror == m_mirrors.end() || mirror->second.OwnerPeer != fromPeer)
+            {
+                return;
+            }
+            auto car = EntityOf(mirror->second.EntityHash);
+            net::CarRadio here;
+            if (car && (!ReadRadio(car, here) || here.On != radio.On || (radio.On && here.Station != radio.Station)))
+            {
+                SetRadio(car, radio.On != 0, radio.Station);
+                m_log(std::string("vehicles: peer ") + std::to_string(fromPeer) + "s car radio " + (radio.On ? "plays station " + std::to_string(radio.Station) : "is off") +
+                      ", ours too");
+            }
+            m_appliedRadio = radio;
+        }
+        else if (radio.NetId == m_share.NetId && m_share.EntityHash)
+        {
+            auto car = EntityOf(m_share.EntityHash);
+            SetRadio(car, radio.On != 0, radio.Station);
+            m_log("vehicles: peer " + std::to_string(fromPeer) + " switched the radio in our car");
+        }
+    }
     else if (type == static_cast<uint8_t>(nc::proto::MsgType::VehicleDamage))
     {
         net::VehicleDamage damage;
@@ -965,6 +996,108 @@ bool Vehicles::ReadDentGrid(RED4ext::Handle<RED4ext::IScriptable>& vehicle, floa
            ReadMemory(pointer + 0x100, grid, sizeof(float) * 30);
 }
 
+bool Vehicles::ReadRadio(RED4ext::Handle<RED4ext::IScriptable>& vehicle, net::CarRadio& radio)
+{
+    static auto* isActive = game::FindFunction("vehicleBaseObject", "IsRadioReceiverActive");
+    static auto* stationIndex = game::FindFunction("vehicleBaseObject", "GetCurrentRadioIndex");
+    static auto* stationName = game::FindFunction("vehicleBaseObject", "GetRadioReceiverStationName");
+    static auto* trackName = game::FindFunction("vehicleBaseObject", "GetRadioReceiverTrackName");
+    if (!vehicle || !isActive || !stationIndex)
+    {
+        return false;
+    }
+    bool on = false;
+    uint32_t station = 0;
+    RED4ext::CName station_name;
+    RED4ext::CName track;
+    RED4ext::StackArgs_t noArgs;
+    game::CallMethod(vehicle.instance, isActive, &on, noArgs);
+    game::CallMethod(vehicle.instance, stationIndex, &station, noArgs);
+    if (stationName)
+    {
+        game::CallMethod(vehicle.instance, stationName, &station_name, noArgs);
+    }
+    if (trackName)
+    {
+        game::CallMethod(vehicle.instance, trackName, &track, noArgs);
+    }
+    radio.On = on ? 1 : 0;
+    radio.Station = station & 0xFFFF;
+    radio.StationName = station_name.hash;
+    radio.TrackName = track.hash;
+    return true;
+}
+
+void Vehicles::SetRadio(RED4ext::Handle<RED4ext::IScriptable>& vehicle, bool on, uint32_t station)
+{
+    static auto* toggle = game::FindFunction("vehicleBaseObject", "ToggleRadioReceiver");
+    static auto* setStation = game::FindFunction("vehicleBaseObject", "SetRadioReceiverStation");
+    if (!vehicle || !toggle || !setStation)
+    {
+        return;
+    }
+    RED4ext::StackArgs_t toggleArgs;
+    toggleArgs.emplace_back(nullptr, &on);
+    game::CallMethod(vehicle.instance, toggle, nullptr, toggleArgs);
+    if (on)
+    {
+        RED4ext::StackArgs_t stationArgs;
+        stationArgs.emplace_back(nullptr, &station);
+        game::CallMethod(vehicle.instance, setStation, nullptr, stationArgs);
+    }
+}
+
+void Vehicles::ShareRadio(uint64_t nowMs, net::RelaySession& session)
+{
+    if (nowMs < m_nextRadioMs)
+    {
+        return;
+    }
+    m_nextRadioMs = nowMs + 500;
+    if (m_share.NetId && m_share.EntityHash)
+    {
+        auto car = EntityOf(m_share.EntityHash);
+        net::CarRadio radio;
+        if (ReadRadio(car, radio))
+        {
+            radio.Kind = 0;
+            radio.NetId = m_share.NetId;
+            const bool changed = radio.On != m_ownRadio.On || radio.Station != m_ownRadio.Station || radio.TrackName != m_ownRadio.TrackName;
+            m_ownRadio = radio;
+            for (const auto& [peer, seat] : m_seats)
+            {
+                uint64_t& sentMs = m_radioSentMs[peer];
+                if (seat.NetId != m_share.NetId || (!changed && nowMs - sentMs < 2000))
+                {
+                    continue;
+                }
+                sentMs = nowMs;
+                session.SendGameMessage(net::WriteCarRadio(radio), static_cast<int32_t>(peer));
+            }
+            if (changed)
+            {
+                m_log(std::string("vehicles: our car radio is ") + (radio.On ? "on station " + std::to_string(radio.Station) : "off") + ", partners in it hear the same");
+            }
+        }
+    }
+    if (m_ride.NetId)
+    {
+        auto mirror = m_mirrors.find(m_ride.NetId);
+        auto car = mirror != m_mirrors.end() ? EntityOf(mirror->second.EntityHash) : RED4ext::Handle<RED4ext::IScriptable>();
+        net::CarRadio here;
+        if (car && m_appliedRadio.NetId == m_ride.NetId && ReadRadio(car, here) && (here.On != m_appliedRadio.On || (here.On && here.Station != m_appliedRadio.Station)))
+        {
+            net::CarRadio ask = here;
+            ask.Kind = 1;
+            ask.NetId = m_ride.NetId;
+            session.SendGameMessage(net::WriteCarRadio(ask), static_cast<int32_t>(mirror->second.OwnerPeer));
+            m_appliedRadio.On = here.On;
+            m_appliedRadio.Station = here.Station;
+            m_log("vehicles: we switched the radio in partner car " + NetIdText(m_ride.NetId) + ", asking its driver");
+        }
+    }
+}
+
 void Vehicles::SendHandover(uint32_t netId, uint32_t newOwner, uint8_t reason, RED4ext::Handle<RED4ext::IScriptable>& vehicle, uint64_t seatSlot,
                             net::RelaySession& session)
 {
@@ -1115,6 +1248,13 @@ void Vehicles::RunTestCar(uint64_t nowMs)
             m_log("test car: dented our car a bit so its grid goes out");
         }
     }
+    if (m_testDented && !m_testRadioOn && m_share.EntityHash && nowMs >= m_testDentAtMs + 5000)
+    {
+        m_testRadioOn = true;
+        auto car = EntityOf(m_share.EntityHash);
+        SetRadio(car, true, 2);
+        m_log("test car: turned our car radio on (station 2)");
+    }
     if (!m_usable || !m_mount || m_testMounted || !FetchSystems())
     {
         return;
@@ -1249,6 +1389,7 @@ void Vehicles::Tick(uint64_t nowMs, bool inSave, net::RelaySession& session, Rem
     }
     ShareOurCar(nowMs, session);
     SendCarHits(nowMs, session);
+    ShareRadio(nowMs, session);
     if (m_gridSearchAtMs && nowMs >= m_gridSearchAtMs)
     {
         m_gridSearchAtMs = 0;

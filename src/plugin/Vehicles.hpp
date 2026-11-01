@@ -21,6 +21,8 @@
  on a mirror tells us where the grid lives (a pointer in the car object whose +0x100 holds those 30 floats, read with
  vm_read_overwrite so a wrong guess never crashes) and from then on our own cars grid goes out evry 500 ms on change (5 s
  refresh while damaged). on mac 2.5.0 the grid is known to sit at [car + 0x538] + 0x100 so ours goes out from the start
+ radio (CarsWord 181 kinds 0 / 1): the car we drive tells each partner sitting in it its radio (on station index names) on
+ change and evry 2 s and we play that on our mirror of their car. switching the station in a partners car asks its owner
  car hits (VehicleHit 65): when the car we drive hits a partner body (script wrap on gameObject.OnVehicleHit) that partner gets
  the hit (at most one per 1.5 s per partner from 1.5 m/s). a partners car hitting us plays as the games OnCarHitPlayer on our
  player unless we sit in a car ourselfs
@@ -133,6 +135,9 @@ private:
     void Unmount(RED4ext::Handle<RED4ext::IScriptable>& vehicle, RED4ext::Handle<RED4ext::IScriptable>& body);
     void RemoveMirror(uint32_t netId, Mirror& mirror, RemoteBodies* bodies, const char* why);
     void SendCarHits(uint64_t nowMs, net::RelaySession& session);
+    bool ReadRadio(RED4ext::Handle<RED4ext::IScriptable>& vehicle, net::CarRadio& radio);
+    void SetRadio(RED4ext::Handle<RED4ext::IScriptable>& vehicle, bool on, uint32_t station);
+    void ShareRadio(uint64_t nowMs, net::RelaySession& session);
     void FindDentGrid(RED4ext::Handle<RED4ext::IScriptable>& vehicle, const float* wanted);
     bool ReadDentGrid(RED4ext::Handle<RED4ext::IScriptable>& vehicle, float* grid);
     static uint32_t KnownGridOffset();
@@ -173,6 +178,10 @@ private:
     std::map<uint32_t, uint64_t> m_lastCarHitMs;
     std::vector<uint32_t> m_handoverRefusals;
     uint32_t m_ourPeer = 0;
+    std::map<uint32_t, uint64_t> m_radioSentMs;
+    net::CarRadio m_ownRadio;
+    net::CarRadio m_appliedRadio;
+    uint64_t m_nextRadioMs = 0;
     uint32_t m_gridOffset = 0;
     bool m_gridSearched = false;
     bool m_gridBroken = false;
@@ -195,6 +204,7 @@ private:
     bool m_testRidesMirror = false;
     bool m_testTakesWheel = false;
     bool m_testDented = false;
+    bool m_testRadioOn = false;
     uint64_t m_testDentAtMs = 0;
     uint32_t m_sharesStarted = 0;
 };

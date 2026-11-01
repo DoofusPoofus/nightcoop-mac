@@ -290,4 +290,38 @@ bool ReadVehicleDamage(const std::vector<uint8_t>& message, VehicleDamage& damag
     }
     return std::all_of(damage.Grid, damage.Grid + 30, [](float value) { return value >= -0.01f && value <= 16.0f; });
 }
+
+std::vector<uint8_t> WriteCarRadio(const CarRadio& radio)
+{
+    nc::proto::Writer writer(nc::proto::MsgType::CarsWord);
+    writer.PutU8(radio.Kind);
+    writer.PutU32(radio.NetId);
+    writer.PutU8(radio.On ? 1 : 0);
+    writer.PutU32(radio.Station & 0xFFFF);
+    writer.PutU32(radio.Spare);
+    writer.PutU64(radio.StationName);
+    writer.PutU64(radio.TrackName);
+    return writer.Data();
+}
+
+bool ReadCarRadio(const std::vector<uint8_t>& message, CarRadio& radio)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (!OpenMessage(reader, nc::proto::MsgType::CarsWord))
+    {
+        return false;
+    }
+    radio.Kind = reader.GetU8();
+    if (!reader.Ok() || radio.Kind > 1)
+    {
+        return false;
+    }
+    radio.NetId = reader.GetU32();
+    radio.On = reader.GetU8();
+    radio.Station = reader.GetU32();
+    radio.Spare = reader.GetU32();
+    radio.StationName = reader.GetU64();
+    radio.TrackName = reader.GetU64();
+    return reader.Ok() && reader.Remaining() == 0 && radio.NetId != 0 && radio.On < 2 && radio.Station < 0x10000;
+}
 }
