@@ -4,7 +4,8 @@
  the host with partners in its world sends evry quest reward its player gets to evryone (reward record + serial). a guest in
  the hosts world skips its own quest node rewards and gets the hosts ones instead (rewards any_world in session.txt does that
  in any world for tests). serials already taken from the host are skipped
- not done yet: kind 2 (partner defeat rewards) and holding words while a guest is between worlds
+ kind 2 (partner defeat rewards) lives in npc combat
+ not done yet: holding words while a guest is between worlds
 */
 #pragma once
 

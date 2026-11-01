@@ -15,6 +15,8 @@
  quickhacks: our quickhack stages on a copy go to its owner as HackSync kind 1 and a partners stage on one of our npcs hangs
  the actions start or completion statuses on it (script ApplyHackStage). test_claim also sends a QuickHack.BlindLvl1Hack
  completion evry 5 s
+ defeats: a partner body knocking out one of our npcs without killing it (BountyManager.CompleteBounty wrap) sends that partner
+ RewardWord kind 2 and its game runs RewardKiller (defeat) on its copy so it gets the reward
  police: one of our police units fighting a partner body (the threat share above) tells that partner once per 10 s
  (PoliceFight) and its game queues a PreventionCombatStartedRequest with its copy of the unit so its own police fight starts
  not done yet: NpcAction hit zones hit reactions the expected hit path and the visual hack mirror
@@ -49,6 +51,7 @@ void ForgetCopy(uint64_t entityHash);
 void ForgetAll();
 void MarkBody(uint32_t peerNumber, RED4ext::Handle<RED4ext::IScriptable>& body);
 void ShareThreat(RED4ext::Handle<RED4ext::IScriptable>& npc, RED4ext::Handle<RED4ext::IScriptable>& body);
+void OnPartnerDefeat(uint32_t fromPeer, const std::vector<uint8_t>& message, NpcCopies& copies, const LogFunction& log);
 void NotePoliceOnBody(uint64_t nowMs, uint32_t peerNumber, uint32_t netId, const float* position, RED4ext::Handle<RED4ext::IScriptable>& npc);
 void Tick(uint64_t nowMs, bool inSave, bool testClaims, NpcCopies& copies, NpcShare& ourNpcs, net::RelaySession& session, const LogFunction& log);
 void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, uint64_t nowMs, NpcCopies& copies, NpcShare& ourNpcs, RemoteBodies& bodies,

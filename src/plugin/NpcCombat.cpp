@@ -18,6 +18,7 @@
 #include <cmath>
 #include <cstdio>
 #include <map>
+#include <sstream>
 
 namespace nightcoop_mac::npc_combat
 {
@@ -577,6 +578,30 @@ void NotePoliceOnBody(uint64_t nowMs, uint32_t peerNumber, uint32_t netId, const
     PoliceFightsToSend.push_back({peerNumber, fight});
 }
 
+void OnPartnerDefeat(uint32_t fromPeer, const std::vector<uint8_t>& message, NpcCopies& copies, const LogFunction& log)
+{
+    net::RewardWord word;
+    static auto* rewardOnCopy = game::FindFunction("NightCoopCombat", "RewardOnCopy");
+    auto service = game::ScriptService("NightCoopCombat");
+    if (!net::ReadRewardWord(message, word) || word.Kind != net::kRewardPartnerDefeat || !rewardOnCopy || !service)
+    {
+        return;
+    }
+    const uint64_t copyEntity = copies.EntityOfNetId(word.NetId);
+    auto copy = copyEntity ? EntityById(copyEntity) : RED4ext::Handle<RED4ext::IScriptable>();
+    bool rewarded = false;
+    if (copy)
+    {
+        RED4ext::StackArgs_t args;
+        args.emplace_back(nullptr, &copy);
+        game::CallMethod(service.instance, rewardOnCopy, &rewarded, args);
+    }
+    char line[128];
+    std::snprintf(line, sizeof(line), "combat: we knocked out peer %u's npc %#010x, %s", fromPeer, word.NetId,
+                  rewarded ? "our game gives the reward on our copy" : "no copy of it here");
+    log(line);
+}
+
 void Tick(uint64_t nowMs, bool inSave, bool testClaims, NpcCopies& copies, NpcShare& ourNpcs, net::RelaySession& session, const LogFunction& log)
 {
     if (!inSave)
@@ -609,6 +634,30 @@ void Tick(uint64_t nowMs, bool inSave, bool testClaims, NpcCopies& copies, NpcSh
         if (service && testHack)
         {
             game::CallMethod(service.instance, testHack, nullptr, noArgs);
+        }
+    }
+    static auto* takeDefeats = game::FindFunction("NightCoopCombat", "TakeDefeats");
+    if (auto service = game::ScriptService("NightCoopCombat"); takeDefeats && service)
+    {
+        RED4ext::CString defeats;
+        RED4ext::StackArgs_t noArgs;
+        game::CallMethod(service.instance, takeDefeats, &defeats, noArgs);
+        std::istringstream lines(defeats.c_str());
+        int32_t peer = -1;
+        uint64_t entityHash = 0;
+        while (lines >> peer >> entityHash)
+        {
+            net::RewardWord word;
+            word.Kind = net::kRewardPartnerDefeat;
+            word.NetId = ourNpcs.NetIdOfEntity(entityHash);
+            if (peer < 0 || !word.NetId)
+            {
+                continue;
+            }
+            session.SendGameMessage(net::WriteRewardWord(word), peer);
+            char line[128];
+            std::snprintf(line, sizeof(line), "combat: peer %d knocked out our npc %#010x without killing it, they get the reward", peer, word.NetId);
+            log(line);
         }
     }
     for (const auto& [peer, fight] : PoliceFightsToSend)

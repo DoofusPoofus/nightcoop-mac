@@ -33,6 +33,7 @@
  then the new save goes out like a join
  PROBE_DEFEAT=<n> tells the host n of its shared npcs (with health above 0) died here (NpcDefeat) the joiner prints NpcDead tables and npc deaths
  PROBE_PUSH=1 says at step 110 that our grenade went off where the joiner stands (PlayerBlast radius 6)
+ PROBE_KO=1 (with PROBE_NPC) says at step 200 that the host knocked out our npc without killing it (RewardWord kind 2)
  PROBE_VEHICLE_EMPTY=1 (with PROBE_VEHICLE) shares that car with nobody at the wheel so the host can take it
  PROBE_TAKECAR=1 says at step 250 that we took the wheel of the hosts car (VehicleHandover 1) and prints handovers
  PROBE_POLICE=1 says at step 130 that a police unit of ours fights the hosts body (PoliceFight)
@@ -1264,6 +1265,14 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::PlayerEffect effect {1, std::strtoull(effectText, nullptr, 0), {state.PositionX, state.PositionY, state.PositionZ + 1.0f}, {0, 0, 0, 1}, 0};
             session.SendGameMessage(nightcoop_mac::net::WritePlayerFx({effect}));
             std::printf("probe: shows effect %#llx where the joiner stands (PlayerFx)\n", static_cast<unsigned long long>(effect.Resource));
+        }
+        if (std::getenv("PROBE_KO") && std::getenv("PROBE_NPC") && step == 200)
+        {
+            nightcoop_mac::net::RewardWord knockout;
+            knockout.Kind = nightcoop_mac::net::kRewardPartnerDefeat;
+            knockout.NetId = (session.GetStatus().MyPeerNumber << 24) | 7;
+            session.SendGameMessage(nightcoop_mac::net::WriteRewardWord(knockout), 0);
+            std::printf("probe: the host knocked out our npc %#010x (RewardWord kind 2)\n", knockout.NetId);
         }
         if (std::getenv("PROBE_TAKECAR") && hostCarNetId && step == 250)
         {

@@ -524,6 +524,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         else if (nightcoop_mac::rewards::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {
             nightcoop_mac::rewards::OnMessage(message.FromPeer, message.Message, nightcoop_mac::world_handoff::InHostWorld() || Plan->RewardsAnyWorld, Log);
+            nightcoop_mac::npc_combat::OnPartnerDefeat(message.FromPeer, message.Message, *Npcs, Log);
         }
         else if (nightcoop_mac::grenades::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)) ||
                  nightcoop_mac::player_effects::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))

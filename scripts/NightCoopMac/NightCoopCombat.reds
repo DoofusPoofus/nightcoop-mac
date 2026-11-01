@@ -58,6 +58,7 @@ public class NightCoopHitFallback extends DelayCallback {
 }
 
 public class NightCoopCombat extends ScriptableService {
+  private let m_defeatLines: String;
   private let m_bodies: array<EntityID>;
   private let m_bodyPeers: array<Int32>;
   private let m_bodyHits: array<ref<NightCoopBodyHit>>;
@@ -175,6 +176,25 @@ public class NightCoopCombat extends ScriptableService {
       after = 0.0;
     }
     return after;
+  }
+
+  public func NoteDefeat(npc: ref<NPCPuppet>, peer: Int32) {
+    this.m_defeatLines += IntToString(peer) + " " + EntityID.ToDebugStringDecimal(npc.GetEntityID()) + "\n";
+  }
+
+  public func TakeDefeats() -> String {
+    let lines = this.m_defeatLines;
+    this.m_defeatLines = "";
+    return lines;
+  }
+
+  public func RewardOnCopy(npc: ref<ScriptedPuppet>) -> Bool {
+    let player = GetPlayer(GetGameInstance());
+    if !IsDefined(npc) || !IsDefined(player) {
+      return false;
+    }
+    npc.RewardKiller(player, gameKillType.Defeat, true);
+    return true;
   }
 
   public func IsPolice(npc: ref<ScriptedPuppet>) -> Bool {
@@ -505,6 +525,9 @@ public final static func CompleteBounty(target: wref<NPCPuppet>) {
     let killer = target.GetKiller();
     if IsDefined(killer) && combat.BodyPeer(killer.GetEntityID()) >= 0 {
       target.SetBountyAwarded(true);
+      if !target.IsDead() {
+        combat.NoteDefeat(target, combat.BodyPeer(killer.GetEntityID()));
+      }
       return;
     }
   }
