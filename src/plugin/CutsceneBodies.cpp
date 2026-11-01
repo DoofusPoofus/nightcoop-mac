@@ -2,6 +2,7 @@
 
 #include "plugin/GameCalls.hpp"
 #include "plugin/RemoteBodies.hpp"
+#include "net/GameMessages.hpp"
 #include "net/RelaySession.hpp"
 #include "net/SessionMessages.hpp"
 
@@ -23,6 +24,8 @@ constexpr uint64_t LookEveryMs = 500;
 uint64_t NextLookMs = 0;
 uint64_t InSaveSinceMs = 0;
 bool Hidden = false;
+std::map<uint32_t, bool> HiddenNear;
+std::map<uint32_t, bool> BodyHidden;
 bool InScene = false;
 
 struct LiveScene
@@ -122,7 +125,8 @@ void TellHostScenes(bool inHostWorld, const net::PlayerState* ourPlayer, net::Re
     ScenesWePlay.clear();
 }
 
-void Tick(uint64_t nowMs, bool inSave, bool testHide, const std::vector<uint32_t>& peers, RemoteBodies& bodies, const LogFunction& log)
+void Tick(uint64_t nowMs, bool inSave, bool testHide, const std::vector<RemotePeerView>& views, const net::PlayerState* ourPlayer, RemoteBodies& bodies,
+          const LogFunction& log)
 {
     if (!inSave)
     {
@@ -130,6 +134,8 @@ void Tick(uint64_t nowMs, bool inSave, bool testHide, const std::vector<uint32_t
         Hidden = false;
         InScene = false;
         HostScenes.clear();
+        HiddenNear.clear();
+        BodyHidden.clear();
         return;
     }
     if (!InSaveSinceMs)
@@ -154,24 +160,40 @@ void Tick(uint64_t nowMs, bool inSave, bool testHide, const std::vector<uint32_t
     const uint64_t intoSave = nowMs - InSaveSinceMs;
     hide = hide || (testHide && intoSave >= 20000 && intoSave < 40000);
     InScene = hide;
-    if (!hide && !Hidden)
-    {
-        return;
-    }
     int32_t toggled = 0;
-    for (const uint32_t peer : peers)
+    for (const auto& view : views)
     {
+        bool& near = HiddenNear[view.PeerNumber];
+        if (ourPlayer)
+        {
+            const float x = view.State.PositionX - ourPlayer->PositionX;
+            const float y = view.State.PositionY - ourPlayer->PositionY;
+            const float z = view.State.PositionZ - ourPlayer->PositionZ;
+            const float meters = std::sqrt(x * x + y * y + z * z);
+            near = meters < 0.5f ? true : meters > 1.0f ? false : near;
+        }
+        bool hideThis = hide || near;
+        bool& wasHidden = BodyHidden[view.PeerNumber];
+        if (!hideThis && !wasHidden)
+        {
+            continue;
+        }
         RED4ext::Handle<RED4ext::IScriptable> body;
-        if (!bodies.GetBody(peer, body) || !body)
+        if (!bodies.GetBody(view.PeerNumber, body) || !body)
         {
             continue;
         }
         int32_t changed = 0;
         RED4ext::StackArgs_t args;
         args.emplace_back(nullptr, &body);
-        args.emplace_back(nullptr, &hide);
+        args.emplace_back(nullptr, &hideThis);
         game::CallMethod(service.instance, setBodyHidden, &changed, args);
         toggled += changed;
+        if (near != wasHidden && !hide && changed)
+        {
+            log("cutscenes: peer " + std::to_string(view.PeerNumber) + (near ? "s body stands inside ours, hidden" : "s body stepped away, shown again"));
+        }
+        wasHidden = hideThis;
     }
     if (hide != Hidden)
     {

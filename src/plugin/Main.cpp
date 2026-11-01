@@ -722,12 +722,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     }
     nightcoop_mac::quest_teleports::Tick(nowMs, inSave, Plan->TestTeleport, Log);
     {
-        std::vector<uint32_t> bodyPeers;
-        for (const auto& view : RemotePeerViews())
-        {
-            bodyPeers.push_back(view.PeerNumber);
-        }
-        nightcoop_mac::cutscene_bodies::Tick(nowMs, inSave, Plan->TestHide, bodyPeers, *Bodies, Log);
+        nightcoop_mac::cutscene_bodies::Tick(nowMs, inSave, Plan->TestHide, RemotePeerViews(), LocalStateValid ? &LastLocalState : nullptr, *Bodies, Log);
         nightcoop_mac::scene_skip::Tick(nowMs, inSave,
                                         nightcoop_mac::world_handoff::InHostWorld() || Plan->ScenesAnyWorld ||
                                             (Session->GetStatus().MyPeerNumber == 0 && !RemotePeerViews().empty()),
