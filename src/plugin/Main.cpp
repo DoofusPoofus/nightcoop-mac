@@ -17,6 +17,7 @@
 #include "net/LookMessages.hpp"
 #include "net/RelaySession.hpp"
 #include "plugin/AnimMirror.hpp"
+#include "plugin/Hud.hpp"
 #include "plugin/AnimSetup.hpp"
 #include "plugin/AnimTap.hpp"
 #include "plugin/CrashNotes.hpp"
@@ -461,9 +462,14 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
     WriteStatusFile(DescribeStatus(Session->GetStatus()));
     TakeRemoteStates(nowMs);
     const bool inSave = LocalStateValid && Flow->BodiesAllowed(nowMs);
+    bool kicked = false;
     for (const auto& message : Session->TakeGameMessages())
     {
-        if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PlayerCustomization))
+        if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::Kick))
+        {
+            kicked = kicked || (message.FromPeer == 0 && Session->GetStatus().MyPeerNumber != 0);
+        }
+        else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::PlayerCustomization))
         {
             TakePeerLook(message.FromPeer, message.Message);
         }
@@ -641,6 +647,12 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             nightcoop_mac::player_extras::OnMessage(message.FromPeer, message.Message, nowMs, Log);
         }
         Mirror->OnGameMessage(message.FromPeer, message.Message, nowMs);
+    }
+    if (kicked)
+    {
+        Log("session: the host removed us from the session, we leave it");
+        nightcoop_mac::hud::Show("The host removed you from the session", 6.0f);
+        Session->Stop();
     }
     nightcoop_mac::partner_roster::Tick(nowMs, inSave, Plan->Nickname, *Session, Log);
     Cars->Tick(nowMs, inSave, *Session, *Bodies);

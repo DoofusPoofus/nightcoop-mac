@@ -56,6 +56,7 @@
  PROBE_TRACK=<journal entry hash> on the host wants guests to track that objective (TrackModeWord 1 + a QuestJournal word)
  PROBE_QTELE=1 on the host says the game moved it 100 m from the guest 10 s after it heard of it (QuestTeleport kind 1)
  PROBE_GATE=1 on the host says its scene waits at a gate 3 m from the guest 15 s after it heard of it and passes it 25 s later
+ PROBE_KICK=1 on the host kicks its guests 15 s after it heard of one (Kick)
  PROBE_LOBBY=1 on the host says it started a save from its lobby once a guest is there (LobbyStart)
  PROBE_DEAD=1 on the host says the first npc a guest shares 40 s on died in our world (NpcDead) and prints NpcDefeat
  PROBE_TAKE=1 takes the first npc the host hands over (NpcHandoffAck + NpcClaim 3), owns it for 100 steps and lets it go,
@@ -657,7 +658,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto callStartedAt = std::chrono::steady_clock::time_point::max();
     int callPhaseSent = 0;
     uint32_t callCommits = 0;
-    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_QTELE") || std::getenv("PROBE_FACTWORD") || std::getenv("PROBE_TRACK") || std::getenv("PROBE_SCENE") || std::getenv("PROBE_SKIP") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
+    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_QTELE") || std::getenv("PROBE_FACTWORD") || std::getenv("PROBE_TRACK") || std::getenv("PROBE_SCENE") || std::getenv("PROBE_SKIP") || std::getenv("PROBE_KICK") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
     auto deadline = std::chrono::steady_clock::now() + (staysUp ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
     auto nextReward = std::chrono::steady_clock::now() + 20s;
@@ -679,6 +680,8 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     bool staleSent = false;
     uint32_t stalePeer = 0;
     bool lobbySent = false;
+    bool kickSent = false;
+    auto kickAt = std::chrono::steady_clock::time_point::max();
     auto gateStartedAt = std::chrono::steady_clock::time_point::max();
     uint8_t gateStateSent = 0;
     auto questTeleportAt = std::chrono::steady_clock::time_point::max();
@@ -787,6 +790,20 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
                 gate.PutU16(42);
                 session.SendGameMessage(gate.Data());
                 std::printf("probe: our scene waits at its gate, state %u (SceneGate)\n", gateState);
+            }
+        }
+        if (std::getenv("PROBE_KICK") && guestKnown && !kickSent)
+        {
+            if (kickAt == std::chrono::steady_clock::time_point::max())
+            {
+                kickAt = std::chrono::steady_clock::now() + 15s;
+            }
+            if (std::chrono::steady_clock::now() >= kickAt)
+            {
+                kickSent = true;
+                nc::proto::Writer kick(nc::proto::MsgType::Kick);
+                session.SendGameMessage(kick.Data());
+                std::printf("probe: kicked the guests (Kick)\n");
             }
         }
         if (std::getenv("PROBE_LOBBY") && !lobbySent && session.GetStatus().ConnectedPeers > 0)

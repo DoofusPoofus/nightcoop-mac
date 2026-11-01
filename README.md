@@ -27,7 +27,7 @@ works in a save with the probe:
 - effects a windows partner draws (PlayerFx: rockets explosive rounds slams) show up here, sending ours isnt there
 - a partner opening photo mode in ur world shows a hint (PhotoTogether) n ours goes out
 - tagging an npc (scanner tag) shows the tag for partners too (NpcTag)
-- we tell the host our loading n story state so its loading n story holds dont wait on us (WorldLoad StoryHold) n a host starting from its lobby shows a hint (LobbyStart)
+- we tell the host our loading n story state so its loading n story holds dont wait on us (WorldLoad StoryHold) n a host starting from its lobby shows a hint (LobbyStart). a host kick makes us leave the session (Kick)
 - a windows hosts scene gates (talks that wait for evryone at the npc) hear from us by distance to the host (SceneGate) so they dont wait forever. holding our own scene nodes still needs native hooks
 - when the game moves the host far away a guest gets an offer n follows by holding PageUp (fn + up) (QuestTeleport)
 - a partner skipping a talk fast forwards the scene that holds u (SceneLineSkip, first cut untried in a real scene) n we tell them when we may skip
