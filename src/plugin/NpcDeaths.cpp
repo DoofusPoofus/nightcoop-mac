@@ -33,11 +33,6 @@ uint64_t NextFullTableMs = 0;
 uint64_t NextMatchMs = 0;
 bool WasInSave = false;
 
-bool StaticEntity(uint64_t entity)
-{
-    return (entity & 0xFFFFFFFFFF000000ULL) != 0;
-}
-
 float MetersBetween(const float* first, const float* second)
 {
     const float x = first[0] - second[0];
