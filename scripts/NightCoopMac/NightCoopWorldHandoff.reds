@@ -2,7 +2,7 @@
 // handler gets taken from the onscreen message controller or the in game menu (or codewares GetSystemRequestsHandler). the host asks for a manual save with it
 // (HasFreeSaveSlot + ManualSave like nightcoops RequestManualSave with the folder name the plugin picked. the game still
 // writes into ManualSave-0 so the plugin guards that slot. a game started straight into a save has no save list so
-// HasFreeSaveSlot says no: the list gets asked for once and the third try saves anyway) a guest loads the folder the plugin wrote: the save list
+// HasFreeSaveSlot says no: the list gets asked for (again evry 5th try) and the save goes once the slot check says yes) a guest loads the folder the plugin wrote: the save list
 // gets asked for (RequestSavesForLoad) the folder is looked up by name in it and loaded by its index (LoadSavedGame)
 // when the list does not answer the plugin loads the newest save instead (LoadNewest: the in game menus own quick load
 // DelayedHandleQuickLoad or LoadLastCheckpoint(false) without that menu) then LoadIndex(0) (the save list may be filled even
@@ -16,7 +16,6 @@ public class NightCoopWorldHandoff extends ScriptableService {
   private let m_loadState: Int32;
   private let m_listedSaves: Int32;
   private let m_listSample: String;
-  private let m_saveListAsked: Bool;
   private let m_noSlotTries: Int32;
 
   public static func Get() -> ref<NightCoopWorldHandoff> {
@@ -49,15 +48,16 @@ public class NightCoopWorldHandoff extends ScriptableService {
     if !IsDefined(handler) || StrLen(folder) == 0 {
       return false;
     }
+    let locks: array<gameSaveLock>;
+    if GameInstance.IsSavingLocked(GetGameInstance(), locks) {
+      return false;
+    }
     if !handler.HasFreeSaveSlot(folder) {
-      if !this.m_saveListAsked {
-        this.m_saveListAsked = true;
+      if this.m_noSlotTries % 5 == 0 {
         handler.RequestSavesForSave();
       }
       this.m_noSlotTries += 1;
-      if this.m_noSlotTries < 3 {
-        return false;
-      }
+      return false;
     }
     this.m_noSlotTries = 0;
     handler.ManualSave(folder);

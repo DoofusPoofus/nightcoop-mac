@@ -143,6 +143,7 @@ uint64_t CharacterNextTryMs = 0;
 bool CharacterSaveAsked = false;
 uint32_t SentAheadTransfer = 0;
 bool HostWorldUpFromSentAhead = false;
+bool AskAfterCharacterSave = false;
 bool WeAreInHostWorld = false;
 bool AutosavesChecked = false;
 bool AutosaveTestWanted = false;
@@ -1281,6 +1282,11 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
             {
                 log("handoff: the game would not save our V here (" + SaveBlockReason(CharacterJob.Expected) + "), our last V goes into the hosts new world");
                 Phase = GuestPhase::Waiting;
+                if (AskAfterCharacterSave)
+                {
+                    AskAfterCharacterSave = false;
+                    session.SendGameMessage(net::WriteWorldWant({3, 0}), 0);
+                }
                 FinishArrival(session, log);
             }
             return;
@@ -1292,6 +1298,12 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
             log(saved ? "handoff: our V is saved in " + CharacterJob.Folder + ", waiting for the hosts new world"
                       : "handoff: our save for the hosts new world never showed up, our last V goes in");
             Phase = GuestPhase::Waiting;
+            if (AskAfterCharacterSave)
+            {
+                AskAfterCharacterSave = false;
+                session.SendGameMessage(net::WriteWorldWant({3, 0}), 0);
+                log("handoff: asked the host for its current world (WorldWant 3)");
+            }
             FinishArrival(session, log);
         }
         return;
@@ -1597,6 +1609,18 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::Rela
         else if (worldStatus.Code == 1)
         {
             hud::Show("The host cannot save now (" + worldStatus.Text + "): the join goes as soon as it can", 5.0f);
+        }
+        else if (worldStatus.Code == 9 && Phase == GuestPhase::InHostWorld)
+        {
+            Arriving = Incoming {};
+            CharacterJob = HostJob {};
+            CharacterSaveAsked = false;
+            SentAheadTransfer = 0;
+            AskAfterCharacterSave = true;
+            Phase = GuestPhase::SavingCharacter;
+            CharacterStartedMs = SteadyNowMs();
+            CharacterNextTryMs = CharacterStartedMs;
+            hud::Show("We are in an older world of the host, its current one comes", 4.0f);
         }
         log("handoff: the host says " + std::to_string(worldStatus.Code) + (worldStatus.Text.empty() ? "" : " (" + worldStatus.Text + ")"));
     }

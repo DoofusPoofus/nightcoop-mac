@@ -31,6 +31,7 @@
  PROBE_FAR=<meters> moves the joiners walk that far along x from where it was asked to stand
  PROBE_RELOAD=<save folder> (with PROBE_HOST_SAVE) makes the host load that save 60 s after the guest arrived: WorldReload 1
  then the new save goes out like a join
+ PROBE_STALE=1 (with PROBE_HOST_SAVE) tells the guest 30 s after it arrived that it is in an older world (WorldStatus 9)
  PROBE_RELOAD_AHEAD=1 (with PROBE_RELOAD) sends the new save ahead (WorldReload 2) and says its world is up 20 s later (3)
  PROBE_DEFEAT=<n> tells the host n of its shared npcs (with health above 0) died here (NpcDefeat) the joiner prints NpcDead tables and npc deaths
  PROBE_PUSH=1 says at step 110 that our grenade went off where the joiner stands (PlayerBlast radius 6)
@@ -668,6 +669,9 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto reloadAt = std::chrono::steady_clock::time_point::max();
     uint32_t reloadPeer = 0;
     auto worldUpAt = std::chrono::steady_clock::time_point::max();
+    auto staleAt = std::chrono::steady_clock::time_point::max();
+    bool staleSent = false;
+    uint32_t stalePeer = 0;
     bool lobbySent = false;
     auto gateStartedAt = std::chrono::steady_clock::time_point::max();
     uint8_t gateStateSent = 0;
@@ -746,6 +750,13 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             lobby.PutU8(0);
             session.SendGameMessage(lobby.Data());
             std::printf("probe: started ManualSave-46 from our lobby (LobbyStart)\n");
+        }
+        if (!staleSent && std::chrono::steady_clock::now() >= staleAt)
+        {
+            staleSent = true;
+            session.SendGameMessage(nightcoop_mac::net::WriteWorldStatus({9, 0, "1234:2"}), static_cast<int32_t>(stalePeer));
+            std::printf("probe: tells peer %u it is in an older world of ours (WorldStatus 9)\n", stalePeer);
+            deadline = std::max(deadline, std::chrono::steady_clock::now() + 300s);
         }
         if (worldUpAt != std::chrono::steady_clock::time_point::max() && std::chrono::steady_clock::now() >= worldUpAt)
         {
@@ -1027,13 +1038,18 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             else if (nightcoop_mac::net::ReadWorldStatus(message.Message, worldStatus))
             {
                 std::printf("probe: peer %u says world status %u %s\n", message.FromPeer, worldStatus.Code, worldStatus.Text.c_str());
+                if (worldStatus.Code == 7 && std::getenv("PROBE_STALE") && staleAt == std::chrono::steady_clock::time_point::max() && !staleSent)
+                {
+                    stalePeer = message.FromPeer;
+                    staleAt = std::chrono::steady_clock::now() + 30s;
+                }
                 if (worldStatus.Code == 7 && reloadSave && !reloadPeer)
                 {
                     reloadPeer = message.FromPeer;
                     reloadAt = std::chrono::steady_clock::now() + 60s;
                     std::printf("probe: the guest is in our world, we load another save in 60 s\n");
                 }
-                if (worldStatus.Code == 7 && std::getenv("PROBE_LEAVE_AFTER_ARRIVAL") && !reloadSave)
+                if (worldStatus.Code == 7 && std::getenv("PROBE_LEAVE_AFTER_ARRIVAL") && !reloadSave && (!std::getenv("PROBE_STALE") || staleSent))
                 {
                     deadline = std::min(deadline, std::chrono::steady_clock::now() + 20s);
                     std::printf("probe: the guest is in our world, we leave in 20 s\n");
