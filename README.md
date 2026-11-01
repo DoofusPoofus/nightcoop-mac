@@ -21,11 +21,11 @@ works in a save with the probe:
 
 first cut but not tried in the game yet: doors devices n dialog votes
 
-world handoff: a guest gets the hosts save with its own V spliced in (look wardrobe stat pools items stash n other character nodes, level n perks still the hosts) n since no in game load works on mac the game restarts straight into it (`handoff_restart off` / `handoff_character off` turn those off)
+world handoff: a guest gets the hosts save with its own V spliced in (look wardrobe stat pools items stash n other character nodes) n its level attributes perks n points get put back after it arrives n since no in game load works on mac the game restarts straight into it (`handoff_restart off` / `handoff_character off` turn those off)
 
 npc hits on u only do damage thru a fallback (the game drops the rebuilt hit so the attackers weapon damage gets written straight)
 
-not there yet: ur own level n perks in the hosts world braindance photo mode police
+not there yet: item stats n the other player systems from ur own save braindance photo mode police
 
 ## what u need
 

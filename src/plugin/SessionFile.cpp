@@ -121,6 +121,10 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
             words >> mode;
             plan.RewardsAnyWorld = mode == "any_world";
         }
+        else if (keyword == "test_character")
+        {
+            plan.TestCharacter = true;
+        }
         else if (keyword == "test_claim")
         {
             plan.TestClaim = true;

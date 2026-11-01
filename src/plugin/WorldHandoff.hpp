@@ -16,8 +16,9 @@
  waits for the game to close and starts launch_red4ext.sh -save=<folder> and the game closes itself. on the next start the
  marker plus that -save argument mean we arrived (WorldStatus 7). handoff_restart off in session.txt turns this off
  the written save keeps our own V: the character nodes and the player and stash inventories of our newest own save (not a
- handoff one not PointOfNoReturn) go into the hosts save (save package). handoff_character off in session.txt plays the hosts V instead
- not done yet: our level and perks (the stats / scriptable systems split) and item stats saving locks reloads of the host
+ handoff one not PointOfNoReturn) go into the hosts save (save package). level attributes perks and unspent points go around it
+ (NightCoopCharacter Capture into handoff/character.txt before and Apply 15 s after we arrived). handoff_character off in session.txt plays the hosts V instead
+ not done yet: item stats and the rest of the player systems in the scriptable systems blob saving locks reloads of the host
  (WorldReload 95) sync saves and the return to our own world
 */
 #pragma once
@@ -42,5 +43,6 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
 void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::RelaySession& session, const LogFunction& log);
 void AllowRestart(bool allowed);
 void KeepOurCharacter(bool keep);
+void TestCharacter(uint64_t nowMs, bool inSave, const LogFunction& log);
 bool InHostWorld();
 }

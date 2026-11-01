@@ -29,6 +29,7 @@ namespace fs = std::filesystem;
 
 constexpr uint64_t SaveWaitMs = 60000;
 constexpr uint64_t RestartFallbackMs = 15000;
+constexpr uint64_t ApplyCharacterAfterMs = 15000;
 constexpr uint64_t QuitAfterRestartAskMs = 3000;
 constexpr uint64_t SaveRetryMs = 2000;
 constexpr uint32_t ChunksPerTick = 8;
@@ -114,6 +115,11 @@ bool ArrivalChecked = false;
 fs::path PluginFolder;
 bool RestartAllowed = true;
 bool CharacterSplice = true;
+uint64_t ApplyCharacterAtMs = 0;
+uint64_t ArrivalNowMs = 0;
+uint64_t TestCaptureAtMs = 0;
+uint64_t TestApplyAtMs = 0;
+std::string TestCaptured;
 
 bool Resolve(const LogFunction& log)
 {
@@ -352,12 +358,61 @@ fs::path OwnCharacterFolder()
     return newest;
 }
 
+std::string CallCharacter(const char* functionName, const std::string& text)
+{
+    auto service = game::ScriptService("NightCoopCharacter");
+    auto* function = game::FindFunction("NightCoopCharacter", functionName);
+    if (!service || !function)
+    {
+        return {};
+    }
+    RED4ext::CString result;
+    RED4ext::CString argument(text.c_str());
+    RED4ext::StackArgs_t args;
+    if (!text.empty() || std::string(functionName) == "Apply")
+    {
+        args.emplace_back(nullptr, &argument);
+    }
+    game::CallMethod(service.instance, function, &result, args);
+    return result.c_str();
+}
+
+void CaptureCharacter(const LogFunction& log)
+{
+    const std::string character = CallCharacter("Capture", "");
+    if (character.empty())
+    {
+        log("handoff: could not read our level and perks");
+        return;
+    }
+    std::error_code error;
+    fs::create_directories(PluginFolder / "handoff", error);
+    std::ofstream(PluginFolder / "handoff" / "character.txt") << character;
+    log("handoff: our level attributes and perks are kept for the hosts world (" + std::to_string(std::count(character.begin(), character.end(), '\n')) +
+        " values)");
+}
+
+void ApplyCharacter(const LogFunction& log)
+{
+    const fs::path file = PluginFolder / "handoff" / "character.txt";
+    std::ifstream input(file);
+    const std::string character((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    std::error_code error;
+    fs::remove(file, error);
+    if (character.empty())
+    {
+        return;
+    }
+    log("handoff: our level attributes and perks in the hosts world: " + CallCharacter("Apply", character));
+}
+
 std::vector<uint8_t> WithOurCharacter(const std::vector<uint8_t>& hostSave, const LogFunction& log)
 {
     if (!CharacterSplice)
     {
         return hostSave;
     }
+    CaptureCharacter(log);
     const fs::path ownFolder = OwnCharacterFolder();
     if (ownFolder.empty())
     {
@@ -551,6 +606,7 @@ void CheckArrival(bool inSave, net::RelaySession& session, const LogFunction& lo
     }
     WrittenFolder = folder;
     Phase = GuestPhase::InHostWorld;
+    ApplyCharacterAtMs = ArrivalNowMs + ApplyCharacterAfterMs;
     SendStatus(session, 7, transferId, "", 0);
     log("handoff: we are in the hosts world now (" + folder + ", after a restart)");
     hud::Show("You are in the host's world", 5.0f);
@@ -573,8 +629,14 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
     {
         return;
     }
+    if (ApplyCharacterAtMs && inSave && nowMs >= ApplyCharacterAtMs)
+    {
+        ApplyCharacterAtMs = 0;
+        ApplyCharacter(log);
+    }
     if (!ArrivalChecked)
     {
+        ArrivalNowMs = nowMs;
         CheckArrival(inSave, session, log);
         if (!ArrivalChecked || Phase == GuestPhase::InHostWorld)
         {
@@ -602,6 +664,7 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
         else if (LeftWorldWhileLoading)
         {
             Phase = GuestPhase::InHostWorld;
+            ApplyCharacterAtMs = nowMs + ApplyCharacterAfterMs;
             SendStatus(session, 7, Arriving.TransferId, "", 0);
             log("handoff: we are in the hosts world now (" + WrittenFolder + ")");
             hud::Show("You are in the host's world", 5.0f);
@@ -784,6 +847,36 @@ void AllowRestart(bool allowed)
 void KeepOurCharacter(bool keep)
 {
     CharacterSplice = keep;
+}
+
+void TestCharacter(uint64_t nowMs, bool inSave, const LogFunction& log)
+{
+    if (!inSave)
+    {
+        return;
+    }
+    if (!TestCaptureAtMs)
+    {
+        TestCaptureAtMs = nowMs + 20000;
+    }
+    if (TestCaptureAtMs != 1 && nowMs >= TestCaptureAtMs)
+    {
+        TestCaptureAtMs = 1;
+        TestCaptured = CallCharacter("Capture", "");
+        TestApplyAtMs = nowMs + 10000;
+        log("test character: captured " + std::to_string(std::count(TestCaptured.begin(), TestCaptured.end(), '\n')) + " values");
+    }
+    if (TestApplyAtMs && nowMs >= TestApplyAtMs)
+    {
+        TestApplyAtMs = 0;
+        log("test character: applied the same values back: " + CallCharacter("Apply", TestCaptured));
+        const std::string after = CallCharacter("Capture", "");
+        log(std::string("test character: a new capture is ") + (after == TestCaptured ? "the same" : "different"));
+        if (after != TestCaptured)
+        {
+            log("test character: before\n" + TestCaptured + "after\n" + after);
+        }
+    }
 }
 
 bool InHostWorld()
