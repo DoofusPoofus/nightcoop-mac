@@ -14,7 +14,7 @@ works in a save with the probe:
 - getting downed n helped up
 - npcs shared both ways with anims states weapons attitude n health. the same person in ur own world becomes the owners puppet instead of a double n npcs get handed over to whoever is nearer (both ways)
 - shooting n quickhacking a partners npc (hit claims n HackSync statuses) n the killer gets the reward
-- quest facts n journal mirror (host to guest) n the hosts quest rewards n calls for a guest (a guest answering or rejecting a call asks the host) n a guests text reply in a phone chat gets picked by the host for evryone (SmsReply)
+- quest facts n journal mirror (host to guest. a guest dropping quest items reading a document or using a device action sends the facts it set to the host) n the hosts quest rewards n calls for a guest (a guest answering or rejecting a call asks the host) n a guests text reply in a phone chat gets picked by the host for evryone (SmsReply)
 - giving items n dropped loot bags
 - carried bodies n team build checks
 - lifts n time of day

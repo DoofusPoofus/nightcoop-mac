@@ -11,13 +11,14 @@
    db ChangeEntryStateByHash thru the script. the hosts tracked entry only gets logged
  facts each player keeps for themself (tutorials wanted level metro holo calls vendor item owned and character retrofix
  facts the lists of nightcoop) are never sent and never taken. the writer fields of nightcoops led story are read and dropped
- not done yet: led story following the hosts tracked objective (TrackModeWord 222) guest fact words (175 / 187 / 246)
+ guest fact words (175 / 187 / 246) live in fact words. not done yet: led story following the hosts tracked objective (TrackModeWord 222)
 */
 #pragma once
 
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace nightcoop_mac::net
@@ -31,4 +32,5 @@ using LogFunction = std::function<void(const std::string&)>;
 
 void Tick(uint64_t nowMs, bool inSave, bool enabled, bool inAnyWorld, net::RelaySession& session, const LogFunction& log);
 void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::RelaySession& session, const LogFunction& log);
+std::vector<std::pair<uint32_t, int32_t>> SharedChanges(const std::vector<std::pair<uint32_t, int32_t>>& before, const std::vector<std::pair<uint32_t, int32_t>>& now);
 }

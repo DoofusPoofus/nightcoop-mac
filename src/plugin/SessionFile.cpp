@@ -143,6 +143,10 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
         {
             plan.TestCharacter = true;
         }
+        else if (keyword == "test_factword")
+        {
+            plan.TestFactWord = true;
+        }
         else if (keyword == "test_teleport")
         {
             plan.TestTeleport = true;

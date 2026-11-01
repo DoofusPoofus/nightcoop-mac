@@ -33,6 +33,8 @@
  then the new save goes out like a join
  PROBE_DEFEAT=<n> tells the host n of its shared npcs (with health above 0) died here (NpcDefeat) the joiner prints NpcDead tables and npc deaths
  PROBE_PUSH=1 says at step 110 that our grenade went off where the joiner stands (PlayerBlast radius 6)
+ PROBE_FACTWORD=1 says at step 130 that we read a document that set nightcoop_mac_probe_doc to 5 (DocumentRead 187). the host
+ prints DocumentRead words from guests and acks them
  PROBE_SMS=1 picks a made up reply in a phone chat at step 140 (SmsReply kind 2) and prints the hosts sms words
  PROBE_PICKUP=<contact> answers a ringing call from that contact at step 150 (PhoneSync request action 2)
  PROBE_KO=1 (with PROBE_NPC) says at step 200 that the host knocked out our npc without killing it (RewardWord kind 2)
@@ -646,7 +648,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto callStartedAt = std::chrono::steady_clock::time_point::max();
     int callPhaseSent = 0;
     uint32_t callCommits = 0;
-    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_QTELE") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
+    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || std::getenv("PROBE_GATE") || std::getenv("PROBE_QTELE") || std::getenv("PROBE_FACTWORD") || std::getenv("PROBE_LOBBY") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
     auto deadline = std::chrono::steady_clock::now() + (staysUp ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
     auto nextReward = std::chrono::steady_clock::now() + 20s;
@@ -926,6 +928,26 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             if (nightcoop_mac::net::ReadNpcDespawn(message.Message, guestNpcGone) && guestNpcGone.Reason == 3)
             {
                 std::printf("probe: npc %#010x of peer %u died (killer %#x)\n", guestNpcGone.NetId, message.FromPeer, guestNpcGone.Killer);
+                continue;
+            }
+            if (nightcoop_mac::net::MessageTypeOf(message.Message) == 187)
+            {
+                nc::proto::Reader word(message.Message.data(), message.Message.size());
+                word.ReadHeader();
+                const uint8_t count = word.GetU8();
+                std::printf("probe: peer %u sent a DocumentRead word with %u fact(s)", message.FromPeer, count);
+                for (uint8_t index = 0; index < count && index < 16; ++index)
+                {
+                    const uint32_t factId = word.GetU32();
+                    const int32_t value = static_cast<int32_t>(word.GetU32());
+                    std::printf(" %#010x=%d", factId, value);
+                }
+                const uint32_t number = word.GetU32();
+                std::printf(" (#%u)\n", number);
+                nc::proto::Writer ack(static_cast<nc::proto::MsgType>(52));
+                ack.PutU8(2);
+                ack.PutU32(number);
+                session.SendGameMessage(ack.Data(), static_cast<int32_t>(message.FromPeer));
                 continue;
             }
             if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::SceneGate))
@@ -1358,6 +1380,16 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             nightcoop_mac::net::PlayerEffect effect {1, std::strtoull(effectText, nullptr, 0), {state.PositionX, state.PositionY, state.PositionZ + 1.0f}, {0, 0, 0, 1}, 0};
             session.SendGameMessage(nightcoop_mac::net::WritePlayerFx({effect}));
             std::printf("probe: shows effect %#llx where the joiner stands (PlayerFx)\n", static_cast<unsigned long long>(effect.Resource));
+        }
+        if (std::getenv("PROBE_FACTWORD") && step == 130)
+        {
+            nc::proto::Writer word(static_cast<nc::proto::MsgType>(187));
+            word.PutU8(1);
+            word.PutU32(nightcoop_mac::net::FactIdOf("nightcoop_mac_probe_doc"));
+            word.PutU32(5);
+            word.PutU32(1);
+            session.SendGameMessage(word.Data(), 0);
+            std::printf("probe: read a document that set nightcoop_mac_probe_doc 5 (DocumentRead)\n");
         }
         if (std::getenv("PROBE_SMS") && step == 140)
         {

@@ -6,7 +6,9 @@ public class NightCoopTeleport extends ScriptableService {
     if !IsDefined(player) {
       return false;
     }
-    GameInstance.GetTeleportationFacility(GetGameInstance()).Teleport(player, new Vector4(x, y, z, 1.0), new EulerAngles(0.0, 0.0, yaw));
+    let angles: EulerAngles;
+    angles.Yaw = yaw;
+    GameInstance.GetTeleportationFacility(GetGameInstance()).Teleport(player, new Vector4(x, y, z, 1.0), angles);
     return true;
   }
 }

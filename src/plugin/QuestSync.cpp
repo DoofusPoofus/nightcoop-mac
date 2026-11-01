@@ -797,4 +797,14 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::Rela
         }
     }
 }
+
+std::vector<std::pair<uint32_t, int32_t>> SharedChanges(const std::vector<std::pair<uint32_t, int32_t>>& before, const std::vector<std::pair<uint32_t, int32_t>>& now)
+{
+    std::vector<std::pair<uint32_t, int32_t>> changes;
+    for (const auto& fact : ChangedFacts(before, now))
+    {
+        changes.push_back({fact.FactId, fact.Value});
+    }
+    return changes;
+}
 }

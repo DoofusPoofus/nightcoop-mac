@@ -53,6 +53,7 @@
 #include "plugin/WorldLoad.hpp"
 #include "plugin/SceneGates.hpp"
 #include "plugin/QuestTeleports.hpp"
+#include "plugin/FactWords.hpp"
 #include "net/NpcMessages.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/Rewards.hpp"
@@ -538,6 +539,11 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
             nightcoop_mac::grenades::OnMessage(message.FromPeer, message.Message, sameWorld, Log);
             nightcoop_mac::player_effects::OnMessage(message.FromPeer, message.Message, sameWorld, Log);
         }
+        else if (nightcoop_mac::fact_words::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
+        {
+            nightcoop_mac::fact_words::OnMessage(message.FromPeer, message.Message, Session->GetStatus().MyPeerNumber == 0,
+                                                 nightcoop_mac::partner_roster::PeerInHostWorld(message.FromPeer) || Plan->QuestsInAnyWorld, *Session, Log);
+        }
         else if (nightcoop_mac::quest_teleports::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {
             nightcoop_mac::quest_teleports::OnMessage(message.FromPeer, message.Message, nightcoop_mac::world_handoff::InHostWorld() || Plan->ScenesAnyWorld,
@@ -704,6 +710,8 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         nightcoop_mac::door_sync::RunTest(nowMs, inSave, LocalStateValid ? &LastLocalState : nullptr, Log);
     }
     nightcoop_mac::quest_teleports::Tick(nowMs, inSave, Plan->TestTeleport, Log);
+    nightcoop_mac::fact_words::Tick(nowMs, inSave, Session->GetStatus().MyPeerNumber != 0 && (nightcoop_mac::world_handoff::InHostWorld() || Plan->QuestsInAnyWorld),
+                                    Plan->TestFactWord, *Session, Log);
     {
         bool partnerHere = false;
         for (const auto& view : RemotePeerViews())
