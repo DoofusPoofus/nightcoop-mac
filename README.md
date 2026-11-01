@@ -19,16 +19,18 @@ works in a save with the probe:
 - carried bodies n team build checks
 - lifts n time of day
 - doors devices n barrels (scripted toggles n blasts go out n a probes requests n blasts happen here too)
+- the hosts dead npc table (NpcDead / NpcDefeat) goes out n a guests reported kills reach the host. the kill itself only works on npcs that have health (background npcs dont)
+- grenade blasts push loose stuff around at the partners (no damage)
 
 dialog votes: the message side works with a probe (votes decided at a shared time n subtitles) but pressing a choice needs a real dialog on screen
 
 first cut but not tried in the game yet: turrets (needs a turret in a fight)
 
-world handoff: a guest gets the hosts save with its own V spliced in (look wardrobe stat pools items stash n other character nodes) n its level attributes perks points n equipped gear get put back after it arrives n since no in game load works on mac the game restarts straight into it. when the session ends the guest goes home the same way n keeps wat it got (items level perks gear) (`handoff_restart off` / `handoff_character off` turn those off)
+world handoff: a guest gets the hosts save with its own V spliced in (look wardrobe stat pools items stash n other character nodes) n its level attributes perks points n equipped gear get put back after it arrives n since no in game load works on mac the game restarts straight into it. when the session ends the guest goes home the same way n keeps wat it got (items level perks gear) (`handoff_restart off` / `handoff_character off` turn those off). when the host loads another save the guest follows (WorldReload 1). the game keeps autosaving while u sit in the hosts world so ur AutoSave folders get kept aside n put back once ur home
 
 npc hits on u only do damage thru a fallback (the game drops the rebuilt hit so the attackers weapon damage gets written straight)
 
-not there yet: item stats n the other player systems from ur own save braindance photo mode police
+not there yet: item stats n the other player systems from ur own save visual grenade copies braindance photo mode police
 
 ## what u need
 
