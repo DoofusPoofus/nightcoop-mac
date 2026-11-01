@@ -31,6 +31,7 @@
    blasts any_world      send our grenade blasts and take the partners blasts and effects in any world not only the same one (testing only)
    test_character        in a save our level attributes and perks get captured and applied back after 30 s (testing only)
    track own             our guests track their own objective (by default they follow the one we track)
+   test_hide             partner bodies get hidden from 20 s to 40 s into a save like in a cutscene (testing only)
    test_factword         15 s into the hosts world we read a made up document that sets a test fact (testing only)
    test_teleport         a quest teleport offer gets taken at once by a posted PageUp hold (testing only)
    test_autosave         40 s after a guest arrived in the hosts world the game gets asked for an autosave (testing only)
@@ -80,6 +81,7 @@ struct SessionPlan
     bool TestTeleport = false;
     bool TestFactWord = false;
     bool TrackHostObjective = true;
+    bool TestHide = false;
     bool RewardsAnyWorld = false;
     bool PhoneAnyWorld = false;
     bool DeathsAnyWorld = false;

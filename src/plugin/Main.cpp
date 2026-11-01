@@ -54,6 +54,7 @@
 #include "plugin/SceneGates.hpp"
 #include "plugin/QuestTeleports.hpp"
 #include "plugin/FactWords.hpp"
+#include "plugin/CutsceneBodies.hpp"
 #include "net/NpcMessages.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/Rewards.hpp"
@@ -709,6 +710,14 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         nightcoop_mac::door_sync::RunTest(nowMs, inSave, LocalStateValid ? &LastLocalState : nullptr, Log);
     }
     nightcoop_mac::quest_teleports::Tick(nowMs, inSave, Plan->TestTeleport, Log);
+    {
+        std::vector<uint32_t> bodyPeers;
+        for (const auto& view : RemotePeerViews())
+        {
+            bodyPeers.push_back(view.PeerNumber);
+        }
+        nightcoop_mac::cutscene_bodies::Tick(nowMs, inSave, Plan->TestHide, bodyPeers, *Bodies, Log);
+    }
     nightcoop_mac::fact_words::Tick(nowMs, inSave, Session->GetStatus().MyPeerNumber != 0 && (nightcoop_mac::world_handoff::InHostWorld() || Plan->QuestsInAnyWorld),
                                     Plan->TestFactWord, *Session, Log);
     {

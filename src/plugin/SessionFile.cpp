@@ -149,6 +149,10 @@ std::optional<SessionPlan> ReadSessionPlan(const std::string& path, std::string&
             words >> mode;
             plan.TrackHostObjective = mode != "own";
         }
+        else if (keyword == "test_hide")
+        {
+            plan.TestHide = true;
+        }
         else if (keyword == "test_factword")
         {
             plan.TestFactWord = true;
