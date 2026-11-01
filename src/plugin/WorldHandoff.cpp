@@ -141,6 +141,8 @@ HostJob CharacterJob;
 uint64_t CharacterStartedMs = 0;
 uint64_t CharacterNextTryMs = 0;
 bool CharacterSaveAsked = false;
+uint32_t SentAheadTransfer = 0;
+bool HostWorldUpFromSentAhead = false;
 bool WeAreInHostWorld = false;
 bool AutosavesChecked = false;
 bool AutosaveTestWanted = false;
@@ -951,6 +953,10 @@ void FinishArrival(net::RelaySession& session, const LogFunction& log)
     {
         return;
     }
+    if (SentAheadTransfer && SentAheadTransfer == Arriving.TransferId && !HostWorldUpFromSentAhead)
+    {
+        return;
+    }
     if (net::WorldFileHash(Arriving.Files[net::kWorldFileSave]) != Arriving.Hashes[net::kWorldFileSave] ||
         net::WorldFileHash(Arriving.Files[net::kWorldFileMetadata]) != Arriving.Hashes[net::kWorldFileMetadata])
     {
@@ -1533,15 +1539,39 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::Rela
     else if (!weAreHost && fromPeer == 0 && type == static_cast<uint8_t>(nc::proto::MsgType::WorldReload) && net::ReadWorldReload(message, worldStatus))
     {
         log("handoff: the host says its world reloads (kind " + std::to_string(worldStatus.Code) + ")");
-        if (worldStatus.Code == 1 && Phase == GuestPhase::InHostWorld)
+        if ((worldStatus.Code == 1 || worldStatus.Code == 2) && Phase == GuestPhase::InHostWorld)
         {
             Arriving = Incoming {};
             CharacterJob = HostJob {};
             CharacterSaveAsked = false;
+            SentAheadTransfer = worldStatus.Code == 2 ? worldStatus.Value : 0;
+            HostWorldUpFromSentAhead = false;
             Phase = GuestPhase::SavingCharacter;
             CharacterStartedMs = SteadyNowMs();
             CharacterNextTryMs = CharacterStartedMs;
             hud::Show("The host loaded another save, you follow", 4.0f);
+        }
+        else if (worldStatus.Code == 3 && SentAheadTransfer && worldStatus.Value == SentAheadTransfer)
+        {
+            HostWorldUpFromSentAhead = true;
+            log("handoff: the hosts world is up from the save it sent ahead");
+            FinishArrival(session, log);
+        }
+        else if (worldStatus.Code == 4 && SentAheadTransfer)
+        {
+            SentAheadTransfer = 0;
+            Arriving = Incoming {};
+            log("handoff: the hosts world came up from another save, a fresh one comes");
+        }
+        else if (worldStatus.Code == 5 && SentAheadTransfer)
+        {
+            SentAheadTransfer = 0;
+            Arriving = Incoming {};
+            if (Phase == GuestPhase::SavingCharacter || Phase == GuestPhase::Waiting)
+            {
+                Phase = GuestPhase::InHostWorld;
+            }
+            log("handoff: the host did not load after all, we stay");
         }
     }
     else if (!weAreHost && fromPeer == 0 && type == static_cast<uint8_t>(nc::proto::MsgType::WorldFile) && net::ReadWorldFile(message, chunk))

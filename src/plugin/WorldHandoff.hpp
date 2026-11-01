@@ -26,7 +26,8 @@
  list callback never comes on mac) so before evry save ManualSave-0 is copied aside and when the game wrote into it the new
  save is moved to the folder we wanted and the copy goes back
  host reloads: when the hosts world comes up again in a session (another save got loaded) evry partner that was in its old world gets
- WorldReload 1 and a new save job. the guest saves its V there first (that save is the character source) then takes the new
+ WorldReload 1 and a new save job. a windows host may send the save it loads ahead (WorldReload 2): we save our V take the file
+ and restart only once it says its world is up from it (3). 4 = another save comes 5 = it did not load so we stay. the guest saves its V there first (that save is the character source) then takes the new
  world like a join
  autosaves: the game keeps autosaving while a guest plays in the hosts world. on arrival our AutoSave folders get cloned into
  handoff/autosaves. evry autosave the game writes there is listed in handoff/host-autosaves.txt and the first start in our own

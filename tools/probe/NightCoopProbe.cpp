@@ -31,6 +31,7 @@
  PROBE_FAR=<meters> moves the joiners walk that far along x from where it was asked to stand
  PROBE_RELOAD=<save folder> (with PROBE_HOST_SAVE) makes the host load that save 60 s after the guest arrived: WorldReload 1
  then the new save goes out like a join
+ PROBE_RELOAD_AHEAD=1 (with PROBE_RELOAD) sends the new save ahead (WorldReload 2) and says its world is up 20 s later (3)
  PROBE_DEFEAT=<n> tells the host n of its shared npcs (with health above 0) died here (NpcDefeat) the joiner prints NpcDead tables and npc deaths
  PROBE_PUSH=1 says at step 110 that our grenade went off where the joiner stands (PlayerBlast radius 6)
  PROBE_FACTWORD=1 says at step 130 that we read a document that set nightcoop_mac_probe_doc to 5 (DocumentRead 187). the host
@@ -666,6 +667,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     bool deadSent = false;
     auto reloadAt = std::chrono::steady_clock::time_point::max();
     uint32_t reloadPeer = 0;
+    auto worldUpAt = std::chrono::steady_clock::time_point::max();
     bool lobbySent = false;
     auto gateStartedAt = std::chrono::steady_clock::time_point::max();
     uint8_t gateStateSent = 0;
@@ -745,11 +747,23 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             session.SendGameMessage(lobby.Data());
             std::printf("probe: started ManualSave-46 from our lobby (LobbyStart)\n");
         }
+        if (worldUpAt != std::chrono::steady_clock::time_point::max() && std::chrono::steady_clock::now() >= worldUpAt)
+        {
+            worldUpAt = std::chrono::steady_clock::time_point::max();
+            session.SendGameMessage(nightcoop_mac::net::WriteWorldReload({3, servingTransfer, "probe world up"}), static_cast<int32_t>(servingPeer));
+            std::printf("probe: our world is up from the save we sent ahead (WorldReload 3 #%u)\n", servingTransfer);
+        }
         if (reloadSave && reloadPeer && std::chrono::steady_clock::now() >= reloadAt)
         {
             reloadAt = std::chrono::steady_clock::time_point::max();
             std::printf("probe: we load another save (%s), peer %u gets it\n", reloadSave, reloadPeer);
-            session.SendGameMessage(nightcoop_mac::net::WriteWorldReload({1, 0, "probe reload"}), static_cast<int32_t>(reloadPeer));
+            const bool sendAhead = std::getenv("PROBE_RELOAD_AHEAD") != nullptr;
+            session.SendGameMessage(nightcoop_mac::net::WriteWorldReload({static_cast<uint8_t>(sendAhead ? 2 : 1), sendAhead ? servingTransfer + 1 : 0, "probe reload"}),
+                                    static_cast<int32_t>(reloadPeer));
+            if (sendAhead)
+            {
+                worldUpAt = std::chrono::steady_clock::now() + 20s;
+            }
             std::ifstream save(std::string(reloadSave) + "/sav.dat", std::ios::binary);
             saveBytes.assign(std::istreambuf_iterator<char>(save), std::istreambuf_iterator<char>());
             std::ifstream metadata(std::string(reloadSave) + "/metadata.9.json", std::ios::binary);
