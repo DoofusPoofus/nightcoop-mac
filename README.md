@@ -6,46 +6,41 @@ not affiliated with nightcoop or cd projekt red. on windows just use the real ni
 
 ## status
 
-early. evrything below is only checked against the headless test client (`tools/probe`) on a local hub never against a real windows nightcoop or a second mac
+early. evrything below is only checked against the headless test client (`tools/probe`) on a local hub never against a real windows nightcoop or a second mac. stuff marked (untried) only got its messages checked
 
-works in a save with the probe:
-- partner body with look clothes guns anims name plate n map pin (hidden while a cutscene holds ur player. a windows host hears which of its scenes a guest plays so it hides the guest too)
-- cars n riding together both ways n taking the wheel of a partners car nobody drives (VehicleHandover. the driver keeps it). passengers hear the drivers radio n can switch it (CarsWord). in quest rides (a scene holds u in an npcs car) the car isnt shared, partners get ur seat in their own copy of it (VehicleSceneSeat)
-- getting downed n helped up
-- npcs shared both ways with anims states weapons attitude n health. the same person in ur own world becomes the owners puppet instead of a double n npcs get handed over to whoever is nearer (both ways)
-- shooting n quickhacking a partners npc (hit claims n HackSync statuses) n the killer gets the reward
-- quest facts n journal mirror (host to guest. a guest dropping quest items reading a document or using a device action sends the facts it set to the host. guests track the hosts objective unless the host says track own) n the hosts quest rewards n calls for a guest (a guest answering or rejecting a call asks the host) n a guests text reply in a phone chat gets picked by the host for evryone (SmsReply)
-- giving items n dropped loot bags
-- carried bodies n team build checks
-- lifts n time of day
-- doors devices n barrels (scripted toggles n blasts go out n a probes requests n blasts happen here too)
-- the hosts dead npc table (NpcDead / NpcDefeat) goes out n a guests reported kills reach the host. the kill itself is not confirmed yet (the tests ran while the game window had no focus so the world stood still)
-- grenade blasts push loose stuff around at the partners (no damage)
-- a shared npcs corpse loot is the owners: the partners copy drops none of its own n the owners list shows as a bag (first cut, the bag needs a running world to check)
-- car dents n flat tires go both ways (VehicleDamage. the grid sits at [car + 0x538] + 0x100 on mac 2.5.0 n gets checked against the first partner dents)
-- running over a partners npc gives ur own game the police heat (NpcCarHit)
-- a partners car hitting u (VehicleHit) plays the games own car hit on ur player (first cut, the knockdown isnt checked yet)
-- effects a windows partner draws (PlayerFx: rockets explosive rounds slams) show up here, sending ours isnt there
-- a partner opening photo mode in ur world shows a hint (PhotoTogether) n ours goes out
-- tagging an npc (scanner tag) shows the tag for partners too (NpcTag)
-- we tell the host our loading n story state so its loading n story holds dont wait on us (WorldLoad StoryHold) n a host starting from its lobby shows a hint (LobbyStart). a host kick makes us leave the session (Kick)
-- a windows hosts scene gates (talks that wait for evryone at the npc) hear from us by distance to the host (SceneGate) so they dont wait forever. holding our own scene nodes still needs native hooks
-- when the game moves the host far away or the host calls u over to a talk a guest gets an offer n follows by holding PageUp (fn + up) (QuestTeleport StoryPull)
-- in a braindance the host leads the tape (guests jump to its time n take its speed, first cut untried in a real braindance)
-- a partner skipping a talk fast forwards the scene that holds u (SceneLineSkip, first cut untried in a real scene) n we tell them when we may skip
-- police shooting at a partners body starts that partners own police fight (PoliceFight). the shared wanted level n police units arent there yet
+seeing each other
+- partner body with look clothes guns anims name plate n map pin. hidden while a cutscene holds ur player or when it stands inside u
+- getting downed n helped up. carried bodies n team build checks. photo mode hint (PhotoTogether). npc tags (NpcTag)
 
-dialog votes: the message side works with a probe (votes decided at a shared time n subtitles) but pressing a choice needs a real dialog on screen
+cars
+- cars n riding together both ways. taking the wheel of a partners car nobody drives (VehicleHandover, the driver keeps it)
+- the drivers radio for passengers (CarsWord). quest rides arent shared, partners sit in their own copy (VehicleSceneSeat)
+- dents n flat tires both ways (VehicleDamage, the grid sits at [car + 0x538] + 0x100 on mac 2.5.0)
+- a partners car hitting u (VehicleHit, the knockdown is untried) n running over a partners npc gives u the police heat (NpcCarHit)
 
-first cut but not tried in the game yet: turrets (needs a turret in a fight)
+fights n npcs
+- npcs shared both ways (anims states weapons attitude health). the same person in ur world becomes the owners puppet. npcs get handed to whoever is nearer
+- hit claims n HackSync quickhacks. the killer gets the reward n a partner knocking out ur npc gets its own (RewardWord 2)
+- the hosts dead npc table (NpcDead / NpcDefeat) n shared corpse loot (the kill n the loot bag are untried, they need a running world)
+- grenade blasts push stuff around (PlayerBlast). a windows partners effects show here (PlayerFx). police shooting at a partner starts their own police fight (PoliceFight)
+- npc hits on u only do damage thru a fallback (the game drops the rebuilt hit so the attackers weapon damage gets written straight)
 
-world handoff: a guest gets the hosts save with its own V spliced in (look wardrobe stat pools items stash n other character nodes) n its level attributes perks points n equipped gear get put back after it arrives n since no in game load works on mac the game restarts straight into it. when the session ends the guest goes home the same way n keeps wat it got (items level perks gear) (`handoff_restart off` / `handoff_character off` turn those off). when the host loads another save the guest follows (WorldReload 1). after the first restart later handoffs skip the dead in game loads n restart right away. the game keeps autosaving while u sit in the hosts world so ur AutoSave folders get kept aside n put back once ur home
+quests n story
+- quest facts n journal mirror host to guest. a guest dropping quest items reading a document or using a device action sends its facts to the host. guests track the hosts objective
+- the hosts quest rewards n phone calls (a guest answering or rejecting asks the host) n text replies picked by the host for evryone (SmsReply)
+- dialog votes (message side only, pressing a choice needs a real dialog on screen)
+- a windows hosts scene gates hear from us by distance. we tell it which of its scenes we play n our loading n story state (SceneGate QuestScene WorldLoad StoryHold)
+- a host moved far away or calling u over gives an offer, hold PageUp (fn + up) to go (QuestTeleport StoryPull)
+- scene skips fast forward the others (untried) n the host leads braindance tapes (untried)
 
-npc hits on u only do damage thru a fallback (the game drops the rebuilt hit so the attackers weapon damage gets written straight)
+world
+- doors (automatic ones open for partner bodies) devices barrels lifts (a quest lift waits until evryone is in the cab) n time of day
+- giving items n dropped loot bags. turrets are a first cut (untried, needs a fight)
+- lobby hint n host kick (LobbyStart Kick)
 
-the quality plus upgrade n iconic stats of ur equipped items get checked after a handoff n put back if they differ (they came along fine so far)
+world handoff: a guest gets the hosts save with its own V spliced in (look wardrobe stat pools items stash n other character nodes) n its level attributes perks points equipped gear n their stats get put back after it arrives. since no in game load works on mac the game restarts straight into it (later handoffs skip the dead in game loads). when the session ends the guest goes home the same way n keeps wat it got. host reloads are followed (WorldReload 1..5 WorldStatus 9). the game keeps autosaving while u sit in the hosts world so ur AutoSave folders get kept aside n put back once ur home. the mac host serves its own save too n tells a guest why it waits while saving is locked (`handoff_restart off` / `handoff_character off` turn the restart n the splice off)
 
-not there yet: the other player systems from ur own save (crafting recipes n co) visual grenade copies braindance ghosts n clues photo poses shared police units holding our own scene gates (native hooks)
+not there yet: the other player systems from ur own save (crafting recipes n co) visual grenade copies braindance ghosts n clues photo poses shared police units holding our own scene gates (native hooks). the game pauses when its window loses focus (so does a mac hosts world for evryone)
 
 ## what u need
 
