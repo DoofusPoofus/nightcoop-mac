@@ -9,7 +9,7 @@
  usage: nightcoop_probe host HUB [states to wait for] | join CODE HUB [X Y Z [STEPS [LOOKFILE [CLOTHESFILE]]]] | watch CODE HUB [seconds]
  CLOTHESFILE is a PlayerLook (31) as it is (the plugin writes own-clothes.bin) sent right after the look
  its look (PlayerCustomization 33) is LOOKFILE as it is (the plugin writes own-look.bin) or a male look with no parts
- PROBE_LEAVE_AFTER_ARRIVAL=1 makes such a host leave 20 s after a guest says it arrived (WorldStatus 7)
+ PROBE_LEAVE_AFTER_ARRIVAL=1 makes such a host leave 20 s after a guest says it arrived (WorldStatus 7. with PROBE_RELOAD after the reload)
  PROBE_HOST_SAVE=<save folder> makes the host say it is in its world (SessionRoster) and answer a WorldWant with that
  folders metadata.*.json and sav.dat (WorldStatus 3 + WorldFile chunks) printing what the guest says back
  PROBE_CLOCK=<game seconds> makes the host send that GameClock evry 5 s to its guests and stay up for 10 min
@@ -29,6 +29,11 @@
  PROBE_BLAST=0x<device key> [PROBE_BLAST_X/Y/Z] says at step 100 that our player blew up that barrel (DeviceBlast)
  PROBE_DEVICE_ECHO=1 sends evry device action the host shares back to it as our own request 40 steps later
  PROBE_FAR=<meters> moves the joiners walk that far along x from where it was asked to stand
+ PROBE_RELOAD=<save folder> (with PROBE_HOST_SAVE) makes the host load that save 60 s after the guest arrived: WorldReload 1
+ then the new save goes out like a join
+ PROBE_DEFEAT=<n> tells the host n of its shared npcs (with health above 0) died here (NpcDefeat) the joiner prints NpcDead tables and npc deaths
+ PROBE_PUSH=1 says at step 110 that our grenade went off where the joiner stands (PlayerBlast radius 6)
+ PROBE_DEAD=1 on the host says the first npc a guest shares 40 s on died in our world (NpcDead) and prints NpcDefeat
  PROBE_TAKE=1 takes the first npc the host hands over (NpcHandoffAck + NpcClaim 3), owns it for 100 steps and lets it go,
  without it evry offer gets refused
  PROBE_OFFER=1 (with PROBE_NPC) hands its npc to the host at step 120 and stops driving it
@@ -80,6 +85,7 @@
 #include "net/CombatMessages.hpp"
 #include "net/QuestMessages.hpp"
 #include "net/PlayerExtrasMessages.hpp"
+#include "net/GrenadeMessages.hpp"
 
 #include <Log.hpp>
 #include <NetCrypto.hpp>
@@ -627,7 +633,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     auto callStartedAt = std::chrono::steady_clock::time_point::max();
     int callPhaseSent = 0;
     uint32_t callCommits = 0;
-    const bool staysUp = clock || hostSave || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
+    const bool staysUp = clock || hostSave || std::getenv("PROBE_DEAD") || loot.Enabled() || probeDoorKey || dialogPlan.Enabled || probeQuests || probeReward || probeCall;
     auto deadline = std::chrono::steady_clock::now() + (staysUp ? 600s : ProbeTimeout);
     auto nextRoster = std::chrono::steady_clock::now();
     auto nextReward = std::chrono::steady_clock::now() + 20s;
@@ -637,8 +643,32 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
     size_t saveSent = 0;
     size_t metadataSent = 0;
     uint32_t servingPeer = 0;
+    uint32_t servingTransfer = 1;
+    const char* reloadSave = std::getenv("PROBE_RELOAD");
+    const bool probeDead = std::getenv("PROBE_DEAD") != nullptr;
+    auto deadAfter = std::chrono::steady_clock::time_point::max();
+    bool deadSent = false;
+    auto reloadAt = std::chrono::steady_clock::time_point::max();
+    uint32_t reloadPeer = 0;
     while (std::chrono::steady_clock::now() < deadline)
     {
+        if (reloadSave && reloadPeer && std::chrono::steady_clock::now() >= reloadAt)
+        {
+            reloadAt = std::chrono::steady_clock::time_point::max();
+            std::printf("probe: we load another save (%s), peer %u gets it\n", reloadSave, reloadPeer);
+            session.SendGameMessage(nightcoop_mac::net::WriteWorldReload({1, 0, "probe reload"}), static_cast<int32_t>(reloadPeer));
+            std::ifstream save(std::string(reloadSave) + "/sav.dat", std::ios::binary);
+            saveBytes.assign(std::istreambuf_iterator<char>(save), std::istreambuf_iterator<char>());
+            std::ifstream metadata(std::string(reloadSave) + "/metadata.9.json", std::ios::binary);
+            metadataBytes.assign(std::istreambuf_iterator<char>(metadata), std::istreambuf_iterator<char>());
+            saveSent = 0;
+            metadataSent = 0;
+            servingPeer = reloadPeer;
+            ++servingTransfer;
+            session.SendGameMessage(nightcoop_mac::net::WriteWorldStatus({3, servingTransfer, "probe-reload-save"}), static_cast<int32_t>(servingPeer));
+            reloadSave = nullptr;
+            deadline = std::max(deadline, std::chrono::steady_clock::now() + 400s);
+        }
         if (probeCall && session.GetStatus().ConnectedPeers > 0)
         {
             const auto now = std::chrono::steady_clock::now();
@@ -796,6 +826,37 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
                 questPeers.insert(message.FromPeer);
                 std::fflush(stdout);
             }
+            nightcoop_mac::net::NpcSpawn guestNpc;
+            nightcoop_mac::net::NpcDespawn guestNpcGone;
+            std::vector<nightcoop_mac::net::DeadPerson> guestDead;
+            uint64_t guestClock = 0;
+            if (probeDead && !deadSent && nightcoop_mac::net::ReadNpcSpawn(message.Message, guestNpc) && !guestNpc.Crowd)
+            {
+                if (deadAfter == std::chrono::steady_clock::time_point::max())
+                {
+                    deadAfter = std::chrono::steady_clock::now() + 40s;
+                }
+                if (std::chrono::steady_clock::now() >= deadAfter)
+                {
+                    deadSent = true;
+                    nightcoop_mac::net::DeadPerson person {guestNpc.OwnerEntity, guestNpc.Record, guestNpc.MatchKeyA, guestNpc.MatchKeyB,
+                                                           {guestNpc.Position[0], guestNpc.Position[1], guestNpc.Position[2]}, 0};
+                    session.SendGameMessage(nightcoop_mac::net::WriteNpcDead(false, {person}), static_cast<int32_t>(message.FromPeer));
+                    std::printf("probe: says npc %#010x of peer %u (entity %#llx record %#llx) died in our world\n", guestNpc.NetId, message.FromPeer,
+                                static_cast<unsigned long long>(guestNpc.OwnerEntity), static_cast<unsigned long long>(guestNpc.Record));
+                }
+                continue;
+            }
+            if (nightcoop_mac::net::ReadNpcDespawn(message.Message, guestNpcGone) && guestNpcGone.Reason == 3)
+            {
+                std::printf("probe: npc %#010x of peer %u died (killer %#x)\n", guestNpcGone.NetId, message.FromPeer, guestNpcGone.Killer);
+                continue;
+            }
+            if (nightcoop_mac::net::ReadNpcDefeat(message.Message, guestClock, guestDead))
+            {
+                std::printf("probe: peer %u says %zu of its npcs died (NpcDefeat)\n", message.FromPeer, guestDead.size());
+                continue;
+            }
             if (loot.OnMessage(message.FromPeer, message.Message))
             {
                 continue;
@@ -815,7 +876,13 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             else if (nightcoop_mac::net::ReadWorldStatus(message.Message, worldStatus))
             {
                 std::printf("probe: peer %u says world status %u %s\n", message.FromPeer, worldStatus.Code, worldStatus.Text.c_str());
-                if (worldStatus.Code == 7 && std::getenv("PROBE_LEAVE_AFTER_ARRIVAL"))
+                if (worldStatus.Code == 7 && reloadSave && !reloadPeer)
+                {
+                    reloadPeer = message.FromPeer;
+                    reloadAt = std::chrono::steady_clock::now() + 60s;
+                    std::printf("probe: the guest is in our world, we load another save in 60 s\n");
+                }
+                if (worldStatus.Code == 7 && std::getenv("PROBE_LEAVE_AFTER_ARRIVAL") && !reloadSave)
                 {
                     deadline = std::min(deadline, std::chrono::steady_clock::now() + 20s);
                     std::printf("probe: the guest is in our world, we leave in 20 s\n");
@@ -828,7 +895,7 @@ int RunHost(nightcoop_mac::net::RelaySession& session, int statesToWaitFor)
             const auto& bytes = metadataFirst ? metadataBytes : saveBytes;
             size_t& sent = metadataFirst ? metadataSent : saveSent;
             nightcoop_mac::net::WorldFile chunk;
-            chunk.TransferId = 1;
+            chunk.TransferId = servingTransfer;
             chunk.Kind = metadataFirst ? nightcoop_mac::net::kWorldFileMetadata : nightcoop_mac::net::kWorldFileSave;
             chunk.TotalSize = static_cast<uint32_t>(bytes.size());
             static uint64_t metadataHash = 0;
@@ -1041,6 +1108,9 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
     uint32_t probeClaimNumber = 0;
     uint32_t hostClaimResults = 0;
     uint32_t firstHostNpc = 0;
+    bool defeatSent = false;
+    std::set<uint32_t> defeatedNpcs;
+    std::map<uint32_t, float> hostNpcHealth;
     nightcoop_mac::net::NpcSpawn mirroredNpc;
     bool mirrorChosen = false;
     bool mirrorReleased = false;
@@ -1172,6 +1242,12 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             seat.NetId = probeCarNetId;
             seat.Slot = NameHash("seat_front_left");
             session.SendGameMessage(nightcoop_mac::net::WriteVehicleSeat(seat), nightcoop_mac::net::kEveryPeer, step == 0);
+        }
+        if (std::getenv("PROBE_PUSH") && step == 110)
+        {
+            nightcoop_mac::net::Blast blast {{state.PositionX, state.PositionY, state.PositionZ}, 6.0f, 0x5EED0001ULL};
+            session.SendGameMessage(nightcoop_mac::net::WritePlayerBlast({blast}));
+            std::printf("probe: our grenade went off at %.1f %.1f %.1f (PlayerBlast radius 6)\n", state.PositionX, state.PositionY, state.PositionZ);
         }
         if (const char* hitRecord = std::getenv("PROBE_HIT"); hitRecord && std::getenv("PROBE_NPC") && !probeNpcDead && step > 60 && step % 40 == 0)
         {
@@ -1544,11 +1620,32 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             }
             nightcoop_mac::net::NpcSpawn hostNpc;
             nightcoop_mac::net::NpcDespawn hostNpcGone;
+            bool fullDeadTable = false;
+            std::vector<nightcoop_mac::net::DeadPerson> hostDead;
+            if (nightcoop_mac::net::ReadNpcDead(message.Message, fullDeadTable, hostDead))
+            {
+                std::printf("probe: NpcDead from peer %u: %s%zu npcs (first entity %#llx record %#llx)\n", message.FromPeer, fullDeadTable ? "whole table " : "",
+                            hostDead.size(), hostDead.empty() ? 0ULL : static_cast<unsigned long long>(hostDead[0].Entity),
+                            hostDead.empty() ? 0ULL : static_cast<unsigned long long>(hostDead[0].Record));
+                continue;
+            }
             if (nightcoop_mac::net::ReadNpcSpawn(message.Message, hostNpc))
             {
                 if (!firstHostNpc)
                 {
                     firstHostNpc = hostNpc.NetId;
+                }
+                const int defeatsWanted = std::getenv("PROBE_DEFEAT") ? std::max(1, std::atoi(std::getenv("PROBE_DEFEAT"))) : 0;
+                const auto knownHealth = hostNpcHealth.find(hostNpc.NetId);
+                if (defeatsWanted && !defeatSent && step > 60 && !hostNpc.Crowd && knownHealth != hostNpcHealth.end() && knownHealth->second > 0.0f &&
+                    defeatedNpcs.insert(hostNpc.NetId).second)
+                {
+                    defeatSent = static_cast<int>(defeatedNpcs.size()) >= defeatsWanted;
+                    nightcoop_mac::net::DeadPerson person {hostNpc.OwnerEntity, hostNpc.Record, hostNpc.MatchKeyA, hostNpc.MatchKeyB,
+                                                           {hostNpc.Position[0], hostNpc.Position[1], hostNpc.Position[2]}, 1};
+                    session.SendGameMessage(nightcoop_mac::net::WriteNpcDefeat(session.SessionClockMs(), {person}), 0);
+                    std::printf("probe: tells the host its npc %#010x (entity %#llx record %#llx) died here\n", hostNpc.NetId,
+                                static_cast<unsigned long long>(hostNpc.OwnerEntity), static_cast<unsigned long long>(hostNpc.Record));
                 }
                 if (std::getenv("PROBE_MIRROR") && !mirrorChosen && step > 20)
                 {
@@ -1569,12 +1666,17 @@ int RunGuest(nightcoop_mac::net::RelaySession& session)
             if (nightcoop_mac::net::ReadNpcDespawn(message.Message, hostNpcGone))
             {
                 ++hostNpcsGone;
+                if (hostNpcGone.Reason == 3)
+                {
+                    std::printf("probe: the hosts npc %#010x died (killer %#x)\n", hostNpcGone.NetId, hostNpcGone.Killer);
+                }
                 continue;
             }
             nightcoop_mac::net::NpcSnapshot hostNpcState;
             if (nightcoop_mac::net::ReadNpcSnapshot(message.Message, hostNpcState))
             {
                 ++hostNpcSnapshots;
+                hostNpcHealth[hostNpcState.NetId] = hostNpcState.Health;
                 hostNpcsArmed += hostNpcState.RightHandItem ? 1 : 0;
                 hostNpcsStated += (hostNpcState.States[0] || hostNpcState.States[2]) ? 1 : 0;
                 hostNpcHighLevels.insert(hostNpcState.States[2]);

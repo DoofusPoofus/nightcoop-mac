@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -35,6 +36,7 @@ class RelaySession;
 struct NpcSnapshot;
 struct NpcSpawn;
 struct NpcHandoffAck;
+struct DeadPerson;
 }
 
 class NpcShare
@@ -57,6 +59,7 @@ public:
     bool TakeHanded(uint32_t netId, uint64_t entityHash, const net::NpcSpawn& spawn, uint64_t nowMs);
     void OnHandoffAck(uint32_t fromPeer, const net::NpcHandoffAck& ack, uint64_t nowMs, const HandedAway& handedAway);
     void SetPuppetCheck(std::function<bool(uint64_t)> isPartnerPuppet) { m_isPartnerPuppet = std::move(isPartnerPuppet); }
+    void SetDeathWatch(std::function<void(const net::DeadPerson&)> onDeath) { m_onDeath = std::move(onDeath); }
     uint64_t EntityOfNetId(uint32_t netId) const;
     uint32_t NetIdOfEntity(uint64_t entityHash) const;
     bool RecentlyDied(uint32_t netId, uint64_t nowMs) const;
@@ -102,6 +105,8 @@ private:
 
     LogFunction m_log;
     std::function<bool(uint64_t)> m_isPartnerPuppet;
+    std::function<void(const net::DeadPerson&)> m_onDeath;
+    std::set<uint64_t> m_deadSeen;
     bool m_resolved = false;
     bool m_usable = false;
     RED4ext::CBaseFunction* m_getEntityList = nullptr;

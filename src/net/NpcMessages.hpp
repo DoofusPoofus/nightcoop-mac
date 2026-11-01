@@ -17,6 +17,10 @@
    u64 the receivers entity id of the body it took
  NpcClaim (28) new owner -> evryone reliable 9 bytes: u32 net id | u8 kind (1 orphan 2 by the claim rules 3 after a handoff) | u32
    the peer it was taken from
+ NpcDead (36) host -> evryone in its world reliable 3 + 44 n bytes: u8 1 full table 0 only new ones | u16 n (up to 1024) | n x
+   (u64 the hosts entity id | u64 record | u64 match key a | u64 match key b | f32 x3 place) full table evry 30 s
+ NpcDefeat (98) guest -> host reliable 9 + 45 n bytes: u64 senders session clock | u8 n (up to 32) | n x (the same 44 bytes |
+   u8 flag)
  readers drop not finite floats positions past 100 km and bytes left over
 */
 #pragma once
@@ -90,6 +94,19 @@ inline constexpr uint8_t kClaimByRules = 2;
 inline constexpr uint8_t kClaimAfterHandoff = 3;
 inline constexpr uint8_t kHandoffNoBody = 1;
 
+struct DeadPerson
+{
+    uint64_t Entity = 0;
+    uint64_t Record = 0;
+    uint64_t MatchKeyA = 0;
+    uint64_t MatchKeyB = 0;
+    float Position[3] = {0, 0, 0};
+    uint8_t Flag = 0;
+};
+
+inline constexpr size_t kMostDeadInTable = 1024;
+inline constexpr size_t kMostDefeatsAtOnce = 32;
+
 struct NpcClaim
 {
     uint32_t NetId = 0;
@@ -109,4 +126,8 @@ std::vector<uint8_t> WriteNpcHandoffAck(const NpcHandoffAck& ack);
 bool ReadNpcHandoffAck(const std::vector<uint8_t>& message, NpcHandoffAck& ack);
 std::vector<uint8_t> WriteNpcClaim(const NpcClaim& claim);
 bool ReadNpcClaim(const std::vector<uint8_t>& message, NpcClaim& claim);
+std::vector<uint8_t> WriteNpcDead(bool fullTable, const std::vector<DeadPerson>& people);
+bool ReadNpcDead(const std::vector<uint8_t>& message, bool& fullTable, std::vector<DeadPerson>& people);
+std::vector<uint8_t> WriteNpcDefeat(uint64_t senderClockMs, const std::vector<DeadPerson>& people);
+bool ReadNpcDefeat(const std::vector<uint8_t>& message, uint64_t& senderClockMs, std::vector<DeadPerson>& people);
 }

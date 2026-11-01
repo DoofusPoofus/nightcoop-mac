@@ -17,6 +17,7 @@
 #include "net/DroppedMessages.hpp"
 #include "net/PlayerExtrasMessages.hpp"
 #include "net/SessionMessages.hpp"
+#include "net/GrenadeMessages.hpp"
 
 #include <cstdio>
 #include <string>
@@ -968,6 +969,54 @@ int main()
         Check(npcClaimBytes.size() == 5 + 9 && ReadNpcClaim(npcClaimBytes, npcClaimBack) && npcClaimBack.Kind == kClaimAfterHandoff, "npc claim is 9 bytes");
         npcClaim.Kind = 4;
         Check(!ReadNpcClaim(WriteNpcClaim(npcClaim), npcClaimBack), "a claim kind past 3 is refused");
+    }
+
+    {
+        DeadPerson goner {0x1234567890ABCDEFULL, 0x222a16d43eULL, 0x55, 0x66, {10.0f, -20.0f, 3.5f}, 1};
+        bool fullTable = false;
+        std::vector<DeadPerson> deadBack;
+        const auto deadBytes = WriteNpcDead(true, {goner, goner});
+        Check(deadBytes.size() == 5 + 3 + 2 * 44 && deadBytes[4] == 36 && ReadNpcDead(deadBytes, fullTable, deadBack) && fullTable && deadBack.size() == 2 &&
+                  deadBack[1].Record == 0x222a16d43eULL && deadBack[1].Position[2] == 3.5f,
+              "npc dead table is 3 + 44 per npc");
+        uint64_t senderClock = 0;
+        const auto defeatBytes = WriteNpcDefeat(777, {goner});
+        Check(defeatBytes.size() == 5 + 9 + 45 && defeatBytes[4] == 98 && ReadNpcDefeat(defeatBytes, senderClock, deadBack) && senderClock == 777 &&
+                  deadBack.size() == 1 && deadBack[0].Flag == 1 && deadBack[0].MatchKeyB == 0x66,
+              "npc defeat is 9 + 45 per npc");
+        goner.Position[0] = 1e9f;
+        Check(!ReadNpcDead(WriteNpcDead(false, {goner}), fullTable, deadBack), "a dead npc past 100 km is refused");
+        auto shortDead = deadBytes;
+        shortDead.pop_back();
+        Check(!ReadNpcDead(shortDead, fullTable, deadBack), "a dead table with a byte missing is refused");
+    }
+
+    {
+        GrenadeState grenade;
+        grenade.Owner = 2;
+        grenade.Number = 9;
+        grenade.Stage = kGrenadeFlying;
+        grenade.ItemRecord = 0x1122334455ULL;
+        grenade.Position[1] = 40.0f;
+        grenade.SenderClockMs = 1234;
+        bool playerGrenade = false;
+        GrenadeState grenadeBack;
+        const auto grenadeBytes = WriteGrenade(true, grenade);
+        Check(grenadeBytes.size() == 66 && grenadeBytes[4] == 99 && ReadGrenade(grenadeBytes, playerGrenade, grenadeBack) && playerGrenade &&
+                  grenadeBack.Stage == kGrenadeFlying && grenadeBack.Position[1] == 40.0f && grenadeBack.Orientation[3] == 1.0f && grenadeBack.SenderClockMs == 1234,
+              "player grenade is 66 bytes");
+        const auto npcGrenadeBytes = WriteGrenade(false, grenade);
+        Check(npcGrenadeBytes[4] == 24 && ReadGrenade(npcGrenadeBytes, playerGrenade, grenadeBack) && !playerGrenade, "npc grenade has the same body");
+        grenade.Stage = 5;
+        Check(!ReadGrenade(WriteGrenade(true, grenade), playerGrenade, grenadeBack), "a grenade stage past 4 is refused");
+        Blast blast {{1.0f, 2.0f, 3.0f}, 8.0f, 0xABCDULL};
+        std::vector<Blast> blastsBack;
+        const auto blastBytes = WritePlayerBlast({blast});
+        Check(blastBytes.size() == 5 + 1 + 24 && blastBytes[4] == 131 && ReadPlayerBlast(blastBytes, blastsBack) && blastsBack.size() == 1 && blastsBack[0].Radius == 8.0f &&
+                  blastsBack[0].Id == 0xABCDULL,
+              "player blast is 1 + 24 per blast");
+        blast.Radius = 150.0f;
+        Check(!ReadPlayerBlast(WritePlayerBlast({blast}), blastsBack), "a blast radius past 100 is refused");
     }
 
     std::printf("%s\n", FailedChecks ? "some checks failed" : "all game message checks passed");

@@ -243,4 +243,108 @@ bool ReadNpcDespawn(const std::vector<uint8_t>& message, NpcDespawn& despawn)
     despawn.Killer = reader.GetU32();
     return reader.Ok() && reader.Remaining() == 0 && despawn.Reason <= 3;
 }
+namespace
+{
+void PutDeadPerson(nc::proto::Writer& writer, const DeadPerson& person)
+{
+    writer.PutU64(person.Entity);
+    writer.PutU64(person.Record);
+    writer.PutU64(person.MatchKeyA);
+    writer.PutU64(person.MatchKeyB);
+    for (float coordinate : person.Position)
+    {
+        writer.PutF32(coordinate);
+    }
+}
+
+bool GetDeadPerson(nc::proto::Reader& reader, DeadPerson& person)
+{
+    person.Entity = reader.GetU64();
+    person.Record = reader.GetU64();
+    person.MatchKeyA = reader.GetU64();
+    person.MatchKeyB = reader.GetU64();
+    for (float& coordinate : person.Position)
+    {
+        coordinate = reader.GetF32();
+    }
+    return reader.Ok() && PositionOk(person.Position);
+}
+}
+
+std::vector<uint8_t> WriteNpcDead(bool fullTable, const std::vector<DeadPerson>& people)
+{
+    const size_t count = std::min(people.size(), kMostDeadInTable);
+    nc::proto::Writer writer(nc::proto::MsgType::NpcDead);
+    writer.PutU8(fullTable ? 1 : 0);
+    writer.PutU16(static_cast<uint16_t>(count));
+    for (size_t index = 0; index < count; ++index)
+    {
+        PutDeadPerson(writer, people[index]);
+    }
+    return writer.Data();
+}
+
+bool ReadNpcDead(const std::vector<uint8_t>& message, bool& fullTable, std::vector<DeadPerson>& people)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::NpcDead)
+    {
+        return false;
+    }
+    const uint8_t full = reader.GetU8();
+    const uint16_t count = reader.GetU16();
+    if (!reader.Ok() || full > 1 || count > kMostDeadInTable || reader.Remaining() != count * 44u)
+    {
+        return false;
+    }
+    fullTable = full == 1;
+    people.assign(count, {});
+    for (auto& person : people)
+    {
+        if (!GetDeadPerson(reader, person))
+        {
+            return false;
+        }
+    }
+    return reader.Remaining() == 0;
+}
+
+std::vector<uint8_t> WriteNpcDefeat(uint64_t senderClockMs, const std::vector<DeadPerson>& people)
+{
+    const size_t count = std::min(people.size(), kMostDefeatsAtOnce);
+    nc::proto::Writer writer(nc::proto::MsgType::NpcDefeat);
+    writer.PutU64(senderClockMs);
+    writer.PutU8(static_cast<uint8_t>(count));
+    for (size_t index = 0; index < count; ++index)
+    {
+        PutDeadPerson(writer, people[index]);
+        writer.PutU8(people[index].Flag);
+    }
+    return writer.Data();
+}
+
+bool ReadNpcDefeat(const std::vector<uint8_t>& message, uint64_t& senderClockMs, std::vector<DeadPerson>& people)
+{
+    nc::proto::Reader reader(message.data(), message.size());
+    if (reader.ReadHeader() != nc::proto::MsgType::NpcDefeat)
+    {
+        return false;
+    }
+    senderClockMs = reader.GetU64();
+    const uint8_t count = reader.GetU8();
+    if (!reader.Ok() || count > kMostDefeatsAtOnce || reader.Remaining() != count * 45u)
+    {
+        return false;
+    }
+    people.assign(count, {});
+    for (auto& person : people)
+    {
+        if (!GetDeadPerson(reader, person))
+        {
+            return false;
+        }
+        person.Flag = reader.GetU8();
+    }
+    return reader.Ok() && reader.Remaining() == 0;
+}
 }

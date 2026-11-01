@@ -332,6 +332,7 @@ void NpcShare::LetGoOfAll()
     m_player.Reset();
     m_partnerAgents.clear();
     m_diedAtMs.clear();
+    m_deadSeen.clear();
 }
 
 void NpcShare::FillStates(uint64_t nowMs, Source& source, RED4ext::Handle<RED4ext::IScriptable>& npc, const std::vector<Partner>& partners,
@@ -474,6 +475,23 @@ void NpcShare::Scan(uint64_t nowMs, bool shareOwnNpcs, const std::vector<Partner
         RED4ext::Vector4 position {};
         game::CallMethod(entity.instance, m_getWorldPosition, &position, noArgs);
         const float place[3] = {position.X, position.Y, position.Z};
+        if (m_onDeath && (shareOwnNpcs || handedToUs) && !m_deadSeen.count(entityHash))
+        {
+            bool dead = false;
+            game::CallMethod(entity.instance, m_isDead, &dead, noArgs);
+            if (dead)
+            {
+                m_deadSeen.insert(entityHash);
+                net::DeadPerson person;
+                RED4ext::TweakDBID record;
+                game::CallMethod(entity.instance, m_getRecordId, &record, noArgs);
+                person.Entity = entityHash;
+                person.Record = record.value & 0xFFFFFFFFFFULL;
+                npc_states::MatchKeys(entityHash, person.MatchKeyA, person.MatchKeyB);
+                std::copy(place, place + 3, person.Position);
+                m_onDeath(person);
+            }
+        }
         const float distance = NearestPartner(place, partners);
         m_lastScanNearest = std::min(m_lastScanNearest, distance);
         const bool shared = m_sources.count(entityHash) != 0;

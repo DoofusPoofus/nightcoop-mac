@@ -99,6 +99,30 @@ public class NightCoopWorldHandoff extends ScriptableService {
     return this.m_loadState;
   }
 
+  public func SaveBlockReason(folder: String) -> String {
+    let handler = this.m_handler;
+    if !IsDefined(handler) {
+      return "no save handler yet";
+    }
+    let locks: array<gameSaveLock>;
+    if GameInstance.IsSavingLocked(GetGameInstance(), locks) {
+      let reasons = "";
+      for lock in locks {
+        reasons += EnumValueToString("gameSaveLockReason", Cast<Int64>(EnumInt(lock.reason))) + " ";
+      }
+      return "saving is locked: " + reasons;
+    }
+    if !handler.HasFreeSaveSlot(folder) {
+      return "no free save slot for " + folder;
+    }
+    return "";
+  }
+
+  public func TestAutosave() -> Bool {
+    let player = GetPlayer(GetGameInstance());
+    return IsDefined(player) && player.RequestAutoSave(true);
+  }
+
   public func ListedSaves() -> Int32 {
     return this.m_listedSaves;
   }

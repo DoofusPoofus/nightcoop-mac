@@ -50,6 +50,7 @@ add_library(nightcoop_mac_net STATIC
   src/net/PlayerExtrasMessages.cpp
   src/net/DroppedMessages.cpp
   src/net/DeviceMessages.cpp
+  src/net/GrenadeMessages.cpp
   src/net/SavePackage.cpp
   src/net/RelaySession.cpp
 )
@@ -85,6 +86,8 @@ add_library(NightCoopMac SHARED
   src/plugin/NpcCopies.cpp
   src/plugin/NpcCombat.cpp
   src/plugin/NpcHandoffs.cpp
+  src/plugin/NpcDeaths.cpp
+  src/plugin/Grenades.cpp
   src/plugin/NpcShare.cpp
   src/plugin/NpcStates.cpp
   src/plugin/Items.cpp

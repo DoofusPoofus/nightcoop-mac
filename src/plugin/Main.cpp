@@ -44,6 +44,9 @@
 #include "plugin/PlayerSampler.hpp"
 #include "plugin/QuestSync.hpp"
 #include "plugin/PhoneShare.hpp"
+#include "plugin/NpcDeaths.hpp"
+#include "plugin/Grenades.hpp"
+#include "net/NpcMessages.hpp"
 #include "plugin/RemoteBodies.hpp"
 #include "plugin/Rewards.hpp"
 #include "plugin/RttiDump.hpp"
@@ -218,6 +221,7 @@ bool OnRunningEnter(RED4ext::CGameApplication*)
     Npcs = std::make_unique<nightcoop_mac::NpcCopies>(Log);
     OurNpcs = std::make_unique<nightcoop_mac::NpcShare>(Log);
     OurNpcs->SetPuppetCheck([](uint64_t entityHash) { return Npcs && Npcs->IsPuppet(entityHash); });
+    OurNpcs->SetDeathWatch([](const nightcoop_mac::net::DeadPerson& person) { nightcoop_mac::npc_deaths::NoteDeath(person); });
     Mirror = std::make_unique<nightcoop_mac::AnimMirror>(Log);
     Flow = std::make_unique<nightcoop_mac::SessionFlow>(Log);
     Session->Start(config);
@@ -495,7 +499,8 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         }
         else if (nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::WorldWant) ||
                  nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::WorldFile) ||
-                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::WorldStatus))
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::WorldStatus) ||
+                 nightcoop_mac::net::MessageTypeOf(message.Message) == static_cast<uint8_t>(nc::proto::MsgType::WorldReload))
         {
             nightcoop_mac::world_handoff::OnMessage(message.FromPeer, message.Message, *Session, Log);
         }
@@ -512,6 +517,18 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         else if (nightcoop_mac::rewards::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {
             nightcoop_mac::rewards::OnMessage(message.FromPeer, message.Message, nightcoop_mac::world_handoff::InHostWorld() || Plan->RewardsAnyWorld, Log);
+        }
+        else if (nightcoop_mac::grenades::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
+        {
+            nightcoop_mac::grenades::OnMessage(message.FromPeer, message.Message,
+                                               Plan->BlastsAnyWorld || nightcoop_mac::world_handoff::InHostWorld() ||
+                                                   (Session->GetStatus().MyPeerNumber == 0 && nightcoop_mac::partner_roster::PeerInHostWorld(message.FromPeer)),
+                                               Log);
+        }
+        else if (nightcoop_mac::npc_deaths::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
+        {
+            nightcoop_mac::npc_deaths::OnMessage(message.FromPeer, message.Message, Session->GetStatus().MyPeerNumber == 0,
+                                                 nightcoop_mac::world_handoff::InHostWorld() || Plan->DeathsAnyWorld, Log);
         }
         else if (nightcoop_mac::npc_handoffs::Handles(nightcoop_mac::net::MessageTypeOf(message.Message)))
         {
@@ -561,6 +578,19 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         }
         nightcoop_mac::rewards::Tick(nowMs, inSave, Session->GetStatus().MyPeerNumber == 0, partnerInOurWorld,
                                      nightcoop_mac::world_handoff::InHostWorld() || Plan->RewardsAnyWorld, *Session, Log);
+        std::vector<uint32_t> peersInOurWorld;
+        for (const auto& view : RemotePeerViews())
+        {
+            if (Plan->DeathsAnyWorld || nightcoop_mac::partner_roster::PeerInHostWorld(view.PeerNumber))
+            {
+                peersInOurWorld.push_back(view.PeerNumber);
+            }
+        }
+        nightcoop_mac::grenades::Tick(nowMs, inSave,
+                                      Plan->BlastsAnyWorld ? !RemotePeerViews().empty() : !peersInOurWorld.empty() || nightcoop_mac::world_handoff::InHostWorld(),
+                                      *Session, Log);
+        nightcoop_mac::npc_deaths::Tick(nowMs, inSave, Session->GetStatus().MyPeerNumber == 0, peersInOurWorld,
+                                        nightcoop_mac::world_handoff::InHostWorld() || Plan->DeathsAnyWorld, *Session, Log);
         nightcoop_mac::phone_share::Tick(nowMs, inSave, Session->GetStatus().MyPeerNumber == 0,
                                          partnerInOurWorld || (Plan->PhoneAnyWorld && !RemotePeerViews().empty()),
                                          nightcoop_mac::world_handoff::InHostWorld() || Plan->PhoneAnyWorld, *Session, Log);
@@ -593,6 +623,7 @@ bool OnRunningUpdate(RED4ext::CGameApplication*)
         OurNpcs->Tick(nowMs, inSave, weAreHost || Plan->ShareNpcsAlways, npcPartners, *Session);
     }
     nightcoop_mac::world_handoff::AllowRestart(Plan->HandoffRestart);
+    nightcoop_mac::world_handoff::AskForAutosave(Plan->TestAutosave);
     nightcoop_mac::world_handoff::KeepOurCharacter(Plan->HandoffCharacter);
     if (Plan->TestCharacter)
     {

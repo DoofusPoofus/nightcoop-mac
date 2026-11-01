@@ -15,12 +15,15 @@
 #include <algorithm>
 #include <crt_externs.h>
 #include <spawn.h>
+#include <sys/clonefile.h>
 #include <unistd.h>
 #include <chrono>
 #include <ctime>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <map>
+#include <set>
 #include <sstream>
 
 namespace nightcoop_mac::world_handoff
@@ -79,6 +82,7 @@ enum class GuestPhase
     Loading,
     InHostWorld,
     Returning,
+    SavingCharacter,
     Failed,
 };
 
@@ -131,6 +135,18 @@ uint64_t NotInSessionSinceMs = 0;
 HostJob ReturnJob;
 uint64_t ReturnStartedMs = 0;
 uint64_t ReturnNextTryMs = 0;
+bool HostWasInSave = false;
+uint32_t HostWorlds = 0;
+HostJob CharacterJob;
+uint64_t CharacterStartedMs = 0;
+uint64_t CharacterNextTryMs = 0;
+bool CharacterSaveAsked = false;
+bool WeAreInHostWorld = false;
+bool AutosavesChecked = false;
+bool AutosaveTestWanted = false;
+bool AutosaveTestDone = false;
+std::map<std::string, int64_t> AutosaveTimes;
+uint64_t NextAutosaveLookMs = 0;
 
 bool Resolve(const LogFunction& log)
 {
@@ -230,6 +246,11 @@ bool GuardSlotZero(HostJob& job, const LogFunction& log)
     }
     job.SlotZeroSaved = true;
     return true;
+}
+
+uint64_t SteadyNowMs()
+{
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
 }
 
 std::string NextManualSave()
@@ -413,6 +434,131 @@ void ServeJobs(uint64_t nowMs, bool inSave, net::RelaySession& session, const Lo
 }
 
 
+std::map<std::string, int64_t> ReadAutosaveTimes()
+{
+    std::map<std::string, int64_t> times;
+    std::error_code error;
+    for (const auto& entry : fs::directory_iterator(SavesFolder(), error))
+    {
+        const std::string name = entry.path().filename().string();
+        std::error_code timeError;
+        const auto written = fs::last_write_time(entry.path() / "sav.dat", timeError);
+        if (name.rfind("AutoSave-", 0) == 0 && !timeError)
+        {
+            times[name] = static_cast<int64_t>(written.time_since_epoch().count());
+        }
+    }
+    return times;
+}
+
+bool CloneFolder(const fs::path& from, const fs::path& to)
+{
+    if (clonefile(from.c_str(), to.c_str(), 0) == 0)
+    {
+        return true;
+    }
+    std::error_code error;
+    fs::copy(from, to, fs::copy_options::recursive, error);
+    return !error;
+}
+
+void BackUpAutosaves(const LogFunction& log)
+{
+    std::error_code error;
+    const fs::path backup = PluginFolder / "handoff" / "autosaves";
+    if (!fs::exists(backup, error))
+    {
+        fs::create_directories(backup, error);
+        int cloned = 0;
+        for (const auto& [name, written] : ReadAutosaveTimes())
+        {
+            cloned += CloneFolder(SavesFolder() / name, backup / name) ? 1 : 0;
+        }
+        log("handoff: our " + std::to_string(cloned) + " autosaves are kept aside while we play in the hosts world");
+    }
+    AutosaveTimes = ReadAutosaveTimes();
+}
+
+void WatchAutosaves(uint64_t nowMs, const LogFunction& log)
+{
+    if (nowMs < NextAutosaveLookMs)
+    {
+        return;
+    }
+    NextAutosaveLookMs = nowMs + 5000;
+    for (const auto& [name, written] : ReadAutosaveTimes())
+    {
+        const auto known = AutosaveTimes.find(name);
+        if (known != AutosaveTimes.end() && known->second == written)
+        {
+            continue;
+        }
+        AutosaveTimes[name] = written;
+        std::ofstream(PluginFolder / "handoff" / "host-autosaves.txt", std::ios::app) << "autosave " << name << " " << written << "\n";
+        log("handoff: the game autosaved the hosts world into " + name + ", our own goes back there once we are home");
+    }
+}
+
+void RestoreAutosaves(const LogFunction& log)
+{
+    std::error_code error;
+    const fs::path backup = PluginFolder / "handoff" / "autosaves";
+    const fs::path list = PluginFolder / "handoff" / "host-autosaves.txt";
+    if (!fs::exists(backup, error))
+    {
+        return;
+    }
+    std::map<std::string, int64_t> hostAutosaves;
+    {
+        std::ifstream input(list);
+        std::string word;
+        std::string name;
+        int64_t written = 0;
+        while (input >> word >> name >> written)
+        {
+            hostAutosaves[name] = written;
+        }
+    }
+    const auto timesNow = ReadAutosaveTimes();
+    const fs::path aside = PluginFolder / "handoff" / "host-autosaves";
+    fs::create_directories(aside, error);
+    int restored = 0;
+    int leftAlone = 0;
+    for (const auto& [name, written] : hostAutosaves)
+    {
+        const auto now = timesNow.find(name);
+        if (now == timesNow.end() || now->second != written)
+        {
+            ++leftAlone;
+            continue;
+        }
+        std::error_code moveError;
+        fs::remove_all(aside / name, moveError);
+        fs::rename(SavesFolder() / name, aside / name, moveError);
+        if (moveError)
+        {
+            ++leftAlone;
+            continue;
+        }
+        if (fs::exists(backup / name, moveError))
+        {
+            fs::rename(backup / name, SavesFolder() / name, moveError);
+            if (moveError)
+            {
+                CloneFolder(backup / name, SavesFolder() / name);
+            }
+        }
+        ++restored;
+    }
+    fs::remove_all(backup, error);
+    fs::remove(list, error);
+    if (!hostAutosaves.empty())
+    {
+        log("handoff: " + std::to_string(restored) + " autosaves the game wrote in the hosts world went to handoff/host-autosaves and ours are back (" +
+            std::to_string(leftAlone) + " changed since and stay)");
+    }
+}
+
 fs::path OwnCharacterFolder()
 {
     std::error_code error;
@@ -420,6 +566,8 @@ fs::path OwnCharacterFolder()
     {
         std::ifstream list(PluginFolder / "handoff" / "mod-saves.txt");
         listed.assign((std::istreambuf_iterator<char>(list)), std::istreambuf_iterator<char>());
+        std::ifstream hostAutosaves(PluginFolder / "handoff" / "host-autosaves.txt");
+        listed.append((std::istreambuf_iterator<char>(hostAutosaves)), std::istreambuf_iterator<char>());
     }
     fs::path newest;
     fs::file_time_type newestTime {};
@@ -440,6 +588,22 @@ fs::path OwnCharacterFolder()
         }
     }
     return newest;
+}
+
+std::string SaveBlockReason(const std::string& folder)
+{
+    static auto* blockReason = game::FindFunction("NightCoopWorldHandoff", "SaveBlockReason");
+    auto service = game::ScriptService("NightCoopWorldHandoff");
+    if (!blockReason || !service)
+    {
+        return "the handoff script is not there";
+    }
+    RED4ext::CString result;
+    RED4ext::CString name(folder.c_str());
+    RED4ext::StackArgs_t args;
+    args.emplace_back(nullptr, &name);
+    game::CallMethod(service.instance, blockReason, &result, args);
+    return result.c_str();
 }
 
 std::string CallCharacter(const char* functionName, const std::string& text)
@@ -612,7 +776,16 @@ std::vector<uint8_t> WithOurCharacter(const std::vector<uint8_t>& hostSave, cons
         log("handoff: no save of our own found, we play the hosts V");
         return hostSave;
     }
-    std::ofstream(PluginFolder / "handoff" / "state.txt") << "campaign " << ownFolder.filename().string() << "\n";
+    std::error_code stateError;
+    if (!fs::exists(PluginFolder / "handoff" / "state.txt", stateError))
+    {
+        std::ofstream(PluginFolder / "handoff" / "state.txt") << "campaign " << ownFolder.filename().string() << "\n";
+    }
+    if (!CharacterJob.Folder.empty())
+    {
+        std::ofstream(PluginFolder / "handoff" / "mod-saves.txt", std::ios::app) << "reload " << CharacterJob.Folder << " 0 from us\n";
+        CharacterJob = HostJob {};
+    }
     save_package::SaveFile host;
     save_package::SaveFile guest;
     std::string error;
@@ -681,6 +854,8 @@ bool WriteHostWorld(const LogFunction& log)
     return true;
 }
 
+void FinishArrival(net::RelaySession& session, const LogFunction& log);
+
 void TakeChunk(const net::WorldFile& chunk, net::RelaySession& session, const LogFunction& log)
 {
     if (chunk.TransferId != Arriving.TransferId)
@@ -697,6 +872,18 @@ void TakeChunk(const net::WorldFile& chunk, net::RelaySession& session, const Lo
     std::copy(chunk.Bytes.begin(), chunk.Bytes.end(), file.begin() + chunk.Offset);
     Arriving.Received[chunk.Kind] += chunk.Bytes.size();
     Arriving.Hashes[chunk.Kind] = chunk.Hash;
+    const bool metadataDone = Arriving.Received[net::kWorldFileMetadata] >= Arriving.Files[net::kWorldFileMetadata].size() &&
+                              !Arriving.Files[net::kWorldFileMetadata].empty();
+    const bool saveDone = Arriving.Received[net::kWorldFileSave] >= Arriving.Files[net::kWorldFileSave].size() && !Arriving.Files[net::kWorldFileSave].empty();
+    if (!metadataDone || !saveDone)
+    {
+        return;
+    }
+    FinishArrival(session, log);
+}
+
+void FinishArrival(net::RelaySession& session, const LogFunction& log)
+{
     const bool metadataDone = Arriving.Received[net::kWorldFileMetadata] >= Arriving.Files[net::kWorldFileMetadata].size() &&
                               !Arriving.Files[net::kWorldFileMetadata].empty();
     const bool saveDone = Arriving.Received[net::kWorldFileSave] >= Arriving.Files[net::kWorldFileSave].size() && !Arriving.Files[net::kWorldFileSave].empty();
@@ -810,10 +997,19 @@ void CheckArrival(bool inSave, net::RelaySession& session, const LogFunction& lo
     }
     WrittenFolder = folder;
     Phase = GuestPhase::InHostWorld;
+    WeAreInHostWorld = true;
+    BackUpAutosaves(log);
     ApplyCharacterAtMs = ArrivalNowMs + ApplyCharacterAfterMs;
     SendStatus(session, 7, transferId, "", 0);
     log("handoff: we are in the hosts world now (" + folder + ", after a restart)");
     hud::Show("You are in the host's world", 5.0f);
+}
+
+fs::path CampaignPath(const std::string& campaign)
+{
+    std::error_code error;
+    const fs::path kept = PluginFolder / "handoff" / "autosaves" / campaign;
+    return fs::exists(kept / "sav.dat", error) ? kept : SavesFolder() / campaign;
 }
 
 std::string CampaignFolder()
@@ -836,7 +1032,7 @@ void StartReturn(uint64_t nowMs, const LogFunction& log)
     HostJob guard;
     if (!CallBool(Game.HasHandler) || !GuardSlotZero(guard, log) || !MakeSaveIn(sessionFolder))
     {
-        log("handoff: the session is gone, cant save here yet, trying again");
+        log("handoff: the session is gone, cant save here yet (" + SaveBlockReason(sessionFolder) + "), trying again");
         NotInSessionSinceMs = nowMs - ReturnAfterMs + 5000;
         return;
     }
@@ -867,7 +1063,7 @@ void TickReturn(uint64_t nowMs, const LogFunction& log)
         save_package::SaveFile home;
         save_package::SaveFile session;
         std::string readError;
-        if (save_package::Read(ReadFile(SavesFolder() / campaign / "sav.dat"), home, readError) && save_package::Read(ReturnJob.Save, session, readError))
+        if (save_package::Read(ReadFile(CampaignPath(campaign) / "sav.dat"), home, readError) && save_package::Read(ReturnJob.Save, session, readError))
         {
             std::vector<std::string> problems;
             const int swapped = save_package::SpliceCharacter(home, session, problems);
@@ -894,7 +1090,7 @@ void TickReturn(uint64_t nowMs, const LogFunction& log)
         target = NextManualSave();
         const fs::path folder = SavesFolder() / target;
         fs::create_directory(folder, error);
-        for (const auto& file : fs::directory_iterator(SavesFolder() / campaign, error))
+        for (const auto& file : fs::directory_iterator(CampaignPath(campaign), error))
         {
             const std::string name = file.path().filename().string();
             if (name != "sav.dat")
@@ -948,6 +1144,32 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
 {
     PluginFolder = pluginFolder;
     const auto status = session.GetStatus();
+    if (inSave && WeAreInHostWorld)
+    {
+        WatchAutosaves(nowMs, log);
+        if (AutosaveTestWanted && !AutosaveTestDone && ArrivalNowMs && nowMs >= ArrivalNowMs + 40000)
+        {
+            AutosaveTestDone = true;
+            static auto* testAutosave = game::FindFunction("NightCoopWorldHandoff", "TestAutosave");
+            auto service = game::ScriptService("NightCoopWorldHandoff");
+            bool asked = false;
+            RED4ext::StackArgs_t noArgs;
+            if (testAutosave && service)
+            {
+                game::CallMethod(service.instance, testAutosave, &asked, noArgs);
+            }
+            log(std::string("handoff: test_autosave asked the game for an autosave in the hosts world (") + (asked ? "it said yes" : "it said no") + ")");
+        }
+    }
+    else if (inSave && !AutosavesChecked)
+    {
+        std::error_code error;
+        if (!fs::exists(PluginFolder / "handoff" / "arriving.txt", error))
+        {
+            AutosavesChecked = true;
+            RestoreAutosaves(log);
+        }
+    }
     if (!Resolve(log))
     {
         return;
@@ -976,6 +1198,67 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
     {
         TickReturn(nowMs, log);
         return;
+    }
+    if (Phase == GuestPhase::SavingCharacter && nowMs >= CharacterNextTryMs)
+    {
+        CharacterNextTryMs = nowMs + SaveRetryMs;
+        if (!CharacterSaveAsked)
+        {
+            CharacterJob.Expected = NextManualSave();
+            CharacterJob.AskedAt = fs::file_time_type::clock::now();
+            CharacterSaveAsked = inSave && CallBool(Game.HasHandler) && GuardSlotZero(CharacterJob, log) && MakeSaveIn(CharacterJob.Expected);
+            if (CharacterSaveAsked)
+            {
+                log("handoff: saving our V in " + CharacterJob.Expected + " before the hosts new world comes");
+            }
+            else if (nowMs - CharacterStartedMs > ReturnSaveWaitMs)
+            {
+                log("handoff: the game would not save our V here (" + SaveBlockReason(CharacterJob.Expected) + "), our last V goes into the hosts new world");
+                Phase = GuestPhase::Waiting;
+                FinishArrival(session, log);
+            }
+            return;
+        }
+        std::error_code error;
+        const bool saved = FindNewSave(CharacterJob, error);
+        if (saved || nowMs - CharacterStartedMs > ReturnSaveWaitMs)
+        {
+            log(saved ? "handoff: our V is saved in " + CharacterJob.Folder + ", waiting for the hosts new world"
+                      : "handoff: our save for the hosts new world never showed up, our last V goes in");
+            Phase = GuestPhase::Waiting;
+            FinishArrival(session, log);
+        }
+        return;
+    }
+    if (status.InSession && status.MyPeerNumber == 0)
+    {
+        if (inSave && !HostWasInSave)
+        {
+            ++HostWorlds;
+            if (HostWorlds >= 2)
+            {
+                for (const auto& [peer, nickname] : session.PeerNicknames())
+                {
+                    if (peer == 0 || !partner_roster::PeerInHostWorld(peer))
+                    {
+                        continue;
+                    }
+                    session.SendGameMessage(net::WriteWorldReload({1, 0, "world " + std::to_string(HostWorlds)}), static_cast<int32_t>(peer));
+                    Jobs.erase(std::remove_if(Jobs.begin(), Jobs.end(), [peer](const HostJob& job) { return job.Peer == peer; }), Jobs.end());
+                    HostJob job;
+                    job.Peer = peer;
+                    job.Purpose = 4;
+                    if (++TransferCounter == 0)
+                    {
+                        ++TransferCounter;
+                    }
+                    job.TransferId = TransferCounter;
+                    Jobs.push_back(job);
+                    log("handoff: we loaded another save, peer " + std::to_string(peer) + " in our old world gets the new one");
+                }
+            }
+        }
+        HostWasInSave = inSave;
     }
     if (joinHostWorld && !(status.InSession && status.MyPeerNumber == 0))
     {
@@ -1179,6 +1462,20 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::Rela
         }
         log("handoff: peer " + std::to_string(fromPeer) + " says " + std::to_string(worldStatus.Code) + (worldStatus.Text.empty() ? "" : " (" + worldStatus.Text + ")"));
     }
+    else if (!weAreHost && fromPeer == 0 && type == static_cast<uint8_t>(nc::proto::MsgType::WorldReload) && net::ReadWorldReload(message, worldStatus))
+    {
+        log("handoff: the host says its world reloads (kind " + std::to_string(worldStatus.Code) + ")");
+        if (worldStatus.Code == 1 && Phase == GuestPhase::InHostWorld)
+        {
+            Arriving = Incoming {};
+            CharacterJob = HostJob {};
+            CharacterSaveAsked = false;
+            Phase = GuestPhase::SavingCharacter;
+            CharacterStartedMs = SteadyNowMs();
+            CharacterNextTryMs = CharacterStartedMs;
+            hud::Show("The host loaded another save, you follow", 4.0f);
+        }
+    }
     else if (!weAreHost && fromPeer == 0 && type == static_cast<uint8_t>(nc::proto::MsgType::WorldFile) && net::ReadWorldFile(message, chunk))
     {
         TakeChunk(chunk, session, log);
@@ -1210,6 +1507,11 @@ void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::Rela
 void AllowRestart(bool allowed)
 {
     RestartAllowed = allowed;
+}
+
+void AskForAutosave(bool wanted)
+{
+    AutosaveTestWanted = wanted;
 }
 
 void KeepOurCharacter(bool keep)

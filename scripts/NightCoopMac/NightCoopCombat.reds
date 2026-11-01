@@ -177,6 +177,22 @@ public class NightCoopCombat extends ScriptableService {
     return after;
   }
 
+  public func KillForDeathTable(npc: ref<NPCPuppet>) -> String {
+    if !IsDefined(npc) {
+      return "no npc";
+    }
+    if npc.IsDead() {
+      return "already dead";
+    }
+    let pools = GameInstance.GetStatPoolsSystem(npc.GetGame());
+    let id = Cast<StatsObjectID>(npc.GetEntityID());
+    let before = pools.GetStatPoolValue(id, gamedataStatPoolType.Health, true);
+    pools.RequestSettingStatPoolMinValue(id, gamedataStatPoolType.Health, null);
+    npc.Kill(null, false, false);
+    return "health " + FloatToString(before) + " -> " + FloatToString(pools.GetStatPoolValue(id, gamedataStatPoolType.Health, true)) + (npc.IsDead() ? " dead" : " alive") +
+      (StatusEffectSystem.ObjectHasStatusEffectWithTag(npc, n"Invulnerable") ? " invulnerable" : "");
+  }
+
   public func MarkBody(body: ref<GameObject>, peer: Int32) {
     if !IsDefined(body) {
       return;

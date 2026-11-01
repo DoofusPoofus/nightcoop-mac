@@ -26,7 +26,10 @@
    test_downed           in a save our health drops to 1 % once a partner is there so the fall and a revive can be checked (testing only)
    phone any_world       take the hosts calls (guest) or send ours (host) in any world not only the hosts (testing only)
    rewards any_world     take the hosts quest rewards (guest) or send ours (host) in any world not only the hosts (testing only)
+   deaths any_world      take the hosts npc deaths (guest) or send ours (host) in any world not only the hosts (testing only)
+   blasts any_world      send our grenade blasts and take the partners in any world not only the same one (testing only)
    test_character        in a save our level attributes and perks get captured and applied back after 30 s (testing only)
+   test_autosave         40 s after a guest arrived in the hosts world the game gets asked for an autosave (testing only)
    test_devices          in a save the next device within 50 m gets a ToggleON from our player evry 15 s (testing only)
    test_doors            in a save the nearest door gets opened and closed evry 12 s from script (testing only)
    test_claim            in a save our script claims 40 % of the first partner npc copy evry 5 s as if our player hit it (testing only)
@@ -69,8 +72,11 @@ struct SessionPlan
     bool TestDoors = false;
     bool TestDevices = false;
     bool TestCharacter = false;
+    bool TestAutosave = false;
     bool RewardsAnyWorld = false;
     bool PhoneAnyWorld = false;
+    bool DeathsAnyWorld = false;
+    bool BlastsAnyWorld = false;
     bool TestHelp = false;
     bool WorldHandoff = false;
     bool HandoffRestart = true;

@@ -24,8 +24,14 @@
  the games ManualSave call ignores the folder name and writes into ManualSave-0 when nobody asked for the save list first (the
  list callback never comes on mac) so before evry save ManualSave-0 is copied aside and when the game wrote into it the new
  save is moved to the folder we wanted and the copy goes back
- not done yet: item stats and the rest of the player systems in the scriptable systems blob (crafting recipes and co) saving locks reloads of the host
- (WorldReload 95) sync saves and the return to our own world
+ host reloads: when the hosts world comes up again in a session (another save got loaded) evry partner that was in its old world gets
+ WorldReload 1 and a new save job. the guest saves its V there first (that save is the character source) then takes the new
+ world like a join
+ autosaves: the game keeps autosaving while a guest plays in the hosts world. on arrival our AutoSave folders get cloned into
+ handoff/autosaves. evry autosave the game writes there is listed in handoff/host-autosaves.txt and the first start in our own
+ world moves those into handoff/host-autosaves and puts our own back (only when nothing touched them since)
+ not done yet: item stats and the rest of the player systems in the scriptable systems blob (crafting recipes and co) saving locks
+ and sync saves
 */
 #pragma once
 
@@ -48,6 +54,7 @@ void Tick(uint64_t nowMs, bool inSave, bool joinHostWorld, net::RelaySession& se
           const LogFunction& log);
 void OnMessage(uint32_t fromPeer, const std::vector<uint8_t>& message, net::RelaySession& session, const LogFunction& log);
 void AllowRestart(bool allowed);
+void AskForAutosave(bool wanted);
 void KeepOurCharacter(bool keep);
 void TestCharacter(uint64_t nowMs, bool inSave, const LogFunction& log);
 bool InHostWorld();
